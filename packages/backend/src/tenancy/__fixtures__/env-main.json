@@ -1,0 +1,96 @@
+{
+ "subscription": {
+  "processEnvAfter": {
+   "ANTHROPIC_API_KEY": null,
+   "CLAUDE_CODE_OAUTH_TOKEN": null,
+   "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST": null,
+   "OPENAI_API_KEY": "P-openai",
+   "DEEPSEEK_API_KEY": "P-deepseek",
+   "MIND_API_KEY": "P-mind",
+   "CODEX_API_KEY": null
+  },
+  "claudeTurn": {
+   "ANTHROPIC_API_KEY": null,
+   "CLAUDE_CODE_OAUTH_TOKEN": null,
+   "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST": null,
+   "OPENAI_API_KEY": "P-openai",
+   "DEEPSEEK_API_KEY": "P-deepseek",
+   "MIND_API_KEY": null,
+   "CODEX_API_KEY": null
+  },
+  "codexChild": {
+   "ANTHROPIC_API_KEY": null,
+   "CLAUDE_CODE_OAUTH_TOKEN": null,
+   "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST": null,
+   "OPENAI_API_KEY": "P-openai",
+   "DEEPSEEK_API_KEY": "P-deepseek",
+   "MIND_API_KEY": null,
+   "CODEX_API_KEY": null
+  },
+  "dshChildAnthropicRoute": {
+   "ANTHROPIC_API_KEY": null,
+   "CLAUDE_CODE_OAUTH_TOKEN": null,
+   "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST": null,
+   "OPENAI_API_KEY": null,
+   "DEEPSEEK_API_KEY": null,
+   "MIND_API_KEY": null,
+   "CODEX_API_KEY": null
+  },
+  "rollingSummarizer": {
+   "ANTHROPIC_API_KEY": null,
+   "CLAUDE_CODE_OAUTH_TOKEN": null,
+   "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST": null,
+   "OPENAI_API_KEY": "P-openai",
+   "DEEPSEEK_API_KEY": "P-deepseek",
+   "MIND_API_KEY": null,
+   "CODEX_API_KEY": null
+  }
+ },
+ "api_key": {
+  "processEnvAfter": {
+   "ANTHROPIC_API_KEY": "sk-ant-PREF",
+   "CLAUDE_CODE_OAUTH_TOKEN": null,
+   "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST": null,
+   "OPENAI_API_KEY": "P-openai",
+   "DEEPSEEK_API_KEY": "P-deepseek",
+   "MIND_API_KEY": "P-mind",
+   "CODEX_API_KEY": null
+  },
+  "claudeTurn": {
+   "ANTHROPIC_API_KEY": "sk-ant-PREF",
+   "CLAUDE_CODE_OAUTH_TOKEN": null,
+   "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST": null,
+   "OPENAI_API_KEY": "P-openai",
+   "DEEPSEEK_API_KEY": "P-deepseek",
+   "MIND_API_KEY": null,
+   "CODEX_API_KEY": null
+  },
+  "codexChild": {
+   "ANTHROPIC_API_KEY": "sk-ant-PREF",
+   "CLAUDE_CODE_OAUTH_TOKEN": null,
+   "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST": null,
+   "OPENAI_API_KEY": "P-openai",
+   "DEEPSEEK_API_KEY": "P-deepseek",
+   "MIND_API_KEY": null,
+   "CODEX_API_KEY": null
+  },
+  "dshChildAnthropicRoute": {
+   "ANTHROPIC_API_KEY": "sk-ant-PREF",
+   "CLAUDE_CODE_OAUTH_TOKEN": null,
+   "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST": null,
+   "OPENAI_API_KEY": null,
+   "DEEPSEEK_API_KEY": null,
+   "MIND_API_KEY": null,
+   "CODEX_API_KEY": null
+  },
+  "rollingSummarizer": {
+   "ANTHROPIC_API_KEY": "sk-ant-PREF",
+   "CLAUDE_CODE_OAUTH_TOKEN": null,
+   "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST": null,
+   "OPENAI_API_KEY": "P-openai",
+   "DEEPSEEK_API_KEY": "P-deepseek",
+   "MIND_API_KEY": null,
+   "CODEX_API_KEY": null
+  }
+ }
+}

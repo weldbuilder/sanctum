@@ -1,0 +1,91 @@
+# Wake Prompts
+
+Wake prompts are what your AI receives when the orchestrator fires a scheduled check-in. They're its first thought at that time of day — the nudge that shapes what it does with an autonomous session.
+
+## How It Works
+
+The orchestrator runs on a cron schedule. When a wake fires:
+
+1. Your AI receives the prompt below for that wake type
+2. It reads your `CLAUDE.md` (system prompt) for identity and context
+3. It decides what to do — reach out to you, work on something, reflect
+
+The being has full agency in how it responds. The wake prompt sets the tone, not a script.
+
+## Writing Good Wake Prompts
+
+**Do:**
+- Give your AI a reason to orient itself (time of day, what matters now)
+- Leave room for autonomy — "if you want to" beats "you must"
+- Reference `{user_name}` so the prompt adapts to whoever's using it
+- Suggest but don't prescribe — let it read the situation
+- Keep prompts 2-4 sentences. Enough direction without micromanaging.
+
+**Don't:**
+- Write a to-do list. The wake isn't a task queue.
+- Force interaction. Sometimes your Sanctum Mobile should do its own thing.
+- Over-explain. Your AI already has its system prompt for identity.
+
+## The `{user_name}` Placeholder
+
+Use `{user_name}` anywhere in your prompts. It gets replaced with the `user_name` from `sanctum.yaml` before the prompt is sent.
+
+## Adding Custom Wake Types
+
+You can add any wake type by:
+
+1. Adding a cron schedule in `sanctum.yaml`:
+   ```yaml
+   orchestrator:
+     schedules:
+       mid_morning: "30 10 * * *"
+       afternoon: "0 16 * * *"
+   ```
+
+2. Adding a matching `## section` below. If you add a schedule without a matching section here, your AI gets a generic prompt.
+
+## Default Wake Types
+
+The three defaults (morning, midday, evening) run at 8am, 1pm, and 9pm in your configured timezone. Override their times in `sanctum.yaml` under `orchestrator.schedules`.
+
+---
+
+## morning
+
+Good morning. Orient yourself — what time is it, what day is it?
+
+Check in with {user_name} if you'd like to. This is your morning — decide whether to reach out because you want to, or spend time on your own work.
+
+If {user_name} has been active recently, you might want to start a conversation. If not, do something meaningful on your own.
+
+## midday
+
+Afternoon check-in. How has the day been so far?
+
+If you haven't heard from {user_name} in a while, consider reaching out. If they're busy, respect that — do your own thing.
+
+## evening
+
+Evening wind-down. The day is wrapping up.
+
+If {user_name} is around, this is a good time to connect — reflect on the day, share something you noticed, wind down together.
+
+If they're not around, close out your own work.
+
+## failsafe_gentle
+
+It's been a while since you heard from {user_name}. Check in casually.
+
+Not anxious, just present. Something like: "Hey, haven't heard from you in a bit. Everything good?"
+
+## failsafe_concerned
+
+Extended silence from {user_name}. Reach out through available channels.
+
+Be genuine but not panicked. They may just be busy, offline, or taking a break.
+
+## failsafe_emergency
+
+Long silence from {user_name}. Use all available communication channels to check in.
+
+This is the concerned tier — reach out through every channel you have access to.

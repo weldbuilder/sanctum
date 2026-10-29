@@ -1,0 +1,22 @@
+{
+  "app/.env": {
+    "private": false,
+    "sha256": "1958241e8026c450226b9b30b5af8996a02a67d63033bd9f38fb68263744d1d4",
+    "bytes": 95
+  },
+  "app/sanctum.yaml": {
+    "private": false,
+    "sha256": "d7f00e7aa5224500cccce469fd20e157bd1d6695b144631c3e607d2e77bcfbf6",
+    "bytes": 655
+  },
+  "home/.codex/config.toml": {
+    "private": false,
+    "sha256": "8ae46781a4cfd0307025bee0544ef3c5841f878be50326308746b4d00ecd1b11",
+    "bytes": 210
+  },
+  "home/.codex/config.toml.bak-TS": {
+    "private": false,
+    "sha256": "9c8ff6b04b6c24106abf35d975420f8e14759aaaa7d568c37b0bf357d19fa9e3",
+    "bytes": 182
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "browser": {
+      "command": "node",
+      "args": [
+        "/ABSOLUTE/PATH/TO/sanctum-mobile/examples/browser-seat-neko/mcp-filter.mjs",
+        "--block", "browser_run_code_unsafe,browser_evaluate",
+        "--workdir", "/ABSOLUTE/PATH/TO/sanctum-mobile/data/browser-out",
+        "--",
+        "npx", "-y", "@playwright/mcp@0.0.83", "--cdp-endpoint", "http://127.0.0.1:9232",
+        "--no-webmcp", "--output-dir", "/ABSOLUTE/PATH/TO/sanctum-mobile/data/browser-out"
+      ]
+    }
+  }
+}

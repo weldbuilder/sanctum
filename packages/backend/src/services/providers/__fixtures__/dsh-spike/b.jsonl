@@ -1,0 +1,13 @@
+{"_t":1603,"type":"session","sessionId":"session-c618bcc3-bc9a-40b5-8c63-da6cc2b57535","cwd":"/tmp/dsh-spike/work"}
+{"_t":1609,"type":"status","phase":"turn_start","turn":1}
+{"_t":1678,"type":"status","phase":"step_start","turn":1,"step":1}
+{"_t":3130,"type":"text","text":"\n\n"}
+{"_t":3136,"type":"tool_call","callId":"call_1b76fceb63ef47ce87ee5cae","tool":"read","input":{"file_path":"note.txt"}}
+{"_t":3174,"type":"tool_result","callId":"call_1b76fceb63ef47ce87ee5cae","status":"completed","result":"<path>/tmp/dsh-spike/work/note.txt</path>\n<type>file</type>\n<content>\n1: the secret word in this file is PERIWINKLE-42\n\n(End of file - total 1 lines)\n</content>"}
+{"_t":3180,"type":"status","phase":"step_end","turn":1,"step":1,"usage":{"inputTokens":5807,"outputTokens":45,"totalTokens":5852}}
+{"_t":3244,"type":"status","phase":"step_start","turn":1,"step":2}
+{"_t":3795,"type":"text","text":"The secret word is **PERIWINKLE-42**."}
+{"_t":3796,"type":"status","phase":"step_end","turn":1,"step":2,"usage":{"inputTokens":283,"outputTokens":13,"totalTokens":5928,"cacheReadTokens":5632}}
+{"_t":3801,"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"completed"}}
+{"_t":3815,"type":"final","text":"The secret word is **PERIWINKLE-42**."}
+{"_spike":"generator-ended","t":4025}

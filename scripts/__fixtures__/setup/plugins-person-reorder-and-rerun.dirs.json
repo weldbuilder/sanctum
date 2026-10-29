@@ -1,0 +1,29 @@
+{
+  "app/data": {
+    "private": true
+  },
+  "app/data/plugins": {
+    "private": true
+  },
+  "app/data/plugins/snapshots": {
+    "private": true
+  },
+  "app/data/plugins/snapshots/hello": {
+    "private": true
+  },
+  "app/data/plugins/snapshots/hello/af8219c1c75b6acd1e1dbb01ca29d0ff5a17978c147f3c937ba668737a5a1d1d": {
+    "private": true
+  },
+  "app/data/plugins/snapshots/hello/af8219c1c75b6acd1e1dbb01ca29d0ff5a17978c147f3c937ba668737a5a1d1d/dsh": {
+    "private": true
+  },
+  "app/data/plugins/snapshots/other": {
+    "private": true
+  },
+  "app/data/plugins/snapshots/other/de428dc61199d9871dd366e1e205d4dee7928e4b1d543c0df1abad80b4dee00b": {
+    "private": true
+  },
+  "app/data/plugins/snapshots/other/de428dc61199d9871dd366e1e205d4dee7928e4b1d543c0df1abad80b4dee00b/dsh": {
+    "private": true
+  }
+}

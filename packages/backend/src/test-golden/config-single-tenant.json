@@ -1,0 +1,381 @@
+{
+  "empty": {
+    "plugins": {
+      "trust": "companion",
+      "dir": "",
+      "ledger_dir": "<ROOT>/data/plugins",
+      "enabled": []
+    },
+    "identity": {
+      "companion_name": "Echo",
+      "user_name": "User",
+      "timezone": "UTC",
+      "profile_path": "",
+      "companion_md_path": "",
+      "ledger_dir": "<ROOT>/data/identity"
+    },
+    "server": {
+      "port": 3099,
+      "host": "127.0.0.1",
+      "db_path": "<ROOT>/data/sanctum.db"
+    },
+    "auth": {
+      "password": ""
+    },
+    "agent": {
+      "cwd": "<ROOT>",
+      "claude_md_path": "<ROOT>/CLAUDE.md",
+      "system_prompt_file": "",
+      "mcp_json_path": "<ROOT>/.mcp.json",
+      "model": "claude-sonnet-5-5",
+      "model_autonomous": "claude-sonnet-5-5",
+      "auto_compact": false,
+      "harness_memory": false,
+      "app_write": true,
+      "provider": "claude",
+      "dsh": {
+        "command": "dsh",
+        "model": "",
+        "model_autonomous": "",
+        "model_provider": "",
+        "api_key_env": "",
+        "base_url": "",
+        "home": "",
+        "sandbox_mode": "workspace-write",
+        "base_instructions_file": "<ROOT>/prompts/dsh-base-prompt.md",
+        "identity_every_turn": true
+      },
+      "codex": {
+        "model": "",
+        "model_provider": "",
+        "model_autonomous": "",
+        "sandbox_mode": "workspace-write",
+        "network_access": true,
+        "additional_directories": [],
+        "base_instructions_file": "<ROOT>/prompts/codex-base-prompt.md",
+        "identity_every_turn": true
+      },
+      "rolling": {
+        "claude": true,
+        "codex": true,
+        "dsh": true,
+        "model": "",
+        "model_provider": "",
+        "tail_chars": 14000,
+        "fold_chars": 6000,
+        "keep_chars": 6000,
+        "tail_turns": 24,
+        "max_segments": 5,
+        "segment_cap": 2000,
+        "history_max_chars": 24000,
+        "history_max_turns": 30,
+        "summarizer_instructions_file": "<ROOT>/prompts/codex-summarizer-prompt.md"
+      }
+    },
+    "orchestrator": {
+      "enabled": true,
+      "wake_prompts_path": "<ROOT>/prompts/wake.md",
+      "wake_prompts_dir": "<ROOT>/prompts/wakes",
+      "schedules": {},
+      "failsafe": {
+        "enabled": false,
+        "gentle_minutes": 120,
+        "concerned_minutes": 720,
+        "emergency_minutes": 1440
+      }
+    },
+    "handoff": {
+      "enabled": false
+    },
+    "hooks": {
+      "context_injection": true,
+      "safe_write_prefixes": [],
+      "workspace_root": "",
+      "vault_path": "",
+      "extra_write_paths": []
+    },
+    "voice": {
+      "enabled": false,
+      "elevenlabs_voice_id": ""
+    },
+    "discord": {
+      "enabled": false,
+      "owner_user_id": "",
+      "owner": {
+        "user_id": "",
+        "channel_id": ""
+      },
+      "public": {
+        "enabled": false,
+        "guild_ids": [],
+        "role_ids": [],
+        "bots": "never",
+        "bot_exchange_limit": 4,
+        "bot_hourly_limit": 20,
+        "history_lines": 12,
+        "exclusions_file": "<ROOT>/../sanctum-private/exclusions.txt"
+      },
+      "gate": {
+        "words_file": "<ROOT>/../sanctum-private/words.txt",
+        "names_file": "<ROOT>/../sanctum-private/names.txt"
+      },
+      "attachments": {
+        "max_mb": 8
+      },
+      "paused": false,
+      "deferral_hours": 24,
+      "private_dir": "<ROOT>/../sanctum-private"
+    },
+    "telegram": {
+      "enabled": false,
+      "owner_chat_id": ""
+    },
+    "integrations": {
+      "life_api_url": "",
+      "browser_url": "",
+      "mind_cloud": {
+        "enabled": false,
+        "mcp_url": "",
+        "mind_id": ""
+      }
+    },
+    "google": {
+      "enabled": false,
+      "client_id": "",
+      "client_secret": ""
+    },
+    "command_center": {
+      "enabled": false,
+      "default_person": "user",
+      "currency_symbol": "$",
+      "care_categories": {
+        "toggles": [
+          "breakfast",
+          "lunch",
+          "dinner",
+          "snacks",
+          "medication",
+          "movement",
+          "shower"
+        ],
+        "ratings": [
+          "sleep",
+          "energy",
+          "wellbeing",
+          "mood"
+        ],
+        "counters": [
+          {
+            "name": "water",
+            "max": 10
+          }
+        ]
+      }
+    },
+    "cors": {
+      "origins": []
+    },
+    "revien": {
+      "enabled": true,
+      "url": "http://127.0.0.1:7437",
+      "recall_limit": 6,
+      "timeout_ms": 2500
+    },
+    "updates": {
+      "check": true,
+      "repo": "weldbuilder/sanctum",
+      "branch": "main"
+    }
+  },
+  "fixture": {
+    "plugins": {
+      "trust": "companion",
+      "dir": "<ROOT>/golden-plugins",
+      "ledger_dir": "<ROOT>/data/plugins",
+      "enabled": [
+        "alpha",
+        "beta"
+      ]
+    },
+    "identity": {
+      "companion_name": "Golden",
+      "user_name": "User",
+      "timezone": "Europe/Paris",
+      "profile_path": "<ROOT>/golden-home/me.md",
+      "companion_md_path": "",
+      "ledger_dir": "<ROOT>/data/identity"
+    },
+    "server": {
+      "port": 3555,
+      "host": "127.0.0.1",
+      "db_path": "<ROOT>/data/golden.db"
+    },
+    "auth": {
+      "password": ""
+    },
+    "agent": {
+      "cwd": "<ROOT>/golden-home",
+      "claude_md_path": "<ROOT>/CLAUDE.md",
+      "system_prompt_file": "",
+      "mcp_json_path": "<ROOT>/.mcp.json",
+      "model": "golden-model",
+      "model_autonomous": "golden-model",
+      "auto_compact": false,
+      "harness_memory": false,
+      "app_write": true,
+      "provider": "claude",
+      "dsh": {
+        "command": "dsh",
+        "model": "",
+        "model_autonomous": "",
+        "model_provider": "",
+        "api_key_env": "",
+        "base_url": "",
+        "home": "",
+        "sandbox_mode": "workspace-write",
+        "base_instructions_file": "<ROOT>/prompts/dsh-base-prompt.md",
+        "identity_every_turn": true
+      },
+      "codex": {
+        "model": "",
+        "model_provider": "",
+        "model_autonomous": "",
+        "sandbox_mode": "workspace-write",
+        "network_access": true,
+        "additional_directories": [],
+        "base_instructions_file": "<ROOT>/prompts/codex-base-prompt.md",
+        "identity_every_turn": true
+      },
+      "rolling": {
+        "claude": true,
+        "codex": true,
+        "dsh": true,
+        "model": "",
+        "model_provider": "",
+        "tail_chars": 14000,
+        "fold_chars": 6000,
+        "keep_chars": 6000,
+        "tail_turns": 24,
+        "max_segments": 5,
+        "segment_cap": 2000,
+        "history_max_chars": 24000,
+        "history_max_turns": 30,
+        "summarizer_instructions_file": "<ROOT>/prompts/codex-summarizer-prompt.md"
+      }
+    },
+    "orchestrator": {
+      "enabled": true,
+      "wake_prompts_path": "<ROOT>/prompts/wake.md",
+      "wake_prompts_dir": "<ROOT>/prompts/wakes",
+      "schedules": {},
+      "failsafe": {
+        "enabled": false,
+        "gentle_minutes": 120,
+        "concerned_minutes": 720,
+        "emergency_minutes": 1440
+      }
+    },
+    "handoff": {
+      "enabled": false
+    },
+    "hooks": {
+      "context_injection": true,
+      "safe_write_prefixes": [],
+      "workspace_root": "",
+      "vault_path": "",
+      "extra_write_paths": []
+    },
+    "voice": {
+      "enabled": false,
+      "elevenlabs_voice_id": ""
+    },
+    "discord": {
+      "enabled": false,
+      "owner_user_id": "",
+      "owner": {
+        "user_id": "",
+        "channel_id": ""
+      },
+      "public": {
+        "enabled": false,
+        "guild_ids": [],
+        "role_ids": [],
+        "bots": "never",
+        "bot_exchange_limit": 4,
+        "bot_hourly_limit": 20,
+        "history_lines": 12,
+        "exclusions_file": "<ROOT>/golden-private/exclusions.txt"
+      },
+      "gate": {
+        "words_file": "<ROOT>/golden-private/words.txt",
+        "names_file": "<ROOT>/golden-private/names.txt"
+      },
+      "attachments": {
+        "max_mb": 8
+      },
+      "paused": false,
+      "deferral_hours": 24,
+      "private_dir": "<ROOT>/golden-private"
+    },
+    "telegram": {
+      "enabled": false,
+      "owner_chat_id": ""
+    },
+    "integrations": {
+      "life_api_url": "",
+      "browser_url": "",
+      "mind_cloud": {
+        "enabled": false,
+        "mcp_url": "",
+        "mind_id": ""
+      }
+    },
+    "google": {
+      "enabled": false,
+      "client_id": "",
+      "client_secret": ""
+    },
+    "command_center": {
+      "enabled": false,
+      "default_person": "user",
+      "currency_symbol": "$",
+      "care_categories": {
+        "toggles": [
+          "breakfast",
+          "lunch",
+          "dinner",
+          "snacks",
+          "medication",
+          "movement",
+          "shower"
+        ],
+        "ratings": [
+          "sleep",
+          "energy",
+          "wellbeing",
+          "mood"
+        ],
+        "counters": [
+          {
+            "name": "water",
+            "max": 10
+          }
+        ]
+      }
+    },
+    "cors": {
+      "origins": []
+    },
+    "revien": {
+      "enabled": true,
+      "url": "http://127.0.0.1:7437",
+      "recall_limit": 6,
+      "timeout_ms": 2500
+    },
+    "updates": {
+      "check": true,
+      "repo": "weldbuilder/sanctum",
+      "branch": "main"
+    }
+  }
+}

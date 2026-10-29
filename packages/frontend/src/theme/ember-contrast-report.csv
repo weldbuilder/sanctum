@@ -1,0 +1,47 @@
+pair,foreground,background,ratio,required,result
+text on page,#F1E8DA,#131310,15.3283,4.5,PASS
+textSecondary on page,#C4B5A5,#131310,9.3059,4.5,PASS
+copperText on page,#C58F71,#131310,6.6838,4.5,PASS
+errorText on page,#F3B3A7,#131310,10.4731,4.5,PASS
+successText on page,#C2D0AE,#131310,11.4572,4.5,PASS
+focus essential indicator on page,#D9AB8D,#131310,9.0046,3,PASS
+copperText essential indicator on page,#C58F71,#131310,6.6838,3,PASS
+text on card,#F1E8DA,#131310,15.3283,4.5,PASS
+textSecondary on card,#C4B5A5,#131310,9.3059,4.5,PASS
+copperText on card,#C58F71,#131310,6.6838,4.5,PASS
+errorText on card,#F3B3A7,#131310,10.4731,4.5,PASS
+successText on card,#C2D0AE,#131310,11.4572,4.5,PASS
+focus essential indicator on card,#D9AB8D,#131310,9.0046,3,PASS
+copperText essential indicator on card,#C58F71,#131310,6.6838,3,PASS
+text on raised,#F1E8DA,#23303D,11.0751,4.5,PASS
+textSecondary on raised,#C4B5A5,#23303D,6.7238,4.5,PASS
+copperText on raised,#C58F71,#23303D,4.8292,4.5,PASS
+errorText on raised,#F3B3A7,#23303D,7.5671,4.5,PASS
+successText on raised,#C2D0AE,#23303D,8.2782,4.5,PASS
+focus essential indicator on raised,#D9AB8D,#23303D,6.5061,3,PASS
+copperText essential indicator on raised,#C58F71,#23303D,4.8292,3,PASS
+text on user,#F1E8DA,#142036,13.4111,4.5,PASS
+textSecondary on user,#C4B5A5,#142036,8.1420,4.5,PASS
+copperText on user,#C58F71,#142036,5.8479,4.5,PASS
+errorText on user,#F3B3A7,#142036,9.1632,4.5,PASS
+successText on user,#C2D0AE,#142036,10.0242,4.5,PASS
+focus essential indicator on user,#D9AB8D,#142036,7.8784,3,PASS
+copperText essential indicator on user,#C58F71,#142036,5.8479,3,PASS
+text on input,#F1E8DA,#192A3B,12.0467,4.5,PASS
+textSecondary on input,#C4B5A5,#192A3B,7.3137,4.5,PASS
+copperText on input,#C58F71,#192A3B,5.2529,4.5,PASS
+errorText on input,#F3B3A7,#192A3B,8.2310,4.5,PASS
+successText on input,#C2D0AE,#192A3B,9.0044,4.5,PASS
+focus essential indicator on input,#D9AB8D,#192A3B,7.0769,3,PASS
+copperText essential indicator on input,#C58F71,#192A3B,5.2529,3,PASS
+editor text,#F1E8DA,#192A3B,12.0467,4.5,PASS
+editor placeholder,#C4B5A5,#192A3B,7.3137,4.5,PASS
+editor focus,#D9AB8D,#192A3B,7.0769,3,PASS
+selected control text,#131310,#C58F71,6.6838,4.5,PASS
+selected control boundary on card,#C58F71,#131310,6.6838,3,PASS
+text on composer,#F1E8DA,#131310,15.3283,4.5,PASS
+composerMuted on composer,#B5A697,#131310,7.8578,4.5,PASS
+focus essential indicator on composer,#D9AB8D,#131310,9.0046,3,PASS
+controlBorder essential indicator on composer,#C58F71,#131310,6.6838,3,PASS
+REJECT as essential indicator: rustDecorative,#885440,#252221,2.5492,3,FAIL
+REJECT as essential indicator: dividerDecorative,#66564A,#252221,2.2528,3,FAIL

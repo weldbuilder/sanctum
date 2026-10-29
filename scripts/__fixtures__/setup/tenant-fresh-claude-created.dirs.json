@@ -1,0 +1,17 @@
+{
+  "app/tenants": {
+    "private": true
+  },
+  "app/tenants/ada": {
+    "private": true
+  },
+  "app/tenants/ada/home": {
+    "private": false
+  },
+  "app/tenants/ada/home/config": {
+    "private": false
+  },
+  "app/tenants/ada/home/identity": {
+    "private": false
+  }
+}

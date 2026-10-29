@@ -1,0 +1,104 @@
+
+Sanctum Mobile setup
+====================
+A few questions. Press Enter to keep the value in brackets. Run this again any time.
+
+— Who lives here —
+Your companion's name [Ada] 
+Your name [Sam] 
+Your timezone (IANA name) [Europe/Berlin] 
+
+— The companion's home folder —
+The folder with AGENTS.md, identity/ and config/. Part one of the README makes it.
+Home folder [<SBX>/home/Documents/companion-home] 
+
+— The model —
+1) Codex: any model Codex can reach. DeepSeek on an API key, a ChatGPT plan, or any
+   provider you add to ~/.codex/config.toml (OpenAI-compatible APIs, local servers).
+2) Claude: the Claude Agent SDK, with a Claude login or an Anthropic API key.
+3) DeepSeek Harness: DeepSeek's own agent (alpha), on a DeepSeek API key or another
+   route it knows (docs/DSH.md).
+Which one? [1] 9
+Codex is installed.
+Codex's own default: deepseek-chat via deepseek.
+Providers in <SBX>/home/.codex/config.toml: deepseek (https://api.deepseek.com).
+Add a model provider to Codex (an API key or a local server)? (y/N) N
+Leave the next four empty to use Codex's default everywhere.
+Chat model id [deepseek-chat] 
+Chat provider name [deepseek] 
+
+— What they may touch —
+1) Read only: can read the home folder, writes nothing.
+2) The home folder: writes inside it (journal, HANDOFF.md), plus any extra folders you name.
+3) Full access: writes anywhere on this computer. Nothing stops a bad edit.
+Which one? [2] 9
+Extra folders they may write to (comma-separated, full paths; empty = none)  , ,
+All of this can be changed later in the app under Settings → permissions.
+
+— The app's features —
+Reminders and timers, a meal and care log, cycle tracking, notes and canvases, routines,
+and the presence orb all live in the app. With this on, your companion can write to them
+when you ask: "ate at 10:30" gets logged, "remind me at 3" sets a timer, "log my meds"
+ticks the box. Nothing is written without your say-so, and the app sets up all of the
+access itself; there is nothing to configure outside it. Off, they can read and talk, but
+every write is refused.
+Let your companion write to the app's features? (Y/n) 
+On. The Command Center pages (care, cycle, routines) are switched on with it.
+
+— Long-conversation memory (recommended: on) —
+Models can only hold so much of a conversation at once. Without this, the oldest
+messages quietly fall off the end and your companion loses the thread. With it on,
+Sanctum folds older messages into a short summary your companion keeps reading, so
+the shape of what happened stays even when the words don't. You can turn it off any
+time; the summaries are kept, not deleted, and the next message in each thread carries
+them into a fresh session once, so your companion keeps the thread.
+Long-conversation memory on Codex? (Y/n) 
+The summarizer is the model that does the folding. A small, cheap one is fine.
+Summarizer model id (empty = the autonomous model, then the chat model) 
+Summarizer provider (empty = same as chat) 
+
+— Plugins —
+Who manages plugins?
+1) your companion: it can turn plugins on and off and edit them, and you see what changed in Settings.
+2) you: nothing runs until you have read and ratified its exact code, and a change stops it until you ratify again.
+Which one? [1] person
+You manage plugins. Each one is shown to you before it is turned on.
+Plugins add tools and routes. A plugin on disk does nothing until it is named here, and
+the default is none. These ship with the app:
+1) Hello (example plugin) (hello)
+Which to turn on? Numbers or ids, comma-separated, "none" for none [none] 9, nothing
+None turned on.
+
+— Discord —
+Two lanes that never touch, decided by CHANNEL: your own channel (the owner lane: only your
+account, only that channel), and, later and only if you
+choose, public servers. Everything she says on Discord passes a word gate first, against
+private lists you write. This step makes those lists. The public lane stays OFF, and bots
+never get answered; both are changed later in sanctum.yaml, one stage at a time.
+Note: public Discord needs dsh or Claude as the harness. On Codex the public lane is refused (it cannot
+run without its shell tool); the owner lane works on any harness.
+Set up Discord? (y/N) 
+
+— The app —
+App password (empty = make one up for you) hunter2-pass
+
+— Memory —
+One memory system at a time, or they fight over what to remember. Pick where memory lives:
+1) Revien (the README, Step 4): a local graph the companion searches and writes to.
+2) My own memory system: an MCP server or files I set up myself.
+3) The harness's built-in memory: Codex "memories".
+4) None. The journal and HANDOFF.md in the home folder are all that lasts.
+5) Sanctum's own memory: built in, nothing to install. It recalls the closest lines from earlier conversations on this
+   computer, and stands in for Revien whenever Revien is not running.
+Which one? [1] 7
+Is the browser seat running (examples/browser-seat-neko)? (y/N) 
+Phone address, if you set up Tailscale (https://... .ts.net), else empty 
+
+Wrote <SBX>/app/sanctum.yaml
+Wrote <SBX>/app/.env
+
+Next, in this folder:
+  npm run build
+  npm start
+Then open the address it prints and log in with your password.
+To change any of this later: Settings in the app, or npm run setup again.

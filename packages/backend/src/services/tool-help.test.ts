@@ -1,0 +1,83 @@
+import { describe, it, expect, vi } from 'vitest';
+vi.mock('../routes/cc-mcp.js', () => ({ CC_TOOL_NAMES: ['cc_status', 'cc_care', 'cc_cycle'] }));
+import { shortToolList, fullToolHelp, topicHelp, TOOL_TOPICS } from './tool-help.js';
+
+const o = { SC: 'res', userName: 'Alex', ccEnabled: true, telegram: false };
+
+describe('tool help', () => {
+  it('the short list is small and names every family of tool', () => {
+    const s = shortToolList(o);
+    expect(s.length).toBeLessThan(900);
+    for (const v of ['meal', 'ask', 'canvas', 'orb', 'timer', 'pulse', 'cc ']) expect(s).toContain(v);
+    expect(s).toContain('res help <topic>');
+    expect(shortToolList({ ...o, ccEnabled: false })).not.toContain('cc <tool>');
+  });
+  it('the full help is the same content the short list points at, and much bigger', () => {
+    const f = fullToolHelp(o);
+    expect(f.length).toBeGreaterThan(shortToolList(o).length * 4);
+    expect(f).toContain('TIMERS:');
+    expect(f).toContain('COMMAND CENTER');
+    expect(f).not.toContain('TELEGRAM');
+    expect(fullToolHelp({ ...o, telegram: true })).toContain('TELEGRAM');
+  });
+  it('topic help returns one section, or the topic list', () => {
+    expect(topicHelp(o, 'timer')).toMatch(/^TIMERS:\n/);
+    expect(topicHelp(o, 'TIMER')).toMatch(/^TIMERS:/);
+    expect(topicHelp(o, 'nope')).toMatch(/^Topics: /);
+    expect(topicHelp({ ...o, ccEnabled: false }, 'cc')).toMatch(/^Topics: /);
+    for (const t of TOOL_TOPICS) expect(typeof topicHelp(o, t)).toBe('string');
+  });
+
+  it('the identity topic is read-only: status, and who ratifies', () => {
+    expect(shortToolList(o)).toContain('res identity status');
+    const t = topicHelp(o, 'identity');
+    expect(t).toContain('res identity status');
+    expect(t).toMatch(/cannot ratify/);
+    expect(fullToolHelp(o)).toContain('IDENTITY (');
+  });
+
+  it('the browser topic is listed and servable only when the seat is configured, and stays inside the short-list budget', () => {
+    const b = { ...o, browser: true, telegram: true };
+    const s = shortToolList(b);
+    expect(s).toContain('res help browser');
+    expect(s.length).toBeLessThan(1100);
+    const t = topicHelp(b, 'browser');
+    for (const v of ['browser_navigate', 'browser_snapshot', 'browser_click', 'browser_type', 'browser_take_screenshot', 'res ask', '.claude/skills/browser/SKILL.md']) expect(t).toContain(v);
+    expect(t).toContain('integrations.browser_url');
+    expect(t).toMatch(/no viewer tab/);
+    expect(fullToolHelp(b)).toContain('BROWSER (');
+    expect(shortToolList(o)).not.toContain('help browser');
+    expect(topicHelp(o, 'browser')).toMatch(/^Topics: /);
+    expect(topicHelp(o, 'browser')).not.toContain('browser,');
+  });
+
+  it('plugin topics are one line each in the index and servable by id; no plugins changes nothing', () => {
+    const p = { ...o, pluginHelp: { hello: 'hello: example plugin.\nSecond line.', other: 'x'.repeat(200) } };
+    const s = shortToolList(p);
+    const lines = s.split('\n').filter((l) => l.includes('help hello') || l.includes('help other'));
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain('hello: example plugin.');
+    expect(lines[0]).not.toContain('Second line');
+    expect(lines[1].length).toBeLessThan(160);
+    expect(topicHelp(p, 'hello')).toBe('hello: example plugin.\nSecond line.');
+    expect(topicHelp(p, 'nope')).toContain('hello, other');
+    expect(fullToolHelp(p)).toContain('PLUGIN hello:\nhello: example plugin.');
+    expect(shortToolList({ ...o, pluginHelp: {} })).toBe(shortToolList(o));
+    expect(fullToolHelp({ ...o, pluginHelp: {} })).toBe(fullToolHelp(o));
+    expect(topicHelp(p, 'constructor')).toMatch(/^Topics: /);
+  });
+
+  it('SHOULD-FIX 4: a plugin line aligns with the built-in rows under a realistic long SC, not a fixed 49', () => {
+    const SC = 'node /Users/someone/Documents/sanctum-mobile/tools/res.mjs';
+    const p = { ...o, SC, pluginHelp: { hello: 'hello: example plugin.', 'longer-plugin-id': 'longer: another.' } };
+    const lines = shortToolList(p).split('\n');
+    // the column where each row's description starts, measured from the end of the SC prefix
+    const descCol = (l: string, desc: string) => l.indexOf(desc) - `  ${SC} `.length;
+    const builtin = descCol(lines.find((l) => l.includes('permission, waits'))!, 'permission, waits');
+    expect(builtin).toBeGreaterThan(20);
+    expect(descCol(lines.find((l) => l.includes('help hello'))!, 'hello: example')).toBe(builtin);
+    expect(descCol(lines.find((l) => l.includes('help longer-plugin-id'))!, 'longer: another')).toBe(builtin);
+    const short = shortToolList({ ...o, pluginHelp: { hello: 'hello: example plugin.' } }).split('\n');
+    expect(short.find((l) => l.includes('help hello'))!.indexOf('hello: example')).toBe(short.find((l) => l.includes('permission, waits'))!.indexOf('permission, waits'));
+  });
+});

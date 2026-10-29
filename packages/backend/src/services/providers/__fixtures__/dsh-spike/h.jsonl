@@ -1,0 +1,13 @@
+{"_t":2058,"type":"session","sessionId":"session-91db1369-a02e-4182-8cc4-5d7bb22407fb","cwd":"/tmp/dsh-spike/work"}
+{"_t":2066,"type":"status","phase":"turn_start","turn":1}
+{"_t":2154,"type":"status","phase":"step_start","turn":1,"step":1}
+{"_t":3637,"type":"text","text":"\n\n"}
+{"_t":3642,"type":"tool_call","callId":"call_589f7b2e393a4999a0e47840","tool":"read","input":{"file_path":"missing-file.txt"}}
+{"_t":3663,"type":"tool_result","callId":"call_589f7b2e393a4999a0e47840","status":"error","result":"Error: cannot read \"/tmp/dsh-spike/work/missing-file.txt\": not found"}
+{"_t":3664,"type":"status","phase":"step_end","turn":1,"step":1,"usage":{"inputTokens":175,"outputTokens":46,"totalTokens":5853,"cacheReadTokens":5632}}
+{"_t":3700,"type":"status","phase":"step_start","turn":1,"step":2}
+{"_t":4578,"type":"text","text":"The file **missing-file.txt** does not exist in the current directory — the read tool returned a \"not found\" error."}
+{"_t":4579,"type":"status","phase":"step_end","turn":1,"step":2,"usage":{"inputTokens":250,"outputTokens":27,"totalTokens":5909,"cacheReadTokens":5632}}
+{"_t":4581,"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"completed"}}
+{"_t":4589,"type":"final","text":"The file **missing-file.txt** does not exist in the current directory — the read tool returned a \"not found\" error."}
+{"_spike":"generator-ended","t":4733}

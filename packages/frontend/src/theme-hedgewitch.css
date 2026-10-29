@@ -1,0 +1,196 @@
+/* Hedge Witch — the painted kitchen. Warm parchment panels on a dark green
+   backdrop, dark wood rail, lavender for action, amber only for presence.
+   Scoped to the Hedgewitch material (and to an install with no
+   appearance stored yet), so a skin material never inherits it. Overrides both the Tailwind @theme tokens (--color-*) and the plain vars the
+   runtime theme editor writes, so Settings → Appearance still works on top. */
+
+:root:not([data-material]),
+:root[data-material="hedgewitch"] {
+  color-scheme: light;
+
+  /* parchment surfaces */
+  --color-bg-primary: var(--bg-primary);   --bg-primary: #f3ead7;
+  --color-bg-secondary: var(--bg-secondary); --bg-secondary: #efe4cc;
+  --color-bg-tertiary: var(--bg-tertiary);  --bg-tertiary: #e6d9bd;
+  --color-bg-surface: var(--bg-surface);   --bg-surface: #f8f1e0;
+  --color-bg-input: var(--bg-input);     --bg-input: #faf4e5;
+
+  /* ink */
+  --color-text-primary: var(--text-primary);   --text-primary: #2c231f;
+  --color-text-secondary: var(--text-secondary); --text-secondary: #54483f;
+  --color-text-muted: var(--text-muted);     --text-muted: #5d5047;
+
+  /* action accent = lavender from the logo (rides the amber slot, which is
+     what every existing "accent" rule reads) */
+  --color-amber: var(--amber);        --amber: #6d5b93;
+  --color-amber-bright: var(--amber-bright); --amber-bright: #57477a;
+  --color-amber-dim: var(--amber-dim);    --amber-dim: #8474a8;
+  --color-amber-glow: var(--amber-glow);  --amber-glow: rgba(109, 91, 147, 0.20);
+  --color-amber-subtle: var(--amber-subtle); --amber-subtle: rgba(109, 91, 147, 0.08);
+
+  /* user = dusty rose paper (the painting's); "bright" is the ink used for text on it */
+  --color-lavender: var(--lavender);        --lavender: #6d5b93;
+  --color-lavender-bright: var(--lavender-bright); --lavender-bright: #3b2f52;
+  --color-lavender-dim: var(--lavender-dim);    --lavender-dim: #8474a8;
+  --color-lavender-glow: var(--lavender-glow);  --lavender-glow: rgba(109, 91, 147, 0.20);
+  --color-lavender-subtle: var(--lavender-subtle);  --lavender-subtle: #CFABAC;
+
+  /* shared moments */
+  --color-gold: var(--gold);        --gold: #9a7b34;
+  --color-gold-bright: var(--gold-bright); --gold-bright: #7d6226;
+  --color-gold-dim: var(--gold-dim);    --gold-dim: #b79a55;
+  --color-gold-glow: var(--gold-glow); --gold-glow: rgba(154, 123, 52, 0.16);
+
+  /* message keying */
+  --companion-bg: #faf4e4;
+  --companion-border: #6d5b93;
+  --companion-edge: rgba(109, 91, 147, 0.5);
+  --user-bg: #dcd5ee;
+  --user-border: #6d5b93;
+  --user-edge: rgba(109, 91, 147, 0.5);
+
+  /* presence amber lives here, not in --amber */
+  --presence: #e0a020;
+  --ink-on-wood: #efe4d0;
+  --wood-1: #3a2416;
+  --wood-2: #2c1a10;
+  --parchment: #f3ead7;
+  --parchment-edge: #e6d9bd;
+  --lavender-fill: #6d5b93;
+  --lavender-fill-hover: #5d4c82;
+  --thread-active: #ddd6ec;
+  --panel-shadow: 0 10px 30px rgba(20, 10, 5, 0.35);
+
+  --color-status-active: var(--status-active); --status-active: #5d8a5a;
+  --color-status-waking: var(--status-waking); --status-waking: #e0a020;
+
+  --color-border: var(--border);       --border: rgba(70, 48, 30, 0.16);
+  --color-border-hover: var(--border-hover); --border-hover: rgba(70, 48, 30, 0.30);
+  --color-bg-hover: var(--bg-hover);     --bg-hover: rgba(70, 48, 30, 0.06);
+  --color-bg-active: var(--bg-active);  --bg-active: rgba(109, 91, 147, 0.12);
+  --shadow: rgba(20, 10, 5, 0.35);
+
+  /* ── semantic surface pairs (the same roles every skin material fills in) ──
+     Each value is exactly what the component used to hard-code, so the classic
+     look is unchanged; components now read these names instead of literals. */
+  --surface-panel: var(--bg-primary);        --surface-panel-text: var(--text-primary);
+  --surface-panel-secondary: var(--text-secondary); --surface-panel-muted: var(--text-muted);
+  --surface-panel-alt: #efe4cc;    --surface-panel-deep: #e6d9bd;  --surface-panel-raised: #f8f1e0;
+  --surface-user: #CFABAC;  --surface-user-text: var(--lavender-bright);  --surface-user-meta: #3b2f52;
+  --surface-companion: #faf4e4; --surface-companion-text: var(--text-primary);
+  --surface-input: var(--bg-input);        --surface-input-text: var(--text-primary);  --surface-input-placeholder: #5d5047;
+  --surface-popover: #faf4e5;      --surface-popover-text: #2c231f; --surface-popover-border: rgba(90, 65, 40, 0.25);
+  --surface-code: #e6d9bd;  --surface-code-text: #2c231f;  --surface-code-muted: #5a4d44;  --surface-code-inline: rgba(255, 255, 255, 0.05);
+  --surface-chrome: #3a2416;       --surface-chrome-deep: #2c1a10;
+  --surface-chrome-text: #efe4d0;  --surface-chrome-muted: #d9cdb6; --surface-chrome-selected: rgba(146, 128, 196, 0.30);
+  --surface-header: rgba(58, 66, 38, 0.62); --surface-header-text: #efe4d0; --surface-header-muted: #cdbfa8;
+  --chrome-rail-bg: linear-gradient(180deg, rgba(40, 24, 14, 0.35), rgba(30, 18, 10, 0.55)), url(/hedgewitch/wood.webp) center / cover;
+  --chrome-bar-bg: linear-gradient(180deg, rgba(40, 24, 14, 0.35), rgba(30, 18, 10, 0.55)), url(/hedgewitch/wood.webp) center / cover;
+  --chrome-bar-border: rgba(0, 0, 0, 0.45);
+  --surface-blur: blur(6px);
+  --control-primary-edge: transparent;
+  --sidebar-bg: linear-gradient(180deg, #f6eedb 0%, #efe4cc 100%);
+  --divider: rgba(90, 65, 40, 0.2);
+  --control-bg: rgba(255, 250, 235, 0.55);
+  --surface-header-border: rgba(255, 250, 240, 0.14);  --surface-header-title: #f3ead7;  --surface-header-icon: #e6dac3;
+  --surface-header-mobile: rgba(44, 50, 30, 0.92);  --surface-header-blur: blur(8px);  --surface-header-menu: rgba(22, 16, 20, 0.94);
+  --tab-bg: rgba(243, 234, 215, 0.14);  --tab-text: #efe4d0;  --tab-border: rgba(255, 250, 240, 0.22);  --tab-dim-text: #cdbfa8;
+  --tab-active-bg: rgba(243, 234, 215, 0.9);  --tab-active-text: #2c231f;
+  --tab-badge-bg: rgba(109, 91, 147, 0.18);  --tab-badge-text: #3b2f52;
+  --header-badge-bg: rgba(109, 91, 147, 0.2);  --header-badge-text: #3b2f52;
+  --card-bg: linear-gradient(180deg, #f8f1e0 0%, #efe4cc 100%);
+  --settings-error: #e8a698;  --settings-warning: #e0b95a;  --settings-success: #7cc496;
+  --settings-ink: #efe4d0;  --settings-ink-2: #dccfb8;  --settings-ink-3: #c2b39c;
+  --settings-panel-bg: rgba(22, 16, 20, 0.94);  --settings-panel-blur: blur(8px);  --settings-panel-border: rgba(255, 250, 240, 0.14);
+  --settings-subnav-bg: rgba(22, 16, 20, 0.5);  --settings-subnav-border: rgba(255, 250, 240, 0.12);
+  --subnav-ink: #efe4d0;  --subnav-ink-2: #dccfb8;  --subnav-ink-3: #c2b39c;  --subnav-danger: #c87c6a;
+  --settings-field-bg: rgba(34, 44, 26, 0.72);  --settings-field-text: #f3ead7;  --settings-field-border: rgba(255, 250, 240, 0.22);  --settings-field-placeholder: #b7a98f;
+  --home-head-text: #f6eedb;  --home-head-border: rgba(255, 255, 255, 0.22);
+  --home-sprig-display: none;
+  --home-sprig-lavender: url(/hedgewitch/sprig-lavender.webp);
+  --home-sprig-umbel: url(/hedgewitch/sprig-umbel.webp);
+  --home-sprig-sage: url(/hedgewitch/sprig-sage.webp);  --home-sprig-room: 0rem;  --home-sprig-room-m: 0rem;
+  --home-sprig-room-phone: 0rem;  --home-sprig-room-half: 0rem;
+  --settings-hairline: rgba(255, 255, 255, 0.055);  --field-border: rgba(255, 255, 255, 0.08);  --field-border-focus: rgba(201, 168, 124, 0.30);
+  --toggle-off-bg: rgba(255, 255, 255, 0.08);  --toggle-off-border: rgba(255, 255, 255, 0.10);  --toggle-off-thumb: #c2b39c;
+  --toggle-on-bg: rgba(201, 168, 124, 0.22);  --toggle-on-border: rgba(201, 168, 124, 0.35);  --toggle-on-thumb: #e3c49a;
+  --settings-disabled-bg: rgba(255, 255, 255, 0.05);  --settings-disabled-text: #b7a98f;
+  --btn-border-primary: rgba(201, 168, 124, 0.28);  --btn-border-muted: rgba(255, 255, 255, 0.08);  --btn-border-muted-hover: rgba(255, 255, 255, 0.14);  --btn-border-danger: rgba(210, 100, 90, 0.30);
+  --chip-bg: #2c321e;  --chip-text: #e6dac3;  --chip-pad: 0.2rem 0.7rem;  --chip-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  --composer-bg: linear-gradient(180deg, #f8f1e0 0%, #efe4cc 100%);  --composer-border: #6d5b93;
+  --surface-chrome-text-hover: #fff6e4;
+  --chrome-hover-wash: rgba(239, 228, 208, 0.10);
+  --surface-pill-bg: rgba(44, 26, 16, 0.92);  --surface-pill-blur: blur(16px) saturate(1.05);
+  --chrome-pill-border: rgba(201, 168, 124, 0.28);  --chrome-control-border: rgba(201, 168, 124, 0.35);
+  --approval-allow-bg: rgba(109, 91, 147, 0.45);  --approval-allow-border: rgba(146, 128, 196, 0.6);  --approval-allow-hover: rgba(109, 91, 147, 0.7);
+  --login-card-bg: radial-gradient(ellipse at 30% 0%, rgba(255, 250, 235, 0.55), transparent 60%), linear-gradient(180deg, #f6eedb 0%, #ece0c4 100%);
+  --login-frame-image: url(/hedgewitch/login-border.webp);
+  --control-disabled-bg: #e6d9bd; --control-disabled-text: #54483f;
+  --control-border: #85734f;
+  --control-primary-bg: #6d5b93; --control-primary-text: #ffffff; --control-primary-hover: #5d4c82;
+  --link: var(--amber);
+  --focus-ring: #4a3b6e; --focus-ring-chrome: #e6dac3;
+  --status-error-text: #8f3626; --status-success-text: #3f6b3c; --status-warning-text: #7a5410; --status-error-chrome: #f0b0a0;
+  --thread-active-text: #3b2f52;
+}
+
+/* Typography and panel radius are the same for every room and material. */
+:root {
+  --radius-panel: 14px;
+  --font-serif: 'Lora', Georgia, 'Times New Roman', serif;
+  --color-font-serif: 'Lora', Georgia, serif;
+  --font-body: 'Lora', Georgia, 'Times New Roman', serif;
+  --font-heading: 'Lora', Georgia, serif;
+  --sidebar-width: 18rem;
+}
+
+/* Classic text that measured under 4.5:1 on its real surface (translucent bubbles over the darkest
+   part of the kitchen, the confirm button's tinted panel, the home card's muted line). Each now reads
+   a darker ink from the same palette, so no new colour is introduced. */
+:root:not([data-material]) .message.companion .prose a,
+:root[data-material="hedgewitch"] .message.companion .prose a { color: var(--amber-bright); }
+:root:not([data-material]) .cdlg-amber,
+:root[data-material="hedgewitch"] .cdlg-amber { color: var(--amber-bright); }
+:root:not([data-material]) .home-card .home-empty,
+:root[data-material="hedgewitch"] .home-card .home-empty { color: var(--text-secondary); }
+/* The live edited label sits on lavender user paper, not the warmer panel. */
+:root:not([data-material]) .message.user .message-edited,
+:root[data-material="hedgewitch"] .message.user .message-edited { color: var(--surface-user-meta); }
+
+/* Crisp edges: every card, bubble, chip and pill has a near-opaque fill and a 1px edge at full strength in the accent (lavender).
+   Extra readable keeps its own hard 2px edge. Mirrors crispCss() in theme/skins-css.ts, which does the same for the skin materials. */
+:root:not([data-material]):not([data-readability="extra"]) :is(.message.companion, .message.user, .composer-inner, .settings-content-inner, .cdlg-panel, .night-shelf, .search-panel, .cp-modal, .update-pill, .plus-menu, .jtd-panel),
+:root[data-material="hedgewitch"]:not([data-readability="extra"]) :is(.message.companion, .message.user, .composer-inner, .settings-content-inner, .cdlg-panel, .night-shelf, .search-panel, .cp-modal, .update-pill, .plus-menu, .jtd-panel) { border-color: var(--amber); }
+/* The rose "You" paper takes the deeper lavender edge: the paler one is under 3:1 on its darker fibres. */
+:root:not([data-material]):not([data-readability="extra"]) .message.user,
+:root[data-material="hedgewitch"]:not([data-readability="extra"]) .message.user { border-color: var(--amber-bright); }
+:root:not([data-material]):not([data-readability="extra"]) :is(.thread-sidebar, .home-card, .login-card),
+:root[data-material="hedgewitch"]:not([data-readability="extra"]) :is(.thread-sidebar, .home-card, .login-card) { outline: 1px solid var(--amber); outline-offset: -1px; }
+:root:not([data-material]):not([data-readability="extra"]) :is(.empty-state-text, .home-title > span:first-child, .home-id, .day-divider-label, .new-divider-label, .system-text),
+:root[data-material="hedgewitch"]:not([data-readability="extra"]) :is(.empty-state-text, .home-title > span:first-child, .home-id, .day-divider-label, .new-divider-label, .system-text) { border: 1px solid var(--amber); }
+
+/* popovers and frosted surfaces sit on their own opaque pair */
+.backdrop-glass {
+  background-color: var(--surface-popover);
+  color: var(--surface-popover-text);
+}
+
+:root:not([data-material]) ::-webkit-scrollbar-thumb,
+:root[data-material="hedgewitch"] ::-webkit-scrollbar-thumb { background: rgba(70, 48, 30, 0.22); }
+:root:not([data-material]) ::-webkit-scrollbar-thumb:hover,
+:root[data-material="hedgewitch"] ::-webkit-scrollbar-thumb:hover { background: rgba(109, 91, 147, 0.4); }
+
+/* Extra readable on the classic palette: every translucent or textured surface becomes solid. */
+:root[data-readability="extra"]:not([data-material]),
+:root[data-readability="extra"][data-material="hedgewitch"] {
+  --surface-companion: #faf4e4;  --surface-user: #CFABAC;
+  --surface-header: #2e3520;  --surface-header-mobile: #2c321e;  --surface-header-menu: #1b1620;
+  --surface-header-border: #efe4d0;
+  --chrome-rail-bg: #3a2416;  --chrome-bar-bg: #3a2416;  --surface-pill-bg: #2c1a10;
+  --settings-panel-bg: #1d1719;  --settings-subnav-bg: #1d1719;  --settings-field-bg: #2b3322;
+  --tab-bg: #2e3520;  --tab-active-bg: #f3ead7;
+  --chip-bg: #2c321e;  --chip-pad: 0.2rem 0.7rem;
+  --card-bg: #f3ead7;  --sidebar-bg: #f3ead7;  --composer-bg: #faf4e5;  --login-card-bg: #f3ead7;  --login-frame-image: none;
+  --home-sprig-display: none;  --home-sprig-room: 0rem;  --home-sprig-room-m: 0rem;
+  --control-border: #54483f;
+}

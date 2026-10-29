@@ -1,0 +1,43 @@
+{
+  "lines": [
+    "Loaded config from: <ROOT>/sanctum.yaml",
+    "Initializing database...",
+    "[vector-cache] Loaded 0 vectors (0.0 MB)",
+    "Database initialized",
+    "[plugins] hello: enabled=false error=none",
+    "Frontend build id: <ID>",
+    "<FRONTEND>",
+    "[Voice] Disabled via config.voice.enabled",
+    "PushService: VAPID keys not set — push disabled",
+    "[Orchestrator] Wake prompts file not found at <TMP>/wake.md — using defaults",
+    "[Orchestrator] Wake-prompt migration: wrote 6 files to <TMP>/wakes",
+    "[Orchestrator] Disabled via config.orchestrator.enabled — autonomous wakes off",
+    "Initializing WebSocket server...",
+    "WebSocket server initialized",
+    "[identity] legacy (no identity/ folder: identity is CLAUDE.md, nothing to ratify)",
+    "[outlook] poller started (every 150s connected, every 750s after 15m idle)",
+    "[outlook-author] author started (every 3h, backoff 15m, model claude-sonnet-5-5)",
+    "[handoff] schedule started (10 0 * * * Europe/London, enabled=false, model claude-sonnet-5-5)",
+    "Server running at http://127.0.0.1:<PORT>",
+    "Environment: development",
+    "Auth enabled: yes",
+    "Internal token loaded (••••<FP>) — full value at: <TMP>/data/.internal-token",
+    "Companion: Echo | User: User",
+    "SIGTERM received, shutting down gracefully...",
+    "[Orchestrator] Stopping...",
+    "Server closed"
+  ],
+  "stderr": [
+    "[Voice] GROQ_API_KEY not set — transcription not configured",
+    "[Voice] ELEVENLABS_API_KEY not set — TTS not configured",
+    "[Voice] HUME_API_KEY not set — prosody analysis not configured"
+  ],
+  "health": {
+    "status": 200,
+    "body": "{\"status\":\"ok\",\"uptime\":0,\"memoryUsage\":{\"rss\":0,\"heapUsed\":0,\"heapTotal\":0},\"connections\":0}"
+  },
+  "authCheck": {
+    "status": 200,
+    "body": "{\"authenticated\":false}"
+  }
+}

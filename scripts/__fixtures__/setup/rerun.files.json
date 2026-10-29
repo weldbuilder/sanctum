@@ -1,0 +1,7 @@
+{
+  "app/sanctum.yaml": {
+    "private": false,
+    "sha256": "8768d2826408b2708bc849396330a4d4798731915ef28ae819430eaeac638ca5",
+    "bytes": 655
+  }
+}

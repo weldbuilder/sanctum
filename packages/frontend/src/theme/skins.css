@@ -1,0 +1,245 @@
+/* Skin layers that do not depend on which room or material is chosen.
+   The palettes and scene images come from skins.generated.css; this file
+   decides where they are painted.
+
+   Rules of the layers:
+   - Scenery is the page background only. Nothing with text sits on it directly.
+   - The frame (gutter texture, trim line, corners) is decorative: aria-hidden,
+     pointer-events: none, painted behind the app (z-index -1), outside every
+     content box, never the only boundary or focus cue of a control.
+   - Corners are fixed 48x48 CSS px, one image per corner, never stretched; the
+     art keeps its curve inside the first 24px of each edge, and the gutter
+     reserves that much at every corner. A thin CSS border joins them.
+   - The primary plates (messages, header, composer, panels, dialogs, cards) are
+     framed, cornered and textured too, but that is drawn by the generated rules in
+     skins.generated.css ("plates"), from the PLATES list in materials.ts, as layered
+     backgrounds on the plate itself over its own opaque colour. Nothing here. */
+
+/* ── the room ──
+   The whole painting, zoomed out to fit the window and never cropped (::after). Where the window's shape differs from
+   the painting's, the same painting fills in behind it (::before), covering, blurred and darkened, so the room has no
+   hard edge. Both sit behind the frame (z-index -1) and everything else. */
+body {
+  background-color: var(--skin-room-fallback, #1b2414);
+  background-image: none;
+}
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  pointer-events: none;
+  background-image: var(--skin-room-image, none);
+  background-position: var(--skin-room-position, 50% 50%);
+  background-repeat: no-repeat;
+}
+body::before {
+  inset: -64px;
+  z-index: -3;
+  background-size: cover;
+  filter: blur(28px) brightness(0.55);
+}
+body::after {
+  inset: 0;
+  z-index: -2;
+  background-size: contain;
+}
+/* A phone fills the screen with its portrait painting: zoomed out to fit, it left half the screen to the fill. */
+@media (max-width: 768px) {
+  body::after { background-size: cover; }
+}
+
+/* ── focus: the ring always has its own colour, chrome gets the light one ── */
+:focus-visible {
+  outline: 2px solid var(--focus-ring, var(--amber));
+  outline-offset: 2px;
+}
+.nav-rail :focus-visible,
+.drawer-panel :focus-visible,
+.mobile-topbar :focus-visible,
+.chat-view .chat-header :focus-visible,
+.chat-view .conn-tab:focus-visible,
+.settings-subnav :focus-visible,
+.update-pill :focus-visible {
+  outline-color: var(--focus-ring-chrome, var(--focus-ring, var(--amber)));
+}
+
+/* ── decorative frame ── */
+.skin-frame {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+:root[data-decor="on"] {
+  --skin-gutter-x: 24px;
+  --skin-gutter-y: 24px;
+}
+/* The same 24px reserve on every width of 360px and up (the narrower case is below), so the top
+   bar and the content never sit on the curve of a corner. */
+:root[data-decor="on"] .skin-frame { display: block; }
+
+.skin-frame > * { position: absolute; pointer-events: none; }
+.skin-ring {
+  inset: 0;
+  padding: var(--skin-gutter-y) var(--skin-gutter-x);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+/* The gilt frame: the thin line the corner art is drawn along (3px in from the edge, 1px wide) and a second,
+   finer one 3px inside it, both in the material's trim metal, as in the mockups. Both are drawn by this one
+   element (a border and an inset shadow), so the DOM did not change. */
+.skin-line {
+  inset: 2.5px;
+  border: 1px solid var(--skin-trim, transparent);
+  box-shadow:
+    inset 0 0 0 3px transparent,
+    inset 0 0 0 4px color-mix(in srgb, var(--skin-trim, transparent) 55%, transparent),
+    0 0 0 1px rgba(0, 0, 0, 0.55);
+}
+.skin-corner {
+  width: var(--skin-corner-size, 48px);
+  height: var(--skin-corner-size, 48px);
+  background-repeat: no-repeat;
+  background-size: contain;
+}
+.skin-corner-tl { top: 0; left: 0; background-image: var(--skin-corner-tl, none); }
+.skin-corner-tr { top: 0; right: 0; background-image: var(--skin-corner-tr, none); }
+.skin-corner-br { bottom: 0; right: 0; background-image: var(--skin-corner-br, none); }
+.skin-corner-bl { bottom: 0; left: 0; background-image: var(--skin-corner-bl, none); }
+/* Too narrow to keep the curve clear of content: draw the line and texture, skip the corners. */
+@media (max-width: 359px) {
+  :root[data-decor="on"] { --skin-gutter-x: 8px; }
+  .skin-corner { display: none; }
+}
+
+/* The shell keeps its content inside the gutter. */
+:root[data-decor="on"] .app-shell {
+  padding:
+    max(var(--skin-gutter-y), env(safe-area-inset-top, 0px))
+    max(var(--skin-gutter-x), env(safe-area-inset-right, 0px))
+    max(var(--skin-gutter-y), env(safe-area-inset-bottom, 0px))
+    max(var(--skin-gutter-x), env(safe-area-inset-left, 0px));
+}
+/* A desktop sets the frame into the room, as in the mockups: the scene shows all round it, the frame (line, corners,
+   gutter) sits that far in from the window's edge with a soft shadow off it, and the app sits just inside its line, the
+   rail flush against it (the corners' curve is behind the rail on the left, and clear of the views' own padding elsewhere).
+   A phone keeps the frame on the screen's own edge, where every pixel of width counts, and so does Ember, whose approved
+   desktop is full-window with the frame on the edge. */
+@media (min-width: 769px) {
+  :root[data-decor="on"]:not([data-room="ember"]) {
+    --skin-inset-x: clamp(16px, 2.6vw, 48px);
+    --skin-inset-top: clamp(20px, 5vh, 64px);
+    --skin-inset-bottom: clamp(16px, 3.5vh, 40px);
+  }
+  :root[data-decor="on"]:not([data-room="ember"]) .skin-frame {
+    inset: var(--skin-inset-top) var(--skin-inset-x) var(--skin-inset-bottom);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 14px 44px rgba(0, 0, 0, 0.5);
+  }
+  :root[data-decor="on"]:not([data-room="ember"]) .app-shell {
+    padding:
+      calc(var(--skin-inset-top) + 8px)
+      calc(var(--skin-inset-x) + 8px)
+      calc(var(--skin-inset-bottom) + 8px);
+  }
+}
+/* Ember keeps its full-window desktop, the frame on the window's edge, with the rail set into the frame: flush against its
+   line top, bottom and left, so the frame's side is the rail. The views keep the gutter they had, so the chat's plates stay put. */
+@media (min-width: 769px) {
+  :root[data-decor="on"][data-room="ember"] .app-shell { padding: 3px; }
+  :root[data-decor="on"][data-room="ember"] .app-content { padding: 21px 21px 21px 0; }
+}
+:root[data-decor="on"] .nav-rail { height: 100%; }
+/* The gutter already clears the notch, so the top bar does not add the inset a second time. */
+:root[data-decor="on"] .mobile-topbar { padding-top: 0.5rem; }
+
+/* Code, tool output and the thinking timeline own a pair of their own: inside them the
+   usual ink variables are re-pointed at it, so nothing in there inherits an ink chosen
+   for a different background. */
+.ta-timeline-body,
+.ta-tool-output,
+.tool-output,
+.tools-panel,
+.thinking-content,
+.prose pre {
+  --text-primary: var(--surface-code-text);
+  --text-secondary: var(--surface-code-text);
+  --text-muted: var(--surface-code-muted);
+  --amber: var(--surface-code-muted);
+  --amber-dim: var(--surface-code-muted);
+  --amber-bright: var(--surface-code-text);
+  color: var(--surface-code-text);
+}
+
+/* ── Extra readable ──
+   Solid panels, stronger outlines, no scenery image, no frame, corners, texture,
+   blur or text shadow. Nothing is removed from navigation or controls; this
+   only changes how they are drawn. It comes last so it beats any material. */
+:root[data-readability="extra"] body { background-image: none; }
+:root[data-readability="extra"] body::before,
+:root[data-readability="extra"] body::after { display: none; }
+:root[data-readability="extra"] .skin-frame { display: none; }
+:root[data-readability="extra"] {
+  --surface-blur: none;
+  --settings-subnav-blur: none;
+  --surface-header-blur: none;
+  --settings-panel-blur: none;
+  --surface-pill-blur: none;
+  --chip-shadow: none;
+  --border: var(--control-border);
+  --border-hover: var(--control-border);
+  --divider: var(--control-border);
+  --settings-hairline: var(--control-border);
+  --field-border: var(--control-border);
+  --settings-field-border: var(--control-border);
+  --composer-border: var(--control-border);
+  --companion-border: var(--control-border);
+  --user-border: var(--control-border);
+  --tab-border: var(--control-border);
+  --btn-border-primary: var(--control-border);
+  --btn-border-muted: var(--control-border);
+  --btn-border-muted-hover: var(--control-border);
+}
+/* A hard 2px edge on every panel, drawn outside the box so nothing shifts. */
+:root[data-readability="extra"] :is(
+  .message, .home-card, .night-shelf, .thread-sidebar, .settings-content-inner, .settings-subnav, .login-card,
+  .chat-header, .composer-inner, .nav-rail, .mobile-topbar, .drawer-panel, .search-panel, .cdlg-panel, .cp-modal,
+  .plus-menu, .jtd-panel, .update-pill, .ap-sample, .conn-tab, .day-divider-label, .new-divider-label, .system-text
+) {
+  box-shadow: 0 0 0 2px var(--control-border);
+}
+:root[data-readability="extra"] :focus-visible { outline-width: 3px; }
+/* The composer shows focus on the whole pill (focus-within), so it needs the same 3px. */
+:root[data-readability="extra"] .composer-inner:focus-within { outline-width: 3px; }
+
+/* ── Views still drawn for translucent dark glass over the scene ──
+   Files, Notes, Browser, Command and the Observatory were designed with cream text
+   straight on the room. Under a skin they keep the chrome ink and the room shows through
+   (their panels are plates, generated); in Extra readable they sit on one solid chrome plate.
+   The classic Hedgewitch look is unchanged. */
+:root[data-material]:not([data-material="hedgewitch"]) .app-content:is([data-route="files"], [data-route="canvas"], [data-route="command"], [data-route="browser"], [data-route="observatory"]),
+:root[data-readability="extra"] .app-content:is([data-route="files"], [data-route="canvas"], [data-route="command"], [data-route="browser"], [data-route="observatory"]) {
+  /* Step 5: no fill under a skin (the room shows through; the panels are plates, see routePanelsCss in skins-css.ts). Extra readable keeps its solid lid just below. */
+  color: var(--surface-chrome-text);
+  --text-primary: var(--surface-chrome-text);
+  --text-secondary: var(--surface-chrome-text);
+  --text-muted: var(--surface-chrome-muted);
+  --amber: var(--surface-chrome-text);
+  --amber-bright: var(--surface-chrome-text);
+  --amber-dim: var(--surface-chrome-muted);
+  --lavender: var(--surface-chrome-text);
+  --lavender-bright: var(--surface-chrome-text);
+  --lavender-dim: var(--surface-chrome-muted);
+  --link: var(--surface-chrome-text);
+  --bg-primary: var(--surface-chrome-deep);
+  --bg-secondary: var(--surface-chrome-deep);
+  --bg-tertiary: var(--surface-chrome-deep);
+  --bg-surface: var(--surface-chrome-deep);
+  --bg-input: var(--surface-chrome-deep);
+  --focus-ring: var(--focus-ring-chrome);
+  --status-error-text: var(--status-error-chrome);
+}
+:root[data-readability="extra"] .app-content:is([data-route="files"], [data-route="canvas"], [data-route="command"], [data-route="browser"], [data-route="observatory"]) {
+  background: var(--surface-chrome);
+}

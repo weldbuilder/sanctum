@@ -1,0 +1,47 @@
+{
+  "name": "@sanctum/backend",
+  "version": "2.3.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "check": "tsc --noEmit",
+    "db:init": "tsx src/db-init.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.139",
+    "@huggingface/transformers": "^3.8.1",
+    "@openai/codex-sdk": "^0.159.2",
+    "@sanctum/shared": "*",
+    "better-sqlite3": "^12.11.1",
+    "cookie": "^1.0.0",
+    "cors": "^2.8.5",
+    "croner": "^10.0.1",
+    "discord.js": "^14.25.1",
+    "dotenv": "^16.4.0",
+    "express": "^4.21.0",
+    "express-rate-limit": "^7.5.0",
+    "googleapis": "^173.0.0",
+    "helmet": "^8.0.0",
+    "js-yaml": "^4.1.0",
+    "multer": "^2.0.2",
+    "telegraf": "^4.16.3",
+    "web-push": "^3.6.7",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/cookie": "^0.6.0",
+    "@types/cors": "^2.8.0",
+    "@types/express": "^5.0.0",
+    "@types/js-yaml": "^4.0.9",
+    "@types/multer": "^2.0.0",
+    "@types/web-push": "^3.6.4",
+    "@types/ws": "^8.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

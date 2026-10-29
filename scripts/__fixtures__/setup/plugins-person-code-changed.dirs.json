@@ -1,0 +1,20 @@
+{
+  "app/data": {
+    "private": true
+  },
+  "app/data/plugins": {
+    "private": true
+  },
+  "app/data/plugins/snapshots": {
+    "private": true
+  },
+  "app/data/plugins/snapshots/other": {
+    "private": true
+  },
+  "app/data/plugins/snapshots/other/de428dc61199d9871dd366e1e205d4dee7928e4b1d543c0df1abad80b4dee00b": {
+    "private": true
+  },
+  "app/data/plugins/snapshots/other/de428dc61199d9871dd366e1e205d4dee7928e4b1d543c0df1abad80b4dee00b/dsh": {
+    "private": true
+  }
+}

@@ -1,0 +1,70 @@
+# A Chromium browser you can watch and drive from the Browser tab.
+#   display  : Xvfb + x11vnc (loopback, password) + websockify/noVNC on 6080
+#   chromium : Playwright's Chromium drawing on the display's X socket, with a persistent profile
+#
+# Start:  cp .env.example .env   (set BROWSER_SEAT_VNC_PASSWORD)  then  docker compose up -d --build
+# Stop:   docker compose down
+#
+# SECURITY: anyone who can reach the viewer port and knows the password controls this browser
+# and every account logged in inside it. Both ports bind to 127.0.0.1 by default. See README.md.
+
+services:
+  display:
+    build: ./display
+    image: sanctum-browser-seat-display:local
+    container_name: sanctum-browser-seat-display
+    restart: unless-stopped
+    ports:
+      # host-address:host-port:container-port. Keep 127.0.0.1 unless you read the README.
+      - "${BROWSER_SEAT_BIND:-127.0.0.1}:${BROWSER_SEAT_PORT:-6080}:6080"
+    environment:
+      - VNC_PASSWORD=${BROWSER_SEAT_VNC_PASSWORD:?set BROWSER_SEAT_VNC_PASSWORD in .env}
+      - SEAT_RESOLUTION=${BROWSER_SEAT_RESOLUTION:-1600x1000x24}
+    volumes:
+      - x11:/tmp/.X11-unix
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=16m
+      # /tmp/.X11-unix is the shared volume above and is mounted over this tmpfs.
+
+  chromium:
+    image: mcr.microsoft.com/playwright:v1.59.1-noble
+    container_name: sanctum-browser-seat-chromium
+    restart: unless-stopped
+    depends_on: [display]
+    user: "1001:1001"          # the image's pwuser
+    ports:
+      # DevTools Protocol: FULL CONTROL of the browser. Loopback only, deliberately NOT tied to
+      # BROWSER_SEAT_BIND. Do not change this to a non-loopback address.
+      - "127.0.0.1:${BROWSER_SEAT_CDP_PORT:-9222}:9223"
+    environment:
+      - DISPLAY=:77
+      - HOME=/home/pwuser
+      - TZ=${TZ:-Etc/UTC}
+      - SEAT_RESOLUTION=${BROWSER_SEAT_RESOLUTION:-1600x1000x24}
+    volumes:
+      - x11:/tmp/.X11-unix:ro
+      # Persistent profile (cookies, logins, history). The volume is the whole pwuser home so it
+      # starts out owned by pwuser. Delete it to wipe the browser.
+      - browser-seat-home:/home/pwuser
+    # Chromium binds CDP to loopback only (ignores --remote-debugging-address), so a tiny node
+    # relay listens on 9223 and forwards TCP to 127.0.0.1:9222. Only 9223 is published, loopback only.
+    # --no-sandbox: the container is the isolation boundary (no caps, no-new-privileges, no host mounts).
+    command:
+      - sh
+      - -c
+      - >-
+        R=$${SEAT_RESOLUTION%x*}; W=$${R%x*}; H=$${R#*x};
+        node -e "const n=require('net');n.createServer(c=>{const u=n.connect(9222,'127.0.0.1');c.pipe(u).pipe(c);u.on('error',()=>c.destroy());c.on('error',()=>u.destroy())}).listen(9223,'0.0.0.0')" &
+        exec /ms-playwright/chromium-*/chrome-linux64/chrome --no-sandbox --user-data-dir=/home/pwuser/profile
+        --remote-debugging-port=9222 --no-first-run --disable-blink-features=AutomationControlled
+        --window-position=0,0 --window-size=$$W,$$H about:blank
+    shm_size: "1gb"   # Chromium crashes on the default 64 MB /dev/shm
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+volumes:
+  x11:
+  browser-seat-home:

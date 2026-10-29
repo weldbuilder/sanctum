@@ -1,0 +1,14 @@
+{
+  "home/Documents": {
+    "private": false
+  },
+  "home/Documents/companion-home": {
+    "private": false
+  },
+  "home/Documents/companion-home/config": {
+    "private": false
+  },
+  "home/Documents/companion-home/identity": {
+    "private": false
+  }
+}

@@ -1,0 +1,67 @@
+node_modules
+dist/
+build/
+.svelte-kit/
+*.js.map
+*.tsbuildinfo
+
+# ── Local secrets & runtime state (never commit) ──────────────────────────────
+.env
+.dev.vars
+*.dev.vars
+data/
+data/.google-key
+data/.internal-token
+.google-key
+.internal-token
+.tv-token
+logs/
+*.db
+*.db-wal
+*.db-shm
+*.db*
+ecosystem.config.cjs
+scripts/launch.ps1
+.sanctum-thread
+.resonant-thread
+
+# ── Local config & identity (anchored to root so example copies survive) ──────
+/sanctum.yaml
+/sanctum.yaml.bak
+.env.bak-*
+/sanctum.yaml.bak-*
+/sanctum.yaml.*.tmp
+/sanctum.yml
+/config/sanctum.yaml
+/config/sanctum.yaml.bak
+/config/sanctum.yaml.bak-*
+/config/sanctum.yaml.*.tmp
+/resonant.yaml
+/resonant.yml
+/config/resonant.yaml
+/CLAUDE.md
+/.mcp.json
+
+# ── Real wake prompts stay local; keep the generic example ────────────────────
+prompts/*
+!prompts/wake.md
+!prompts/codex-base-prompt.md
+!prompts/codex-summarizer-prompt.md
+!prompts/discord-public-base.md
+
+.DS_Store
+Thumbs.db
+screenshots/
+!docs/screenshots/
+tmp/
+
+# ── Template files that MUST stay committable ─────────────────────────────────
+!sanctum.example.yaml
+!.env.example
+!examples/
+
+# test fixtures that must not live under the OS temp dir
+.test-tmp/
+scripts/__fixtures__/setup/.sbx-*
+/ledger.json
+/journal.jsonl

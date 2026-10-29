@@ -1,0 +1,27 @@
+{
+  "app/.env": {
+    "private": false,
+    "sha256": "1958241e8026c450226b9b30b5af8996a02a67d63033bd9f38fb68263744d1d4",
+    "bytes": 95
+  },
+  "app/sanctum.yaml": {
+    "private": false,
+    "sha256": "ebc965bad2649eb1c21d944c32296614740127b9629dd4b19ccc3be8d2702b64",
+    "bytes": 877
+  },
+  "home/Documents/sanctum-private/exclusions.txt": {
+    "private": true,
+    "sha256": "98533408bf503098d760e92186ec83044ef7ab147ce11f50a4c8143ada0a70cb",
+    "bytes": 980
+  },
+  "home/Documents/sanctum-private/names.txt": {
+    "private": true,
+    "sha256": "819fd9d240fddd10fbff5790047e90d61ad21839e4423996929a9ececc578360",
+    "bytes": 876
+  },
+  "home/Documents/sanctum-private/words.txt": {
+    "private": true,
+    "sha256": "0ccf82ac7fd5ef723a8f8a9bed6a9e9dae07859f24f66d8cb19f830be5e8f89f",
+    "bytes": 1293
+  }
+}

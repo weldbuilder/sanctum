@@ -1,0 +1,22 @@
+{
+  "app/.env": {
+    "private": false,
+    "sha256": "1958241e8026c450226b9b30b5af8996a02a67d63033bd9f38fb68263744d1d4",
+    "bytes": 95
+  },
+  "app/.mcp.json": {
+    "private": false,
+    "sha256": "d512301c40f0fa44cbc183df183de8b6900053cfdcf6510b271f03fa28e1c1ed",
+    "bytes": 554
+  },
+  "app/.mcp.json.bak-TS": {
+    "private": false,
+    "sha256": "92d9c3550d38bd7c75f16f77167c4e2b38708279e080d1240e4ee04fba83c36b",
+    "bytes": 165
+  },
+  "app/sanctum.yaml": {
+    "private": false,
+    "sha256": "bc2c3b1c6ae807393ff992b24e13e882e4190212fc241fb48339291073ae24f4",
+    "bytes": 708
+  }
+}

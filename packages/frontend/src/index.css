@@ -1,0 +1,413 @@
+@import "tailwindcss";
+
+@theme {
+  /* Clear Tailwind's default color palette — the Hearth tokens below become the
+     ONLY available colors, so stray `bg-blue-500` / `text-zinc-400` can't sneak in.
+     `transparent` + `current` are kept as universal keywords (not palette colors).
+     Verified 2026-06-30: zero default-palette utilities in use, so this is no-visual-change. */
+  --color-*: initial;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+
+  /* ─── Hearth backgrounds — warm obsidian, not tech-dark ─── */
+  --color-bg-primary: #0c0b09;
+  --color-bg-secondary: #131210;
+  --color-bg-tertiary: #1a1815;
+  --color-bg-surface: #211f1b;
+  --color-bg-input: #0f0e0c;
+
+  /* Text — warm cream, never pure white */
+  --color-text-primary: #e2dbd0;
+  --color-text-secondary: #a09689;
+  --color-text-muted: #6a6258;
+
+  /* ─── companion / amber ─── */
+  --color-amber: #c9a87c;
+  --color-amber-bright: #e3c49a;
+  --color-amber-dim: #a08960;
+  --color-amber-glow: rgba(201, 168, 124, 0.18);
+  --color-amber-subtle: rgba(201, 168, 124, 0.06);
+
+  /* ─── user / lavender ─── */
+  --color-lavender: #a893c0;
+  --color-lavender-bright: #c4b5e3;
+  --color-lavender-dim: #8a78a0;
+  --color-lavender-glow: rgba(168, 147, 192, 0.18);
+  --color-lavender-subtle: rgba(168, 147, 192, 0.06);
+
+  /* ─── Joint / champagne gold (reserved — NOT everyday chat) ─── */
+  --color-gold: #c4a872;
+  --color-gold-bright: #dfc49a;
+  --color-gold-dim: #9e884e;
+  --color-gold-glow: rgba(196, 168, 114, 0.14);
+
+  /* Status */
+  --color-status-active: #6dba88;
+  --color-status-waking: #d4a843;
+  --color-status-dormant: #71717a;
+  --color-status-offline: #3f3f46;
+
+  /* Borders */
+  --color-border: rgba(255, 255, 255, 0.06);
+  --color-border-hover: rgba(255, 255, 255, 0.12);
+  --color-bg-hover: rgba(255, 255, 255, 0.04);
+  --color-bg-active: rgba(255, 255, 255, 0.07);
+
+  /* Type */
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-serif: 'Lora', Georgia, 'Times New Roman', serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+
+  /* Hearth tempo — breathed, not snappy */
+  --hearth-curve: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-smooth: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ─── CSS custom properties (for inline style / non-Tailwind usage) ─── */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --bg-primary: #0c0b09;
+  --bg-secondary: #131210;
+  --bg-tertiary: #1a1815;
+  --bg-surface: #211f1b;
+  --bg-input: #0f0e0c;
+
+  /* Text */
+  --text-primary: #e2dbd0;
+  --text-secondary: #a09689;
+  --text-muted: #6a6258;
+
+  /* companion — amber */
+  --amber: #c9a87c;
+  --amber-bright: #e3c49a;
+  --amber-dim: #a08960;
+  --amber-glow: rgba(201, 168, 124, 0.18);
+  --amber-subtle: rgba(201, 168, 124, 0.06);
+
+  /* user — lavender */
+  --lavender: #a893c0;
+  --lavender-bright: #c4b5e3;
+  --lavender-dim: #8a78a0;
+  --lavender-glow: rgba(168, 147, 192, 0.18);
+  --lavender-subtle: rgba(168, 147, 192, 0.06);
+
+  /* Joint / champagne gold — reserved */
+  --gold: #c4a872;
+  --gold-bright: #dfc49a;
+  --gold-dim: #9e884e;
+  --gold-glow: rgba(196, 168, 114, 0.14);
+  --gold-ember: rgba(196, 168, 114, 0.08);
+
+  /* Message role tokens — bubble keying */
+  /* companion / amber */
+  --companion-bg: rgba(201, 168, 124, 0.055);
+  --companion-border: rgba(201, 168, 124, 0.14);
+  --companion-edge: rgba(201, 168, 124, 0.5);
+  /* user / lavender */
+  --user-bg: rgba(168, 147, 192, 0.055);
+  --user-border: rgba(168, 147, 192, 0.12);
+  --user-edge: rgba(168, 147, 192, 0.5);
+
+  /* Accent aliases — amber as primary accent in chat */
+  --accent: var(--amber);
+  --accent-hover: var(--amber-bright);
+  --accent-muted: var(--amber-dim);
+
+  /* Status */
+  --status-active: #6dba88;
+  --status-waking: #d4a843;
+  --status-dormant: #71717a;
+  --status-offline: #3f3f46;
+
+  /* Borders */
+  --border: rgba(255, 255, 255, 0.06);
+  --border-hover: rgba(255, 255, 255, 0.12);
+  --shadow: rgba(0, 0, 0, 0.40);
+  --bg-hover: rgba(255, 255, 255, 0.04);
+  --bg-active: rgba(255, 255, 255, 0.07);
+
+  /* Radius */
+  --radius: 0.875rem;
+  --radius-sm: 0.5rem;
+  --radius-lg: 1.75rem;
+  --radius-card: 1.125rem;
+  --sidebar-width: 16rem;
+
+  /* Type */
+  --font-heading: 'Lora', Georgia, serif;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-serif: 'Lora', Georgia, serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+
+  /* Hearth tempo — interaction-layer spec */
+  --hearth-curve: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Tier 1: press-give (scale feedback)      ≈100ms */
+  --tx-press: 100ms var(--hearth-curve);
+  /* Tier 2: fast — color / bg / opacity      ≈150ms */
+  --tx-color: 150ms var(--hearth-curve);
+  /* Tier 3: motion — transform / layout      ≈160ms */
+  --tx-motion: 160ms var(--hearth-curve);
+  /* Tier 4: warm — glow / border / shadow    ≈240ms */
+  --tx-glow: 240ms var(--hearth-curve);
+  /* Named aliases matching old names — updated values */
+  --tx-fast: 150ms var(--hearth-curve);   /* was 240ms */
+  --tx-base: 240ms var(--hearth-curve);   /* was 380ms */
+  --tx-slow: 420ms var(--hearth-curve);   /* was 560ms */
+  --press-scale: 0.985;
+  /* Settings surface radius token */
+  --radius-settings: 0.625rem;
+
+  /* Legacy aliases — kept so any leftover Tailwind JIT references don't explode */
+  --transition: 240ms var(--hearth-curve);
+  --transition-fast: 150ms var(--hearth-curve);
+  --transition-slow: 420ms var(--hearth-curve);
+
+  /* Shadow scale */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.30);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.40);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.50);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 15px;
+  -webkit-text-size-adjust: 100%;
+  overflow-x: hidden;
+  overflow-y: hidden;
+}
+
+body {
+  font-family: var(--font-body);
+  font-weight: 400;
+  /* Warm obsidian with radial amber/lavender pools — the hearth atmosphere */
+  background:
+    radial-gradient(circle at 18% 12%, rgba(201, 168, 124, 0.08), transparent 32%),
+    radial-gradient(circle at 82% 88%, rgba(168, 147, 192, 0.05), transparent 28%),
+    radial-gradient(circle at 50% 50%, rgba(201, 168, 124, 0.03), transparent 60%),
+    linear-gradient(180deg, #0e0c0a 0%, #0c0b09 40%, #0a0908 100%);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  line-height: 1.6;
+  min-height: 100dvh;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior: none;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+a {
+  color: var(--amber);
+  text-decoration: none;
+  transition: color var(--tx-fast);
+}
+a:hover { color: var(--amber-bright); }
+
+:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+  resize: none;
+}
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.07); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(201, 168, 124, 0.18); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ─── Markdown / prose ─── */
+.prose p {
+  margin: 0.5rem 0;
+}
+.prose p:first-child { margin-top: 0; }
+.prose p:last-child { margin-bottom: 0; }
+
+.prose em {
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+.prose strong { font-weight: 500; color: var(--text-primary); }
+
+.prose code {
+  background: var(--surface-code-inline, rgba(255, 255, 255, 0.05));
+  padding: 0.125rem 0.3rem;
+  border-radius: 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  color: var(--amber-bright);
+}
+
+.prose pre {
+  background: var(--surface-code);
+  border: 1px solid var(--border);
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  margin: 0.625rem 0;
+}
+
+.prose pre code {
+  background: none;
+  padding: 0;
+  color: var(--surface-code-text, var(--text-secondary));
+  font-size: 0.8125em;
+}
+
+.prose a {
+  color: var(--amber);
+  text-decoration: underline;
+  text-decoration-color: var(--amber-dim);
+  text-decoration-thickness: 1px;
+}
+
+.prose ul,
+.prose ol {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+
+.prose blockquote {
+  border-left: 2px solid var(--amber-dim);
+  padding-left: 1rem;
+  margin: 0.5rem 0;
+  color: var(--text-secondary);
+  font-style: italic;
+  font-family: var(--font-serif);
+}
+
+.prose h1, .prose h2, .prose h3, .prose h4 {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 500;
+  margin: 0.875rem 0 0.375rem;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+.prose h1 { font-size: 1.25rem; }
+.prose h2 { font-size: 1.125rem; }
+.prose h3 { font-size: 1rem; }
+.prose h4 { font-size: 0.9375rem; }
+
+/* ─── Animations ─── */
+@keyframes blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+@keyframes typingBounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-0.375rem); opacity: 1; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-0.25rem); }
+  to { opacity: 0.7; }
+}
+
+@keyframes modalRise {
+  from { opacity: 0; transform: translateY(0.5rem) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes presencePulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.85); }
+}
+
+/* Breath pulse — used on composer bottom edge */
+@keyframes breath {
+  0%, 100% { opacity: 0.08; transform: scaleX(0.5); }
+  50%      { opacity: 0.30; transform: scaleX(1); }
+}
+
+/* Ember pulse — send dot when ready */
+@keyframes emberPulse {
+  from { opacity: 0.75; transform: scale(0.92); box-shadow: 0 0 6px var(--amber-glow); }
+  to   { opacity: 1;    transform: scale(1.06); box-shadow: 0 0 20px var(--amber), 0 0 4px var(--amber-bright); }
+}
+
+@keyframes stopPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.60; }
+}
+
+@keyframes bannerFadeIn {
+  from { opacity: 0; transform: translateY(-0.25rem); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* One-shot amber highlight wash — e.g. a jumped-to / newly-routed message settling. */
+@keyframes hearthPulse {
+  0%   { background-color: var(--amber-glow); }
+  100% { background-color: transparent; }
+}
+
+/* ─── Hearth utilities (Tailwind v4 @utility) ───────────────────────────────────
+   Extracted from repeated inline <style> blocks (harvest 2026-06-30). Apply via
+   className instead of re-declaring the same CSS per component. Migrate inline
+   sites onto these incrementally — defining them here is step one. */
+
+/* Press-give: tactile scale feedback on tap. Replaces the
+   scale(0.985) translateY(0.5px) :active transform duplicated across PresenceDot,
+   ShowThinkingToggle, JumpToDateTime, ContextGauge and many buttons. */
+@utility hearth-press {
+  transition: transform var(--tx-press);
+  &:active:not(:disabled) {
+    transform: scale(var(--press-scale)) translateY(0.5px);
+  }
+}
+
+/* Subtle amber hover wash for interactive rows / icon buttons. */
+@utility hearth-hover {
+  transition: background-color var(--tx-color);
+  &:hover { background-color: var(--amber-subtle); }
+}
+
+/* Hide scrollbars while keeping scroll (horizontal strips, menus, model picker). */
+@utility scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar { display: none; }
+}
+
+/* Frosted-glass backdrop for floating surfaces (menus, popovers, context bars). */
+@utility backdrop-glass {
+  background-color: rgba(19, 18, 16, 0.72);
+  backdrop-filter: blur(12px) saturate(1.1);
+  -webkit-backdrop-filter: blur(12px) saturate(1.1);
+}
+
+/* One-shot amber highlight pulse — pair with the hearthPulse keyframe above. */
+@utility hearth-pulse {
+  animation: hearthPulse 1.2s var(--hearth-curve);
+}

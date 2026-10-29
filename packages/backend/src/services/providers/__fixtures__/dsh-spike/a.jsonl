@@ -1,0 +1,8 @@
+{"_t":1808,"type":"session","sessionId":"session-f3a4ebd7-e1bb-4a91-99b8-b70306f503ea","cwd":"/tmp/dsh-spike/work"}
+{"_t":1817,"type":"status","phase":"turn_start","turn":1}
+{"_t":1898,"type":"status","phase":"step_start","turn":1,"step":1}
+{"_t":4015,"type":"text","text":"\n\nHello!"}
+{"_t":4016,"type":"status","phase":"step_end","turn":1,"step":1,"usage":{"inputTokens":5793,"outputTokens":4,"totalTokens":5797}}
+{"_t":4021,"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"completed"}}
+{"_t":4035,"type":"final","text":"\n\nHello!"}
+{"_spike":"generator-ended","t":4203}

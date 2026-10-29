@@ -1,0 +1,897 @@
+{
+  "version": 1,
+  "created": "2026-10-20",
+  "purpose": "Decorative room artwork and native UI material/trim assets. Not an app patch.",
+  "sourceDimensions": {
+    "desktop": [
+      1536,
+      1024
+    ],
+    "mobile": [
+      1024,
+      1536
+    ]
+  },
+  "rooms": {
+    "salon": {
+      "name": "Vampire salon",
+      "defaultMaterial": "black-damask",
+      "fallback": "#121114",
+      "assets": {
+        "desktopWebp": "/skins/salon/desktop-v1.webp",
+        "desktopJpeg": "/skins/salon/desktop-v1.jpg",
+        "mobileWebp": "/skins/salon/mobile-v1.webp",
+        "mobileJpeg": "/skins/salon/mobile-v1.jpg",
+        "thumbnail": "/skins/salon/thumbnail-v1.webp",
+        "material-tile-svg": "/skins/salon/material-tile-v1.svg",
+        "corner-tl-svg": "/skins/salon/corner-tl-v1.svg",
+        "corner-tr-svg": "/skins/salon/corner-tr-v1.svg",
+        "corner-br-svg": "/skins/salon/corner-br-v1.svg",
+        "corner-bl-svg": "/skins/salon/corner-bl-v1.svg",
+        "texture-svg": "/skins/salon/velvet-damask.webp"
+      },
+      "desktopPosition": "50% 50%",
+      "mobilePosition": "50% 0%",
+      "mobileBreakpointPx": 768,
+      "mobileViewportCropReviewed": {
+        "width": 342,
+        "height": 736
+      },
+      "textureUsage": "Decorative gutters only; never behind text by default",
+      "cornerCssSizePx": 48,
+      "cornerSourceSizePx": 96
+    },
+    "library": {
+      "name": "Gothic library",
+      "defaultMaterial": "mounted-paper",
+      "fallback": "#211B19",
+      "assets": {
+        "desktopWebp": "/skins/library/desktop-v1.webp",
+        "desktopJpeg": "/skins/library/desktop-v1.jpg",
+        "mobileWebp": "/skins/library/mobile-v1.webp",
+        "mobileJpeg": "/skins/library/mobile-v1.jpg",
+        "thumbnail": "/skins/library/thumbnail-v1.webp",
+        "material-tile-svg": "/skins/library/material-tile-v1.svg",
+        "corner-tl-svg": "/skins/library/corner-tl-v1.svg",
+        "corner-tr-svg": "/skins/library/corner-tr-v1.svg",
+        "corner-br-svg": "/skins/library/corner-br-v1.svg",
+        "corner-bl-svg": "/skins/library/corner-bl-v1.svg",
+        "leather-svg": "/skins/library/library-wood.webp",
+        "texture-svg": "/skins/library/library-parchment.webp"
+      },
+      "desktopPosition": "50% 50%",
+      "mobilePosition": "50% 0%",
+      "mobileBreakpointPx": 768,
+      "mobileViewportCropReviewed": {
+        "width": 342,
+        "height": 736
+      },
+      "textureUsage": "Decorative gutters only; never behind text by default",
+      "cornerCssSizePx": 48,
+      "cornerSourceSizePx": 96
+    },
+    "cloister": {
+      "name": "Moonlit cloister",
+      "defaultMaterial": "midnight-ink",
+      "fallback": "#0B1425",
+      "assets": {
+        "desktopWebp": "/skins/cloister/desktop-v1.webp",
+        "desktopJpeg": "/skins/cloister/desktop-v1.jpg",
+        "mobileWebp": "/skins/cloister/mobile-v1.webp",
+        "mobileJpeg": "/skins/cloister/mobile-v1.jpg",
+        "thumbnail": "/skins/cloister/thumbnail-v1.webp",
+        "material-tile-svg": "/skins/cloister/material-tile-v1.svg",
+        "corner-tl-svg": "/skins/cloister/corner-tl-v1.svg",
+        "corner-tr-svg": "/skins/cloister/corner-tr-v1.svg",
+        "corner-br-svg": "/skins/cloister/corner-br-v1.svg",
+        "corner-bl-svg": "/skins/cloister/corner-bl-v1.svg",
+        "edge-ornament-svg": "/skins/cloister/edge-ornament-v1.svg",
+        "texture-svg": "/skins/cloister/cloister-navy-cloth.webp"
+      },
+      "desktopPosition": "50% 50%",
+      "mobilePosition": "50% 0%",
+      "mobileBreakpointPx": 768,
+      "mobileViewportCropReviewed": {
+        "width": 342,
+        "height": 736
+      },
+      "textureUsage": "Decorative gutters only; never behind text by default",
+      "cornerCssSizePx": 48,
+      "cornerSourceSizePx": 96
+    },
+    "conservatory": {
+      "name": "Rainy conservatory",
+      "defaultMaterial": "botanical-linen",
+      "fallback": "#102331",
+      "assets": {
+        "desktopWebp": "/skins/conservatory/desktop-v1.webp",
+        "desktopJpeg": "/skins/conservatory/desktop-v1.jpg",
+        "mobileWebp": "/skins/conservatory/mobile-v1.webp",
+        "mobileJpeg": "/skins/conservatory/mobile-v1.jpg",
+        "thumbnail": "/skins/conservatory/thumbnail-v1.webp",
+        "material-tile-svg": "/skins/conservatory/material-tile-v1.svg",
+        "corner-tl-svg": "/skins/conservatory/corner-tl-v1.svg",
+        "corner-tr-svg": "/skins/conservatory/corner-tr-v1.svg",
+        "corner-br-svg": "/skins/conservatory/corner-br-v1.svg",
+        "corner-bl-svg": "/skins/conservatory/corner-bl-v1.svg",
+        "edge-ornament-svg": "/skins/conservatory/edge-ornament-v1.svg",
+        "texture-svg": "/skins/conservatory/greenhouse-navy.webp"
+      },
+      "desktopPosition": "50% 50%",
+      "mobilePosition": "50% 0%",
+      "mobileBreakpointPx": 768,
+      "mobileViewportCropReviewed": {
+        "width": 342,
+        "height": 736
+      },
+      "textureUsage": "Decorative gutters only; never behind text by default",
+      "cornerCssSizePx": 48,
+      "cornerSourceSizePx": 96
+    },
+    "night": {
+      "name": "Celestial night",
+      "defaultMaterial": "indigo-silk",
+      "fallback": "#101226",
+      "assets": {
+        "desktopWebp": "/skins/night/desktop-v1.webp",
+        "desktopJpeg": "/skins/night/desktop-v1.jpg",
+        "mobileWebp": "/skins/night/mobile-v1.webp",
+        "mobileJpeg": "/skins/night/mobile-v1.jpg",
+        "thumbnail": "/skins/night/thumbnail-v1.webp",
+        "material-tile-svg": "/skins/night/material-tile-v1.svg",
+        "corner-tl-svg": "/skins/night/corner-tl-v1.svg",
+        "corner-tr-svg": "/skins/night/corner-tr-v1.svg",
+        "corner-br-svg": "/skins/night/corner-br-v1.svg",
+        "corner-bl-svg": "/skins/night/corner-bl-v1.svg",
+        "texture-svg": "/skins/night/celestial-navy.webp"
+      },
+      "desktopPosition": "50% 50%",
+      "mobilePosition": "50% 0%",
+      "mobileBreakpointPx": 768,
+      "mobileViewportCropReviewed": {
+        "width": 342,
+        "height": 736
+      },
+      "textureUsage": "Decorative gutters only; never behind text by default",
+      "cornerCssSizePx": 48,
+      "cornerSourceSizePx": 96
+    },
+    "ember": {
+      "name": "Ember study",
+      "defaultMaterial": "smoked-copper",
+      "fallback": "#211B18",
+      "assets": {
+        "desktopWebp": "/skins/ember/ember-study-desktop-v2.webp",
+        "desktopJpeg": "/skins/ember/ember-study-desktop-v2.jpg",
+        "mobileWebp": "/skins/ember/ember-study-mobile-v2.webp",
+        "mobileJpeg": "/skins/ember/ember-study-mobile-v2.jpg",
+        "thumbnail": "/skins/ember/ember-study-thumbnail-v2.webp",
+        "material-tile-svg": "/skins/ember/ember-walnut-tile.svg",
+        "corner-tl-svg": "/skins/ember/ember-copper-corner.svg",
+        "corner-tr-svg": "/skins/ember/ember-copper-corner.svg",
+        "corner-br-svg": "/skins/ember/ember-copper-corner.svg",
+        "corner-bl-svg": "/skins/ember/ember-copper-corner.svg",
+        "texture-svg": "/skins/ember/ember-charcoal-tile.svg",
+        "editor-tile-svg": "/skins/ember/ember-parchment-tile.svg",
+        "edge-sprig-svg": "/skins/ember/ember-edge-sprig.svg"
+      },
+      "desktopPosition": "50% 50%",
+      "mobilePosition": "50% 50%",
+      "mobileBreakpointPx": 768,
+      "mobileViewportCropReviewed": {
+        "width": 342,
+        "height": 736
+      },
+      "textureUsage": "Cards stay flat and opaque; the walnut tile may sit on chrome at 0.08 at most; the parchment tile only inside an active text editor",
+      "cornerCssSizePx": 48,
+      "cornerSourceSizePx": 64
+    }
+  },
+  "files": [
+    {
+      "path": "public/skins/cloister/cloister-bracket-bl.webp",
+      "bytes": 2016,
+      "sha256": "fd24a87c7672292bbcfcb6a48fa9d85c3d22a92fc82a67ef233069d9ce75f41e"
+    },
+    {
+      "path": "public/skins/cloister/cloister-bracket-br.webp",
+      "bytes": 2076,
+      "sha256": "c8acc7a0eb3d6483d1e7d5daf85ead99fa9560433c236dfa28d70c25bf4d4583"
+    },
+    {
+      "path": "public/skins/cloister/cloister-bracket-tl.webp",
+      "bytes": 2042,
+      "sha256": "0bf33e074708baaed9883740e2805ec1a84a08f0dca717879f4c4ade6eb9aee1"
+    },
+    {
+      "path": "public/skins/cloister/cloister-bracket-tr.webp",
+      "bytes": 2028,
+      "sha256": "1f6d4bf54198528fc39c39445830821c47d8cc8c0515f9f96ee9b92bbb306ea4"
+    },
+    {
+      "path": "public/skins/cloister/cloister-navy-cloth.webp",
+      "bytes": 30168,
+      "sha256": "4d6c8c977c10ad2caa7531a4edd55827e8965da0bc7a6c2c43796d58fda0f668"
+    },
+    {
+      "path": "public/skins/cloister/cloister-sprig-comp-bl.webp",
+      "bytes": 9194,
+      "sha256": "7ebb7773c91877fcc1e729eacf21aff54fd4144ee43131079e7a25384776bc93"
+    },
+    {
+      "path": "public/skins/cloister/cloister-sprig-comp-br.webp",
+      "bytes": 9248,
+      "sha256": "93925cab5278ce83207a4e45cd76f3bd26c66c4df77825618141216844fc5d68"
+    },
+    {
+      "path": "public/skins/cloister/cloister-sprig-comp-tl.webp",
+      "bytes": 9196,
+      "sha256": "375cc7b421a1f064a80b22aa61f2e5ac4787b1709c015cca5d0618716fe3549f"
+    },
+    {
+      "path": "public/skins/cloister/cloister-sprig-comp-tr.webp",
+      "bytes": 9248,
+      "sha256": "2a111b65089755b552a7e56613b61aa3f20072533ad32fa1603e83afaf3176fd"
+    },
+    {
+      "path": "public/skins/cloister/cloister-sprig-home-bl.webp",
+      "bytes": 9410,
+      "sha256": "21c78447413b6a89cadcbfbac41d42015b9a95100f7beac530c37716987e48b7"
+    },
+    {
+      "path": "public/skins/cloister/cloister-sprig-home-br.webp",
+      "bytes": 9326,
+      "sha256": "908934ee0c619ef0c3cb918a87f545760d479e9a73600f74c90d2a49deea8688"
+    },
+    {
+      "path": "public/skins/cloister/cloister-sprig-home-tl.webp",
+      "bytes": 9408,
+      "sha256": "09c205a4f8549ad22ba9c7184a55a977b82eba18f878f69a5d20bfa30bb03044"
+    },
+    {
+      "path": "public/skins/cloister/cloister-sprig-home-tr.webp",
+      "bytes": 9332,
+      "sha256": "379c7d16e18ca9a4b432ad4a5e45e672c9bfc36267dc78c87eebca06382ab34d"
+    },
+    {
+      "path": "public/skins/cloister/cloister-sprig-you-bl.webp",
+      "bytes": 7742,
+      "sha256": "86bd3de992bdddeb07aed8b30c0159f30c14dd0101c53baf0997525886e2c20b"
+    },
+    {
+      "path": "public/skins/cloister/cloister-sprig-you-br.webp",
+      "bytes": 8224,
+      "sha256": "df2aac6b7886879496fcfcedf6229e74e9e31f46327ca935c618b6e73723633c"
+    },
+    {
+      "path": "public/skins/cloister/cloister-sprig-you-tl.webp",
+      "bytes": 7744,
+      "sha256": "a91ebfd4a12abf7bd13b01e59f91d8b75a44ac2b781d4b5097c2a5bf938a84fd"
+    },
+    {
+      "path": "public/skins/cloister/cloister-sprig-you-tr.webp",
+      "bytes": 8220,
+      "sha256": "4a9acb50366f1c9e12d0a05e477f0d3ffd3d00309abf63c55e043d9238791dfa"
+    },
+    {
+      "path": "public/skins/cloister/cloister-you-cloth.webp",
+      "bytes": 63858,
+      "sha256": "9972ed251d27375d86463a4fdc29d5573f1cc9b1774e64f57db00d0652e8c621"
+    },
+    {
+      "path": "public/skins/cloister/corner-bl-v1.svg",
+      "bytes": 927,
+      "sha256": "6de383653f1da7c1ec5c6b7b0aea1e3d104289ea8e01a2914a6502f47849da1a"
+    },
+    {
+      "path": "public/skins/cloister/corner-br-v1.svg",
+      "bytes": 929,
+      "sha256": "bcc49520e47c1bf6b0538e169b360b0a20a8855614c936533c02de6a2176245c"
+    },
+    {
+      "path": "public/skins/cloister/corner-tl-v1.svg",
+      "bytes": 880,
+      "sha256": "e03487079778dd383c803da0928d5728b97665d0a54b5f55ec952fd4fb80d374"
+    },
+    {
+      "path": "public/skins/cloister/corner-tr-v1.svg",
+      "bytes": 927,
+      "sha256": "7b9ccf20ab05ae112c59e8c235eb23b824269a2b7bc7c1c1b961b0199531985b"
+    },
+    {
+      "path": "public/skins/cloister/desktop-v1.jpg",
+      "bytes": 410862,
+      "sha256": "0ab8c3e9775aff5efdc38438e9df781730d8ce1bdf11f924506f4c3d8b16cf94"
+    },
+    {
+      "path": "public/skins/cloister/desktop-v1.webp",
+      "bytes": 432416,
+      "sha256": "beec88cc12c8e15e1b9d070fa736be6d6e07ee4dcb606bdff39afd3dbe91308c"
+    },
+    {
+      "path": "public/skins/cloister/edge-ornament-v1.svg",
+      "bytes": 2769,
+      "sha256": "4e352466fcc1f57ff18ebbcf452fdd1e990523137d024a27f09fce56453fd8a6"
+    },
+    {
+      "path": "public/skins/cloister/material-tile-v1.svg",
+      "bytes": 8448,
+      "sha256": "1d9d9e54f9a779dd824e69b4cbf73f23a112e3d8d27958e6dfe99139d821ad18"
+    },
+    {
+      "path": "public/skins/cloister/mobile-v1.jpg",
+      "bytes": 329109,
+      "sha256": "d076cb77d1f7f348ebba5f707522a160e344a407ae5da109fb4d78d524e4dcf2"
+    },
+    {
+      "path": "public/skins/cloister/mobile-v1.webp",
+      "bytes": 234248,
+      "sha256": "1d7bf496f04d1e34b3c34d4d629d3d8d734f9eae5a654b32031248977332e6d9"
+    },
+    {
+      "path": "public/skins/cloister/thumbnail-v1.webp",
+      "bytes": 13716,
+      "sha256": "ba80d988a96819ec5bbdb237b6996a2e12be89ce72b07d595c63467152caa9bc"
+    },
+    {
+      "path": "public/skins/conservatory/corner-bl-v1.svg",
+      "bytes": 927,
+      "sha256": "dc2dbbf86ed82cb21cd9c2e28e1cecfe01e1e6e11e5460f63b0fa2a5077e81a4"
+    },
+    {
+      "path": "public/skins/conservatory/corner-br-v1.svg",
+      "bytes": 929,
+      "sha256": "ea2789686203f2e20becb7792f46ce800d0103485b9187946457a514ac0951b7"
+    },
+    {
+      "path": "public/skins/conservatory/corner-tl-v1.svg",
+      "bytes": 880,
+      "sha256": "0fe9a676fb836db6c92a829bca7efdf8e97d7aab57a9dda3d74d86bb00454df9"
+    },
+    {
+      "path": "public/skins/conservatory/corner-tr-v1.svg",
+      "bytes": 927,
+      "sha256": "bae99eb69a990e2050b549eebcb46fb6a5b647c1c59aa4b7945d1729b83eff11"
+    },
+    {
+      "path": "public/skins/conservatory/desktop-v1.jpg",
+      "bytes": 535250,
+      "sha256": "2b99bbf88c180893678bff3c1297306075ea8475217132e92945287f18b55dab"
+    },
+    {
+      "path": "public/skins/conservatory/desktop-v1.webp",
+      "bytes": 464320,
+      "sha256": "0b95d1476bc0a3c5fb85aca3d56afbd398c9be1f68a0fc2e42fc8776d626c985"
+    },
+    {
+      "path": "public/skins/conservatory/edge-ornament-v1.svg",
+      "bytes": 2769,
+      "sha256": "d8b1db2391c11d63312c74ab8091e51a86c773b12dfa91b536c57410fcb9ad57"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-indigo.webp",
+      "bytes": 84806,
+      "sha256": "aaf3e61d6879d62bdb465ee11f58760a69c6c3e8718ce08d9fc85cb923faeea9"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-navy.webp",
+      "bytes": 87508,
+      "sha256": "03073feeeb47b52e2d7fd4784570590dfdfbf4c6eed80ad52afd24efcbfbcf67"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-slate.webp",
+      "bytes": 79032,
+      "sha256": "10382ad3e595ea9bf97c8cbbb217ebeb34833d962065741ccc2cbf6092856bcf"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-sprig-bloom-bl.webp",
+      "bytes": 4944,
+      "sha256": "d56775e00d5a954b226b0dad6414a89ab0d83d65c3354f72888ee0632f39390c"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-sprig-bloom-br.webp",
+      "bytes": 4944,
+      "sha256": "70fb6d8822cd189fdb44fdc67742dcdf57abada2e8199867ebe49921d8731422"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-sprig-bloom-tl.webp",
+      "bytes": 4960,
+      "sha256": "27ce277d1f7241f1edbdcef25bc33a5fb2025e537c4300f7bbf972cfd3bf18a1"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-sprig-bloom-tr.webp",
+      "bytes": 4960,
+      "sha256": "e14699076e756fc57f9474d4d160979953339ee551c30bf4f6363d9cb590c37d"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-sprig-comp-bl.webp",
+      "bytes": 8812,
+      "sha256": "1ef6fc4eafd99663a8ddd2130eb9ec835da2d1b4af30406f360d81a91bc5fc02"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-sprig-comp-br.webp",
+      "bytes": 8826,
+      "sha256": "871897d6ca414f88463a63a40935fce8417aa0d407d290950fdefec252af3b9a"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-sprig-comp-tl.webp",
+      "bytes": 8822,
+      "sha256": "548df3c853b8de28e2166ad8216cf59529f5050977951e43d5dc5366df4563c6"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-sprig-comp-tr.webp",
+      "bytes": 8822,
+      "sha256": "03445f3288b6bf541e85788de4139d0b9a873bd948cf26a6464606d148429d44"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-sprig-home-bl.webp",
+      "bytes": 13268,
+      "sha256": "9e88aacccccfe575e9bff1ea8b4d19e37220fcc9f09094637ab97178626cb748"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-sprig-home-br.webp",
+      "bytes": 13272,
+      "sha256": "ab8a071f78571d023a8468f7f3bd3f2f412a56359105431fabd9e2a87330d525"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-sprig-home-tl.webp",
+      "bytes": 13324,
+      "sha256": "532c61ddbaa4793d72fd57a8f52acb6bcb2b9d913f479a0b8c06fae688f3ca17"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-sprig-home-tr.webp",
+      "bytes": 13282,
+      "sha256": "bccb80b75e6f9dc811b7c548f8c4762c02ddee38391f97274b68ec5eccff7ab2"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-sprig-you-bl.webp",
+      "bytes": 8592,
+      "sha256": "4d5a5d1fb3f5edbc060904a8ae34c921822083bb9e092baceabe12565ebaaf41"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-sprig-you-br.webp",
+      "bytes": 8614,
+      "sha256": "cded1c8b987ca95eab96d596d2028241a0c761de6c72fe747fb416425a0f0df1"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-sprig-you-tl.webp",
+      "bytes": 8648,
+      "sha256": "547e9fd732bd5c3a97866e13a07cc9d50eb13f78fbb3dbfe57beb7fd3b700997"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-sprig-you-tr.webp",
+      "bytes": 8640,
+      "sha256": "3404c7e1870a653d1ab23a3122e81b8c0101a4297e63ce4e04a259d364e998c3"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-stud-bl.webp",
+      "bytes": 1712,
+      "sha256": "3daebd20250ff7808bd6932da8fb319dbcf50bb324d9b2f357e169c16f4a8e32"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-stud-br.webp",
+      "bytes": 1648,
+      "sha256": "005f4ec9d6e4ee8b6a2ec9d09f037e0d08a652cc723a3b759c4347be49d9268b"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-stud-tl.webp",
+      "bytes": 1646,
+      "sha256": "754d421ea1fb3d8e3b3f06369b8e1d4358d3ed60d13c04d24a95f30b00b2b3b8"
+    },
+    {
+      "path": "public/skins/conservatory/greenhouse-stud-tr.webp",
+      "bytes": 1652,
+      "sha256": "5763676203a7ad2de57c83730ed7215c3f34385c9e5ba4902ca69f2e2238f1a7"
+    },
+    {
+      "path": "public/skins/conservatory/material-tile-v1.svg",
+      "bytes": 5396,
+      "sha256": "f42df1238bde526962021116457fa5966d44cc12338f7f43d6afb68000f027e1"
+    },
+    {
+      "path": "public/skins/conservatory/mobile-v1.jpg",
+      "bytes": 500477,
+      "sha256": "d123397dabf71efb12537e475de44630b245a4b2e45667a150733282b30db612"
+    },
+    {
+      "path": "public/skins/conservatory/mobile-v1.webp",
+      "bytes": 243518,
+      "sha256": "d1824f60def89aca95ff6a576ec8b35e29053655e9667976dfe3d6187746cbd1"
+    },
+    {
+      "path": "public/skins/conservatory/thumbnail-v1.webp",
+      "bytes": 20264,
+      "sha256": "982debea76371779ccbb36de999af4590d6dde7bed635e519dfb6bb0368bf25b"
+    },
+    {
+      "path": "public/skins/ember/ember-black-leather.webp",
+      "bytes": 33752,
+      "sha256": "230e9fe650840d7bc94064bb0e75d7145edfac75dc9028c064741e6fa1a42385"
+    },
+    {
+      "path": "public/skins/ember/ember-charcoal-tile.svg",
+      "bytes": 400,
+      "sha256": "a6ec3cb0da233e389d3a002bce7c30a498582c74337265ffe0d1b63f8ca9859b"
+    },
+    {
+      "path": "public/skins/ember/ember-copper-corner.svg",
+      "bytes": 167,
+      "sha256": "611836cc68a243912033131699da0384af6afb61b906d37a6ff33867aa5e97c5"
+    },
+    {
+      "path": "public/skins/ember/ember-edge-sprig.svg",
+      "bytes": 955,
+      "sha256": "289951d0031bfb29b3bd01b04200fda8e45fdbdb5ba1fd49439c0ca9eec8dcef"
+    },
+    {
+      "path": "public/skins/ember/ember-fitting-bl.webp",
+      "bytes": 1742,
+      "sha256": "79ca2736e1a289c6e12209ce5c5ad123609695bcb371f8d633412a4c764a3b54"
+    },
+    {
+      "path": "public/skins/ember/ember-fitting-br.webp",
+      "bytes": 1766,
+      "sha256": "c00cdb0a916eb6637404d7022e340dd6b8f71374b261fb1c1a8937aeae5d5839"
+    },
+    {
+      "path": "public/skins/ember/ember-fitting-tl.webp",
+      "bytes": 1770,
+      "sha256": "723bae0f703532612034d9272242dd2c1196a3258927a552631e03a0bae90958"
+    },
+    {
+      "path": "public/skins/ember/ember-fitting-tr.webp",
+      "bytes": 1764,
+      "sha256": "819ed16af217443fb1a2d4c519e9eaac528d14354170b0dd271b4dc68b74731e"
+    },
+    {
+      "path": "public/skins/ember/ember-navy-leather.webp",
+      "bytes": 38596,
+      "sha256": "a01a437b60743a2edc086fbbeefd2b48666c51911509fa310053264824cfb7b5"
+    },
+    {
+      "path": "public/skins/ember/ember-parchment-tile.svg",
+      "bytes": 400,
+      "sha256": "47acea20ffd80570140b50bb829098880f2811cf56d27b62c98896f279e82fd2"
+    },
+    {
+      "path": "public/skins/ember/ember-study-desktop-v2.jpg",
+      "bytes": 262939,
+      "sha256": "56f742bae174f03dbec36198b0a1e52274a0ba5bf886acdd6eff832420e75219"
+    },
+    {
+      "path": "public/skins/ember/ember-study-desktop-v2.webp",
+      "bytes": 116422,
+      "sha256": "123bb60683915887497e2a29521aaaddf88a6709f03ab4f82aceee798d5696bd"
+    },
+    {
+      "path": "public/skins/ember/ember-study-mobile-v2.jpg",
+      "bytes": 187328,
+      "sha256": "5f572d9024bd9404cdb244d605c160f7e3de4b48b28ca049705aad77ab0c90cb"
+    },
+    {
+      "path": "public/skins/ember/ember-study-mobile-v2.webp",
+      "bytes": 74348,
+      "sha256": "e53f3a1748281ccd5372f1fc32ed4525af6cb1ecda8cf11c258c98d050bc793b"
+    },
+    {
+      "path": "public/skins/ember/ember-study-thumbnail-v2.webp",
+      "bytes": 12616,
+      "sha256": "a0a13f30a13c96092e515afa1cf4efd113c1bc3779f55211e6d6e1fac08bcea2"
+    },
+    {
+      "path": "public/skins/ember/ember-walnut-tile.svg",
+      "bytes": 400,
+      "sha256": "d26c599c1436ac23b1fcef027cdcf633c6b59b1762397e77780af98dd99ecc00"
+    },
+    {
+      "path": "public/skins/library/corner-bl-v1.svg",
+      "bytes": 927,
+      "sha256": "40f2786f664fabb3c2ea9b25c112617adee3ec895b5bf4c322d05cbb14f9209b"
+    },
+    {
+      "path": "public/skins/library/corner-br-v1.svg",
+      "bytes": 929,
+      "sha256": "e0ebf906c27b7f69b83c231806052006df4d2877b92c705de0f5aea223217500"
+    },
+    {
+      "path": "public/skins/library/corner-tl-v1.svg",
+      "bytes": 880,
+      "sha256": "168eff7f9e78e4b768bae692846bd19aa6336c1a5f646711dc0b568aed11ff97"
+    },
+    {
+      "path": "public/skins/library/corner-tr-v1.svg",
+      "bytes": 927,
+      "sha256": "86021ed0e7bfcea83be08697841449045e4953f117eb7f3f628f0c1d27bfec7b"
+    },
+    {
+      "path": "public/skins/library/desktop-v1.jpg",
+      "bytes": 353964,
+      "sha256": "99d010a93696b49fbff734e22b32cb7c4c582cccbc09d2e86b6ab3dafc0e8a09"
+    },
+    {
+      "path": "public/skins/library/desktop-v1.webp",
+      "bytes": 338346,
+      "sha256": "faf34adce210d3162126af4f5dba7921ae8b5b3205fefab0be954907d7dca4c8"
+    },
+    {
+      "path": "public/skins/library/library-bracket-bl.webp",
+      "bytes": 1888,
+      "sha256": "06f8451129f184458ea8aacfcb0757e18a11851201b92d36ab0c69c7b8fb2ff9"
+    },
+    {
+      "path": "public/skins/library/library-bracket-br.webp",
+      "bytes": 1846,
+      "sha256": "b529f57f5c627517189c7184e1293f6f7d857c280902da11c20eaa9784f9bbd7"
+    },
+    {
+      "path": "public/skins/library/library-bracket-tl.webp",
+      "bytes": 1934,
+      "sha256": "e77c467b21f9a0865e2987f82e97524b14d16c8c5d5e7ace1ad0a6ae776199d9"
+    },
+    {
+      "path": "public/skins/library/library-bracket-tr.webp",
+      "bytes": 1808,
+      "sha256": "2b646a309e86d6ebe4ea2ce5ff1c7c16368d3a4cb138c084609cbcc05a4ffacd"
+    },
+    {
+      "path": "public/skins/library/library-parchment.webp",
+      "bytes": 43864,
+      "sha256": "ec7de0820fd58e59376c1e209d63ad784bf637423d36d5faa38fa1696044ccc6"
+    },
+    {
+      "path": "public/skins/library/library-wood.webp",
+      "bytes": 11516,
+      "sha256": "084d75dfe459f64ac65ad870f07099d6d86ac3d37c094e4b2a3a651bbec78fcc"
+    },
+    {
+      "path": "public/skins/library/library-you.webp",
+      "bytes": 67448,
+      "sha256": "f62926a88b77adfe7bac455af9022171f6dfef367c587ccc121c62a865342b3a"
+    },
+    {
+      "path": "public/skins/library/material-tile-v1.svg",
+      "bytes": 18353,
+      "sha256": "e7a8f95af90459e3fe911adbe5607a9ab2bb4f7088b4e6b83a978905f87c323a"
+    },
+    {
+      "path": "public/skins/library/mobile-v1.jpg",
+      "bytes": 343367,
+      "sha256": "311f41a214bc8dbc5ceef68999ef5565c57ef80fe73c98c267b1e17dcf0ef76f"
+    },
+    {
+      "path": "public/skins/library/mobile-v1.webp",
+      "bytes": 241042,
+      "sha256": "b1f562b75d940b67f3487229b0f7c8e33f3745fec5928f0634e1f776cb8f55c3"
+    },
+    {
+      "path": "public/skins/library/thumbnail-v1.webp",
+      "bytes": 13604,
+      "sha256": "1ccf79594ed127c05c0ee7bc921bfe83640e8d26691888db48358d4ff602e294"
+    },
+    {
+      "path": "public/skins/night/celestial-moon-comp-bl.webp",
+      "bytes": 4986,
+      "sha256": "7ace5f038a79829f223c83ead6cfa37e5457acb9f999c47875e3d7af28f5c3ce"
+    },
+    {
+      "path": "public/skins/night/celestial-moon-comp-br.webp",
+      "bytes": 4958,
+      "sha256": "e04ce182ff09f30e7f2e5e9fd0f401f69e86b05c2465b3f5cf0d7181d86c368d"
+    },
+    {
+      "path": "public/skins/night/celestial-moon-comp-tl.webp",
+      "bytes": 4974,
+      "sha256": "31e76093fde8eb56daaf4cc619b81a97b1d8720f08f75cd09962777dcb94d30a"
+    },
+    {
+      "path": "public/skins/night/celestial-moon-comp-tr.webp",
+      "bytes": 4974,
+      "sha256": "2826dae9749ddd37521cef11868dc22173628144c93313098ea5d77f8039d84a"
+    },
+    {
+      "path": "public/skins/night/celestial-moon-home-bl.webp",
+      "bytes": 14338,
+      "sha256": "0e5e9b7eeb5c2c70a543ae783b8a5d6ab516b543d30c16d36c4df968afdeef25"
+    },
+    {
+      "path": "public/skins/night/celestial-moon-home-br.webp",
+      "bytes": 14366,
+      "sha256": "f426fbe71dfacf3e91d5aceae7b3f9190eb11b4dc0ec4b43c3fce66fdf152290"
+    },
+    {
+      "path": "public/skins/night/celestial-moon-home-tl.webp",
+      "bytes": 14360,
+      "sha256": "0a59e84b7e143a2fd6e2dba3fca0b92d2e5a4f90939be75b31ba4e0ac3a46d70"
+    },
+    {
+      "path": "public/skins/night/celestial-moon-home-tr.webp",
+      "bytes": 14372,
+      "sha256": "256deba4747989f6874a956711dfe1cdf475f2fb13d97503068fa2187c852c23"
+    },
+    {
+      "path": "public/skins/night/celestial-moon-you-bl.webp",
+      "bytes": 4636,
+      "sha256": "ba172578fceb4a6c5d14909086cff85bae46ecf9d68bfaabe182081db9998e10"
+    },
+    {
+      "path": "public/skins/night/celestial-moon-you-br.webp",
+      "bytes": 4636,
+      "sha256": "61f7845e64e0ca5bd68faa61c5480fab1489c43aacc88a59291fe964569424fb"
+    },
+    {
+      "path": "public/skins/night/celestial-moon-you-tl.webp",
+      "bytes": 4646,
+      "sha256": "12430c8a5db56a32be649baf6e538197f531264c5371eed2518e284473ea701c"
+    },
+    {
+      "path": "public/skins/night/celestial-moon-you-tr.webp",
+      "bytes": 4648,
+      "sha256": "714bb8c4212f4ec889323d3ac0408e263a521dc74fe172d3f641af4bccd2da64"
+    },
+    {
+      "path": "public/skins/night/celestial-navy.webp",
+      "bytes": 79716,
+      "sha256": "4cba7df3ba191679f336d1aff796eaa22d51058bed4a9184e744e02294532c56"
+    },
+    {
+      "path": "public/skins/night/celestial-rail-compass.webp",
+      "bytes": 19260,
+      "sha256": "add6f5ceab0ddd711ada8eaf74af5da14daf4cfdb14adb501d2f8e56ac39b70c"
+    },
+    {
+      "path": "public/skins/night/celestial-stud-bl.webp",
+      "bytes": 1758,
+      "sha256": "af9b16b9adb9427158bb54986e5f44f6713947a2dfaf4175f44a919cf20fe663"
+    },
+    {
+      "path": "public/skins/night/celestial-stud-br.webp",
+      "bytes": 1654,
+      "sha256": "23290b559131ef676037930818cf2a25ce0434c4dcc97e9a65046a762a6e9b81"
+    },
+    {
+      "path": "public/skins/night/celestial-stud-tl.webp",
+      "bytes": 1752,
+      "sha256": "e3616415bf54971f9493c00525988f2eb4a811e076d378320a042b36098dcb30"
+    },
+    {
+      "path": "public/skins/night/celestial-stud-tr.webp",
+      "bytes": 1662,
+      "sha256": "22ab7ee683c3984969a89349bd044a5232198555784e24f348b0d0b233e48f77"
+    },
+    {
+      "path": "public/skins/night/celestial-violet.webp",
+      "bytes": 85840,
+      "sha256": "2bf74a776c556f11fc4888bf0b06d2730de82da47b0ad952dc1ce8b942aea477"
+    },
+    {
+      "path": "public/skins/night/corner-bl-v1.svg",
+      "bytes": 927,
+      "sha256": "dedf70d79b90dcfecdf608a6f3f169ca80b62fe3fcf7a50deec7ba59ca826557"
+    },
+    {
+      "path": "public/skins/night/corner-br-v1.svg",
+      "bytes": 929,
+      "sha256": "c9504774140d1e0df681ee0718312894131eb16b36f031b2be054c5660065066"
+    },
+    {
+      "path": "public/skins/night/corner-tl-v1.svg",
+      "bytes": 880,
+      "sha256": "7ab6a73b021d89b24eae5f7beb8d13088fe4d004476c04817cefb39ba1672783"
+    },
+    {
+      "path": "public/skins/night/corner-tr-v1.svg",
+      "bytes": 927,
+      "sha256": "a142ed24cf7e646bc30b8b4836433fdeb7c7d0f8d88a3d133586ce8b5e5036ef"
+    },
+    {
+      "path": "public/skins/night/desktop-v1.jpg",
+      "bytes": 512184,
+      "sha256": "3528109a6671325d7e6deb43659f2d24cb6abafc92d85f2f42c91c7cd53e7a48"
+    },
+    {
+      "path": "public/skins/night/desktop-v1.webp",
+      "bytes": 470370,
+      "sha256": "202527978e570d420880098b1f68c047586b8259ac35930df0556798c41ba22d"
+    },
+    {
+      "path": "public/skins/night/material-tile-v1.svg",
+      "bytes": 5280,
+      "sha256": "7feae683546d9742723c6939b9a09ffa876c7e2e293e890f56dc61302463dc7f"
+    },
+    {
+      "path": "public/skins/night/mobile-v1.jpg",
+      "bytes": 409211,
+      "sha256": "b6621c7019fafa6d6afd9808a99ec8b37087412578f9d79d9bd7a6b7a070b4c2"
+    },
+    {
+      "path": "public/skins/night/mobile-v1.webp",
+      "bytes": 240492,
+      "sha256": "d869890c0c873318798c28771c0dad9d834565c42d037ec656137cddc6598767"
+    },
+    {
+      "path": "public/skins/night/thumbnail-v1.webp",
+      "bytes": 19704,
+      "sha256": "aa87f3e66d0b43686a2045f13d130a3789412a27f407c6dca453c4c96d0f4b66"
+    },
+    {
+      "path": "public/skins/salon/corner-bl-v1.svg",
+      "bytes": 927,
+      "sha256": "4f0b736bc05115fd09c6ba8e2b31ead87616aaf74697a392e3bcc49fc6517d02"
+    },
+    {
+      "path": "public/skins/salon/corner-br-v1.svg",
+      "bytes": 929,
+      "sha256": "274ae37710bc37c7bf8bdd54275e178ad38929e8f390fd7233ab0355bc76e3ab"
+    },
+    {
+      "path": "public/skins/salon/corner-tl-v1.svg",
+      "bytes": 880,
+      "sha256": "9ecc1b36a4d23e2041d2d3e51e8fcc16a2cac74207c6a3a0861902e36ed95c6e"
+    },
+    {
+      "path": "public/skins/salon/corner-tr-v1.svg",
+      "bytes": 927,
+      "sha256": "aba0578432bfbc04b8cc22f63fbe706884382a00f3ab5a22da0393fd0260bc66"
+    },
+    {
+      "path": "public/skins/salon/desktop-v1.jpg",
+      "bytes": 231623,
+      "sha256": "470d4a2c4c487e16bc4df37c7b7d3f094d7e4cafac2f6dc8fad9fd13b128ff1f"
+    },
+    {
+      "path": "public/skins/salon/desktop-v1.webp",
+      "bytes": 185840,
+      "sha256": "6c54e08f6fbccb08b728a4cbe08231758dbd9769fde5a04711fc695129e7ab87"
+    },
+    {
+      "path": "public/skins/salon/material-tile-v1.svg",
+      "bytes": 5646,
+      "sha256": "0ebe727e2e76f63e4cb92390d71fddee582ef655094e86665c57f945ef092133"
+    },
+    {
+      "path": "public/skins/salon/mobile-v1.jpg",
+      "bytes": 256491,
+      "sha256": "8e671d4c4938eb30e9615f8f0bd9573105648f135f2e9b483674b8beb70b7535"
+    },
+    {
+      "path": "public/skins/salon/mobile-v1.webp",
+      "bytes": 204386,
+      "sha256": "2f06f4933a5407f8cf9781d3873f48cd271d3b9528269237a8fd5ba965faa85f"
+    },
+    {
+      "path": "public/skins/salon/thumbnail-v1.webp",
+      "bytes": 4726,
+      "sha256": "dacd8899c4934609d7a726aba1b9ff27d9b96e4a4dad71e2489e81c01923474e"
+    },
+    {
+      "path": "public/skins/salon/velvet-crimson.webp",
+      "bytes": 67214,
+      "sha256": "ff7f85c8d0d806b9d4ec4fd2515b249eea8fb83ed8d6eeb3ef078f23e7a07199"
+    },
+    {
+      "path": "public/skins/salon/velvet-damask.webp",
+      "bytes": 59402,
+      "sha256": "78576c5cbeafd05f46a42e6acb445f8c75b83ed40deb459bf422988d0a3a8674"
+    },
+    {
+      "path": "public/skins/salon/velvet-filigree-bl.webp",
+      "bytes": 1974,
+      "sha256": "d2c63f3951d1dfe6947bba29cfd4a055293c74c14be191d066b0d9ff8a4161ec"
+    },
+    {
+      "path": "public/skins/salon/velvet-filigree-br.webp",
+      "bytes": 1998,
+      "sha256": "9a52bfbd300f0fc6355cad0308596bd3ba2505b28266f81dc0b172ab5e9443e9"
+    },
+    {
+      "path": "public/skins/salon/velvet-filigree-tl.webp",
+      "bytes": 2242,
+      "sha256": "800128e0959eb647416bb3a25f0904c5f1fd12be28a291c81fb81a4436797ad2"
+    },
+    {
+      "path": "public/skins/salon/velvet-filigree-tr.webp",
+      "bytes": 2244,
+      "sha256": "b646589a6a9f061210ac0dfb9004318d0f169f851faf247731487b4571f9ed50"
+    }
+  ]
+}

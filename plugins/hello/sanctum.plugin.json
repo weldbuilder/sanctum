@@ -1,0 +1,14 @@
+{
+  "id": "hello",
+  "name": "Hello (example plugin)",
+  "version": "0.1.0",
+  "harness": ["dsh"],
+  "dsh": {
+    "rows": [
+      { "id": "marker", "entry": "dsh/index.mjs" }
+    ],
+    "runs": ["turn"]
+  },
+  "help": "help.md",
+  "tenant_aware": true
+}

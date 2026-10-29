@@ -1,0 +1,32 @@
+{
+  "app/.env": {
+    "private": false,
+    "sha256": "1958241e8026c450226b9b30b5af8996a02a67d63033bd9f38fb68263744d1d4",
+    "bytes": 95
+  },
+  "app/sanctum.yaml": {
+    "private": false,
+    "sha256": "199142d99d77b98586662dee3b6f188f3f206ed6ceeca4b68cd6ec632c9363f7",
+    "bytes": 709
+  },
+  "ledger/ratified.json": {
+    "private": true,
+    "sha256": "533729014aa07e7d4d98d8c399dbac2192282274e5a3622edf35ec1175329d1c",
+    "bytes": 515
+  },
+  "ledger/snapshots/hello/af8219c1c75b6acd1e1dbb01ca29d0ff5a17978c147f3c937ba668737a5a1d1d/dsh/index.mjs": {
+    "private": true,
+    "sha256": "3ea1a409dde03d281906f2fb0babc11d4d465d82d46d5c94ea82cd8191eb8418",
+    "bytes": 24
+  },
+  "ledger/snapshots/hello/af8219c1c75b6acd1e1dbb01ca29d0ff5a17978c147f3c937ba668737a5a1d1d/help.md": {
+    "private": true,
+    "sha256": "964a68a03398325ca6a40fedf65ff252a353ada5a03b42ec4f939ba9d8aba5e8",
+    "bytes": 12
+  },
+  "ledger/snapshots/hello/af8219c1c75b6acd1e1dbb01ca29d0ff5a17978c147f3c937ba668737a5a1d1d/sanctum.plugin.json": {
+    "private": true,
+    "sha256": "724c14702947d539d1dfd6afdae08595d1e7a87a9615812813bd900831529e58",
+    "bytes": 46
+  }
+}

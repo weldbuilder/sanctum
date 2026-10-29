@@ -1,0 +1,262 @@
+# ─── Sanctum Mobile — configuration ─────────────────────────────────────────────────
+# Copy this file to `sanctum.yaml` (gitignored) and edit. The loader searches
+# for ./sanctum.yaml, then ./sanctum.yml, then ./config/sanctum.yaml.
+#
+# Every key below has a built-in default, so a minimal file works — this template
+# just shows the whole surface with generic values. Relative paths resolve
+# against the project root (not your shell's cwd). A matching env var (see
+# .env.example) overrides the value here where the two overlap.
+
+# ── Who lives here ────────────────────────────────────────────────────────────
+identity:
+  companion_name: "Echo"          # the companion's name (env: COMPANION_NAME)
+  user_name: "Alex"               # your name (env: USER_NAME)
+  timezone: "Europe/London"       # IANA tz for schedules/timestamps (env: TZ)
+  # Who the companion is comes from the identity/ folder in the companion home
+  # (agent.cwd): every file in it is read. These two are optional overrides naming
+  # which file in that folder is the structured profile and which is the narrative;
+  # a relative path is read from the home. Leave them out for the standard names.
+  # profile_path: "identity/companion.profile.yaml"
+  # companion_md_path: "identity/companion.md"
+  # ledger_dir: ""                # where the identity ledger lives; "" = <project>/data/identity
+
+# ── HTTP server ───────────────────────────────────────────────────────────────
+server:
+  port: 3099                      # (env: PORT)
+  host: "127.0.0.1"               # loopback by default (env: HOST)
+  db_path: "./data/sanctum.db"   # SQLite file, created on first boot (env: DB_PATH)
+
+# ── Auth gate ─────────────────────────────────────────────────────────────────
+auth:
+  password: ""                    # empty = no password (loopback only). (env: APP_PASSWORD)
+
+# ── Plugins ───────────────────────────────────────────────────────────────────
+# A plugin on disk does nothing until it is named in `enabled`.
+#
+# trust: companion (the default). Your companion manages plugins: it can turn them on and off
+#   (PUT /api/plugins/enabled with the internal token) and edit them. Enabled plugins run from their
+#   live folder. Every change to a plugin's files is recorded in data/plugins/audit.json, and
+#   Settings > Plugins shows "changed since you last looked" with the files and their contents.
+#   Nothing stops running. The companion can change anything the OS user can, by design; the
+#   boundary worth having is the machine (Windows: run the whole app inside WSL2; Linux and Mac:
+#   a dedicated user or directory). See docs/PLUGINS.md, "Where to put the house".
+# trust: person. Nothing runs until you have read and ratified a plugin's exact code, and a change
+#   stops it until you ratify it again. In this mode plugin code must not live where the companion
+#   can write (the shipped <repo>/plugins is refused when a companion-writable root, such as the
+#   default agent.cwd ".", contains it), the ratification ledger must be outside those folders too,
+#   and plugins are off under danger-full-access.
+# Changes to this block apply on restart (the companion's own changes to `enabled` apply at once).
+plugins:
+  trust: companion                # "companion" (default) or "person". An unknown value warns and means "companion".
+  dir: ""                         # your own plugin root (same layout as <repo>/plugins), loaded after the
+                                  # shipped ones. "" = none. Refused, with a warning, if it is inside
+                                  # agent.cwd, agent.codex.additional_directories, the dsh home or the
+                                  # hooks write-gate roots (hooks.workspace_root, hooks.vault_path,
+                                  # hooks.safe_write_prefixes, hooks.extra_write_paths), or contains one of them.
+                                  # (Only trust: person refuses these; under companion the folder is accepted.)
+  enabled: []                     # plugin ids that may load. [] = none, shipped ones included (e.g. ["hello"]).
+  ledger_dir: ""                  # trust: person only. Where the ratification ledger and the ratified copies live.
+                                  # "" = <app>/data/plugins. (trust: companion keeps audit.json in the same folder
+                                  # and does not check where it is.) If it is inside (or contains) anything the
+                                  # companion can write (the roots above, and /tmp and $TMPDIR while Codex or
+                                  # dsh is the active provider), plugins are OFF (the log says which). Put it
+                                  # outside all of them. See docs/PLUGINS.md.
+
+# ── The agent ─────────────────────────────────────────────────────────────────
+agent:
+  cwd: "."                        # the agent's home dir (env: AGENT_CWD)
+  claude_md_path: "./CLAUDE.md"   # the primary identity/system file
+  system_prompt_file: ""          # optional extra system-prompt file; "" = none
+  mcp_json_path: "./.mcp.json"    # MCP servers the agent may call
+  model: "claude-sonnet-5-5"          # interactive turns (env: AGENT_MODEL)
+  model_autonomous: ""            # background/wake turns. "" = same as model. If you set a different one,
+                                  # keep the same context window (a "[1m]" model on both or neither), or
+                                  # wakes run a 200k window into a thread sized for a million and compact every time.
+  auto_compact: false             # Claude path only. true = let the Agent SDK summarize the session when the
+                                  # context fills. Off: the SDK's summary is not the companion's own words, and
+                                  # identity drifts across it. A full window then ends the session instead.
+  harness_memory: false           # the harness's own memory (Claude auto-memory, Codex "memories"). Off so it
+                                  # does not fight Revien or your own memory system. true only when it IS the memory.
+  # local_recall: true            # Sanctum's own memory: before each message, the most relevant lines from earlier
+                                  # conversations, found by meaning on this computer (nothing to install; every harness).
+                                  # Unset: used only while a chosen Revien cannot be reached. false: never.
+  provider: "codex"               # "claude" | "codex" | "dsh"  (env: AGENT_PROVIDER)
+  # DeepSeek Harness, the third harness (alpha; see docs/DSH.md). Used only when provider is "dsh".
+  # Install it yourself and pin the version: npm i -g @deepseek-ai/dsh@0.2.1-alpha.2
+  dsh:
+    command: "dsh"                # the dsh executable ("dsh" = on PATH)
+    model: ""                     # "" = dsh's default model
+    model_autonomous: ""          # autonomous runs: wakes and read-only subagents (digest/handoff/outlook). "" = same as model
+    model_provider: ""            # a dsh llm route, e.g. "deepseek-official" (default), "openai", "anthropic"
+    api_key_env: ""               # name of the env var holding that route's API key (never the key itself)
+    base_url: ""                  # endpoint override for a route dsh already knows (openai, anthropic, openrouter...); "" = the route's own
+    home: ""                      # DSH_HOME for this companion; "" = dsh's default
+    sandbox_mode: "workspace-write"  # read-only | workspace-write | danger-full-access
+    base_instructions_file: "./prompts/dsh-base-prompt.md"  # used only if the home has no config/dsh-base-prompt.md; missing = dsh's stock persona
+    identity_every_turn: true
+  codex:
+    # Models are whatever Codex can reach: DeepSeek, a ChatGPT plan, or any provider
+    # you add under [model_providers.*] in ~/.codex/config.toml. Empty = follow the
+    # key above; all empty = Codex's own default. `npm run setup` fills these in.
+    model: ""                     # chat model id, e.g. "deepseek-chat" or "gpt-5"
+    model_provider: ""            # a [model_providers.*] name from ~/.codex/config.toml, e.g. "deepseek"
+    model_autonomous: ""          # autonomous runs: wakes and read-only subagents (digest/handoff/outlook). "" = same as model
+    sandbox_mode: "workspace-write"
+    network_access: true          # keep true: the res CLI calls the local backend
+    additional_directories: []    # extra writable dirs beyond agent.cwd
+    # Three layers on Codex, all read from agent.cwd (the companion's home):
+    #   config/codex-base-prompt.md  the harness (replaces Codex's stock prompt)
+    #   identity/profile.md + identity/companion.md  who they are
+    #   AGENTS.md  the rules of the folder (Codex loads this by itself)
+    base_instructions_file: "./prompts/codex-base-prompt.md"  # used only if the home has no config/codex-base-prompt.md
+    identity_every_turn: true     # false = send identity on a thread's first message only (fewer tokens, edits apply to new threads)
+
+  # ── Long-conversation memory (rolling context) ───────────────────────────────
+  # The app's own compaction, on either harness: every turn is a fresh run, the
+  # thread is the memory, older turns are folded into short summaries, and those
+  # summaries are the only summary the model ever sees. The harness's built-in
+  # compaction stays off (agent.auto_compact above). Switchable per harness.
+  # Switching a harness off keeps the summaries; the next message in each thread
+  # carries them into a fresh session once (the thread gets a note), then the
+  # harness holds the conversation itself.
+  rolling:
+    claude: true                # on the Claude path
+    codex: true                 # on the Codex path (false = Codex keeps the history itself)
+    dsh: true                   # on the dsh path (dsh has no ephemeral switch; the overlay sends its session log to a temp dir)
+    model: ""                   # the summarizer. A small, cheap model is fine. "" = model_autonomous, then model
+    model_provider: ""          # Codex only. "" = same provider as chat; a different one is fine
+    tail_chars: 14000           # start summarizing once un-summarized turns pass this many characters
+    fold_chars: 6000            # how much of the oldest turns one summary step covers
+    keep_chars: 6000            # the newest turns are never summarized
+    tail_turns: 24              # also start summarizing past this many un-summarized turns
+    max_segments: 5             # past this, the two oldest summaries merge into one
+    segment_cap: 2000           # max characters per summary
+    history_max_chars: 24000    # most recent-turn text sent with each message
+    history_max_turns: 30       # most recent turns sent with each message
+    summarizer_instructions_file: "./prompts/codex-summarizer-prompt.md"
+
+# ── Revien memory (optional local daemon) ─────────────────────────────────────
+# Recalls relevant memories into each Codex turn and saves each finished turn.
+# If the daemon is not running this quietly does nothing.
+revien:
+  enabled: true
+  url: "http://127.0.0.1:7437"
+  recall_limit: 6                 # memories added per message
+  timeout_ms: 2500                # give up on recall after this long
+
+# ── Updates ───────────────────────────────────────────────────────────────────
+# The app asks GitHub, at most every six hours, whether a newer version exists
+# and shows a small notice if so. `npm run update` uses the same two keys.
+# This is the only thing the app itself sends outside your computer. Set
+# check: false to stop it. Private project on GitHub: GITHUB_TOKEN in .env.
+updates:
+  check: true
+  repo: ""                        # "" = the "repository" line in package.json (owner/name)
+  branch: "main"
+
+# ── Orchestrator (autonomous wakes + failsafe) ────────────────────────────────
+orchestrator:
+  enabled: true
+  wake_prompts_path: "./prompts/wake.md"   # the base wake prompt
+  wake_prompts_dir: "./prompts/wakes"      # optional per-schedule wake prompts
+  schedules: {}                            # name -> cron expr (croner). {} = none
+  failsafe:
+    enabled: false                # reach out if the user goes quiet too long
+    gentle_minutes: 120
+    concerned_minutes: 720
+    emergency_minutes: 1440
+
+# ── Daily handoff subagent (off by default; Settings toggle persists in DB) ────
+handoff:
+  enabled: false
+
+# ── Agent write-gate (PreToolUse allowlist) ───────────────────────────────────
+hooks:
+  context_injection: true         # inject context (identity, cards, memory) each turn
+  safe_write_prefixes: []         # extra path prefixes the agent may write to
+  workspace_root: ""              # a root dir the agent may write within (env: WORKSPACE_ROOT)
+  vault_path: ""                  # a notes/vault dir the agent may write within (env: VAULT_PATH)
+  extra_write_paths: []           # extra dirs (prefix) or files (exact). (env: EXTRA_WRITE_PATHS)
+
+# ── Voice (optional; keys live in .env, not here) ─────────────────────────────
+voice:
+  enabled: false
+  elevenlabs_voice_id: ""         # (env: ELEVENLABS_VOICE_ID)
+
+# ── Discord channel (optional; token in .env or Settings) ─────────────────────
+# Two lanes that never touch (docs/DISCORD-PLAN.md): the owner lane (one channel, one user)
+# and the public lane (listed guilds, mention-only, off by default). Every outgoing message,
+# on both lanes, goes through one gated send path: a private word list, an optional real-name
+# list, and no @everyone / role / user pings. Ids are quoted strings: YAML rounds bare ones.
+# Public messages never become a Sanctum thread: each is one isolated, read-only run, recorded in a
+# file per channel under data/discord/public/ that nothing reads back into memory.
+discord:
+  enabled: false
+  owner:
+    user_id: ""                   # the one account the owner lane answers to
+    channel_id: ""                # the one owner channel
+  public:
+    enabled: false                # stage 1 default: owner lane only. The public lane needs dsh or Claude as agent.provider: on Codex it is refused (status: unsupported_harness)
+    guild_ids: []                 # listed guilds only; any other guild, and every DM, is ignored
+    role_ids: []                  # roles that count as addressing her (besides an @mention or a reply)
+    bots: never                   # never | capped
+    bot_exchange_limit: 4         # capped: HER replies per (channel, bot) before a human must speak. Counts her replies, not incoming messages
+    bot_hourly_limit: 20          # capped: HER replies to bots per hour in all (replies sent, not incoming messages)
+    history_lines: 12             # lines of THIS channel's file transcript a public turn reads as history (1..50)
+    exclusions_file: ""           # "" = <private_dir>/exclusions.txt (user:<id>, thread:<id>, channel:<id>). Missing or malformed = public lane silent
+  gate:
+    words_file: ""                # "" = <private_dir>/words.txt. Missing, empty or malformed = everything blocked
+    names_file: ""                # "" = <private_dir>/names.txt. Optional real-name guard; absent or empty = off; malformed = everything blocked
+  attachments:
+    max_mb: 8                     # owner lane only: the largest attachment taken (1..10). Images (jpeg, png, gif, webp), text (txt, md, csv, json), PDF and Word; never HTML. Anything else is logged by name. The public lane never opens an attachment
+  paused: false                   # true closes the public lane; the owner lane is unaffected
+  deferral_hours: 24              # 1..48: how long a deferred message may wait
+  # Holds the three list files. "" = <agent.cwd>/../sanctum-private, beside the companion's home.
+  # Refused, with a warning, when it (or a list file) is inside any folder the companion can
+  # write: its home, the Codex extra directories, the dsh home, the write-gate roots. `npm run setup`
+  # creates it with example files; replace the made-up entries and keep the folder private.
+  private_dir: ""
+  # owner_user_id: ""             # the old key; still read as owner.user_id, with a warning
+
+# ── Telegram channel (optional; token in .env or Settings) ────────────────────
+telegram:
+  enabled: false
+  owner_chat_id: ""               # the Telegram chat the bot answers to
+
+# ── External integrations ─────────────────────────────────────────────────────
+integrations:
+  life_api_url: ""                # optional Command Center / life-data API base URL
+  # Browser tab: a browser viewer (e.g. neko) shown in an iframe. See examples/browser-seat-neko/ (noVNC fallback: examples/browser-seat/).
+  # Only expose it on localhost or a private network: it shows any logged-in sessions.
+  # An https:// app cannot frame an http:// viewer; serve both over the same scheme.
+  # browser_url: "http://<viewer-host>:3201/"
+  mind_cloud:
+    enabled: false                # the Mind memory service
+    mcp_url: ""                   # the sanctum-mind service URL: its root, or its /mcp or /verbs URL (the api key is set in Settings, DB-stored, or MIND_API_KEY in .env)
+    mind_id: ""                   # the mind's id on that service (what you gave `init`); Settings → Mind overrides it
+
+# ── Google Workspace MCP (optional) ───────────────────────────────────────────
+google:
+  enabled: false                  # master gate for the /mcp/workspace mount
+  client_id: ""                   # desktop OAuth client id (env: GOOGLE_CLIENT_ID)
+  client_secret: ""               # desktop OAuth client secret (env: GOOGLE_CLIENT_SECRET)
+
+# ── Command Center (care/day dashboard) ───────────────────────────────────────
+command_center:
+  enabled: false
+  default_person: "user"          # whose care rows the page reads/writes
+  currency_symbol: "$"
+  care_categories:
+    toggles: ["breakfast", "lunch", "dinner", "snacks", "medication", "movement", "shower"]
+    ratings: ["sleep", "energy", "wellbeing", "mood"]
+    counters:
+      - name: "water"
+        max: 10
+
+# ── CORS ──────────────────────────────────────────────────────────────────────
+cors:
+  origins: []                     # allowed browser origins; [] = same-origin only
+
+# NOTE: the Mind surface toggle (mind.enabled) and the Mind api key (mind.api_key)
+# are managed from the in-app Settings UI and stored in the DB, not in this file.
+# MIND_API_KEY in .env is the fallback key when Settings has none.

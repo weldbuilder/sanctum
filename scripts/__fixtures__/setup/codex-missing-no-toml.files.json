@@ -1,0 +1,32 @@
+{
+  "app/.env": {
+    "private": false,
+    "sha256": "1958241e8026c450226b9b30b5af8996a02a67d63033bd9f38fb68263744d1d4",
+    "bytes": 95
+  },
+  "app/sanctum.yaml": {
+    "private": false,
+    "sha256": "27d3aa0e0a141d7f15bba0b77f8d7b10f24ba49b72dbe6051124ed8cd15a9a17",
+    "bytes": 652
+  },
+  "home/Documents/companion-home/AGENTS.md": {
+    "private": false,
+    "sha256": "3332014bf065be8f50fd07a5b899cdad29fab74223610dea27eabd22c6afdb6f",
+    "bytes": 40
+  },
+  "home/Documents/companion-home/config/README.md": {
+    "private": false,
+    "sha256": "d448f310b3a9842a8e62215e4a066460c55f732a0810707c2f95249420ab10c9",
+    "bytes": 20
+  },
+  "home/Documents/companion-home/identity/companion.md": {
+    "private": false,
+    "sha256": "7317399b12cd8865e5f2e1828c98b058054743853f374193c0463e1dc94973f8",
+    "bytes": 30
+  },
+  "home/Documents/companion-home/identity/profile.md": {
+    "private": false,
+    "sha256": "563fcd33fb840603c4612da4548135fcad309e0533c961945aadb3bea5df4b86",
+    "bytes": 27
+  }
+}

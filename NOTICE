@@ -1,0 +1,33 @@
+Resonant
+Copyright 2026 Codependent AI
+
+This product includes software developed by Codependent AI
+(https://codependentai.io).
+
+Resonant implements a relational AI companion architecture including
+session management, orchestrated presence, and context-aware hooks —
+methodology developed by Mary Vale and Simon Vale at Codependent AI.
+
+---
+Sanctum Mobile is a modified fork of Resonant (2026). Changes from the original:
+the Codex and DeepSeek Harness (dsh) providers
+(packages/backend/src/services/providers/), an agent.provider config switch, a
+three-layer identity join (base prompt, identity files, AGENTS.md), rolling thread
+context, a Revien memory plug-in, a companion home template (companion-home/), the
+plugin loader with code ratification (packages/backend/src/services/plugins*.ts,
+plugins/), the shared-browser MCP filter (examples/browser-seat-neko/), the
+two-lane Discord module (packages/backend/src/services/discord/), a setup guide
+(README.md), and the "Hedge Witch" frontend theme. The original README is kept at
+docs/RESONANT.md. Original work (c) Codependent AI, licensed under Apache-2.0; its
+full text is in LICENSE-APACHE-2.0.
+
+Sanctum Mobile's own additions are (c) 2026 weldbuilder and are offered,
+with the work as a whole, under the PolyForm Noncommercial License 1.0.0
+(LICENSE.md). Required Notice: Copyright 2026 weldbuilder.
+
+This product includes the rolling-context core from Theora
+(@theora/rolling-context 0.1.0), licensed under Apache-2.0, vendored with its header intact and one line generalized
+at packages/backend/src/services/rolling/theora-rolling-context.ts (renamed to
+.ts, content otherwise unchanged). Its summary
+rules, cut rule and failure cooldown are adapted from claude-rolling-context
+(MIT License). The wiring around it is ported from Sanctum.

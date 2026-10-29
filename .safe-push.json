@@ -1,0 +1,33 @@
+{
+  "max_file_bytes": 10000000,
+  "max_scan_bytes": 2000000,
+  "deny_globs": [
+    ".env",
+    ".env.*",
+    "**/.env",
+    "**/.env.*",
+    "**/*credentials*",
+    "**/*secret*",
+    "**/*.pem",
+    "**/*.key",
+    "**/*.sqlite",
+    "**/*.db"
+  ],
+  "review_globs": [
+    "**/*.zip",
+    "**/*.7z",
+    "**/*.docx",
+    "**/*.xlsx",
+    "**/*.pptx",
+    "**/*.psd",
+    "**/*.ai"
+  ],
+  "allow_globs": [
+    ".env.example",
+    "**/.env.example",
+    "**/fixtures/**",
+    "packages/backend/src/config.ts",
+    "packages/backend/src/routes/api.ts",
+    "packages/backend/src/services/providers/codex.ts"
+  ]
+}

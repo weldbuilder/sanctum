@@ -1,0 +1,7 @@
+{
+  "app/tenants/ada/tenant.yaml": {
+    "private": false,
+    "sha256": "c5ba42421d6f50aec0add9ed91c86be597e68fa88246d5042d816078cef88060",
+    "bytes": 300
+  }
+}

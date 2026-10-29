@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Mobile viewport with safe-area support for notch / home indicator -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+    <!-- PWA / theme -->
+    <meta name="theme-color" content="#c9a87c" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Sanctum" />
+
+    <!-- Icons -->
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- Appearance, before first paint: set the appearance attributes the skin stylesheets key off from
+         the cached document, so a reload never flashes the wrong room. The ids and the rule for
+         "decorations on" are kept in step with src/theme by boot.test.ts. Anything unreadable
+         leaves the Hedgewitch default in place. -->
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem('sanctum.appearance.v2') || 'null';
+          if (raw.length > 16000) return; // the store's own limit (MAX_DOC_BYTES): it would fall back to the default anyway
+          var d = JSON.parse(raw);
+          if (!d || d.version !== 2) return;
+          var rooms = ['salon', 'library', 'cloister', 'conservatory', 'night', 'ember', 'hedgewitch'];
+          var mats = ['black-damask', 'mounted-paper', 'midnight-ink', 'botanical-linen', 'indigo-silk', 'smoked-copper', 'hedgewitch'];
+          var room = rooms.indexOf(d.roomId) >= 0 ? d.roomId : 'hedgewitch';
+          var defaults = { salon: 'black-damask', library: 'mounted-paper', cloister: 'midnight-ink', conservatory: 'botanical-linen', night: 'indigo-silk', ember: 'smoked-copper', hedgewitch: 'hedgewitch' };
+          var mat = mats.indexOf(d.materialId) >= 0 ? d.materialId : defaults[room];
+          // The translucent Hedgewitch parchment belongs to the Hedgewitch room only.
+          if (mat === 'hedgewitch' && room !== 'hedgewitch') mat = defaults[room];
+          var extra = d.readability === 'extra';
+          var el = document.documentElement;
+          el.setAttribute('data-room', room);
+          el.setAttribute('data-material', mat);
+          el.setAttribute('data-readability', extra ? 'extra' : 'standard');
+          el.setAttribute('data-decor', d.decorations !== false && !extra && room !== 'hedgewitch' ? 'on' : 'off');
+          el.setAttribute('data-surface-decor', d.decorations !== false && !extra ? 'on' : 'off');
+        } catch (e) { /* blocked or corrupt storage: the default appearance stands */ }
+      })();
+    </script>
+
+    <title>Sanctum</title>
+    <!-- Hearth typefaces: Lora (editorial/serif), Inter (body ≤500w), JetBrains Mono (timestamps/code);
+         the house (onboarding, the hallway): Cormorant Garamond (display) and Source Sans 3 (reading) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=Lora:ital,wght@0,400;0,500;1,400;1,500&family=JetBrains+Mono:wght@400;500&family=Cormorant+Garamond:wght@500;600&family=Source+Sans+3:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <!-- Decorative frame for the room skins (CSS-only, hidden from assistive tech, never receives input). -->
+    <div class="skin-frame" aria-hidden="true">
+      <i class="skin-ring skin-ring-wash"></i><i class="skin-ring skin-ring-tile"></i><i class="skin-line"></i>
+      <i class="skin-corner skin-corner-tl"></i><i class="skin-corner skin-corner-tr"></i><i class="skin-corner skin-corner-br"></i><i class="skin-corner skin-corner-bl"></i>
+    </div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <!-- Service Worker registration for PWA installability + offline shell -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        var swReg = null;
+        // A first install fires controllerchange once (clients.claim) with no prior
+        // controller — that is NOT an update, so don't surface the update pill for it.
+        var hadController = !!navigator.serviceWorker.controller;
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('/sw.js').then(function (reg) {
+            swReg = reg;
+          }).catch(function (err) {
+            console.warn('SW registration failed:', err);
+          });
+        });
+
+        // On tab resume, ask the SW to check for an updated version.
+        // This is the iOS PWA gap: background tabs never receive push updates,
+        // so resume is the only opportunity to pull a new SW.
+        document.addEventListener('visibilitychange', function () {
+          if (document.visibilityState === 'visible' && swReg) {
+            swReg.update();
+          }
+        });
+
+        // When a new SW takes control (after install + skipWaiting), surface the
+        // update pill by dispatching an event the React tree can listen for.
+        navigator.serviceWorker.addEventListener('controllerchange', function () {
+          if (!hadController) { hadController = true; return; }
+          window.dispatchEvent(new CustomEvent('sanctum:sw-updated'));
+        });
+      }
+    </script>
+  </body>
+</html>

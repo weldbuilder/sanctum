@@ -1,0 +1,32 @@
+// Types for scripts/setup-inherit.mjs: the tenant inheritance table and the wizard's helpers over it.
+export interface InheritRow { paths: string[]; inherit: boolean; why: string }
+export const INHERIT_TABLE: readonly InheritRow[];
+export const NEVER_INHERITED: readonly string[];
+export function inheritedBase(processFile: unknown): Record<string, any>;
+export function inheritTableMarkdown(): string;
+export const TENANT_ID_RE: RegExp;
+export const WIZARD_DEFAULTS: Readonly<Record<string, unknown>>;
+export function pruneToDifferences(cfg: Record<string, any>, base: Record<string, any>, drop?: string[], defaults?: Readonly<Record<string, unknown>>): Record<string, any>;
+export function isSecretKeyName(name: string): boolean;
+export type RemovalMarker = { path: string[]; value: null | Record<string, never> | { inherit: false } };
+export function removalMarkers(tenantYaml: unknown): RemovalMarker[];
+export function withoutMarked(base: unknown, rows: RemovalMarker[]): Record<string, any>;
+export function withRemovalMarkers(own: Record<string, any>, rows: RemovalMarker[], base?: unknown): Record<string, any>;
+export function overlay<T = Record<string, any>>(base: unknown, over: unknown): T;
+export function readProcessFile(root: string): Record<string, any>;
+export function tenantsBlockOf(root: string, processFile: unknown, homeDir?: string): { dir: string; inherit: boolean; auth?: string; default?: string } | null;
+export function authKeyMissingProblem(tenantsDir: string, block: { auth?: string | null; default?: string | null } | null): string;
+export function harnessHomesFor(tenantDir: string): { CLAUDE_CONFIG_DIR: string; CODEX_HOME: string; DSH_HOME: string };
+export function tenantPaths(tenantDir: string): { yamlPath: string; envPath: string; dbPath: string; home: string; privateDir: string; mcpJsonPath: string; tmp: string; harness: ReturnType<typeof harnessHomesFor> };
+export function tenantYamlProblems(cfg: Record<string, any>, tenantDir: string, processTimezone?: string, ctx?: { tenantsDir?: string; tenantId?: string; envText?: string; processRevienUrl?: string }): string[];
+export function tenantEnvProblems(envText: string, tenantDir: string, processTimezone?: string): string[];
+export function hostsProblems(raw: unknown): string[];
+export function tenantHostClaims(tenantsDir: string, selfId: string): Map<string, string>;
+export function tenantFolderProblem(tenantsDir: string, tenantDir: string, appRoot: string): string;
+export function processTimezoneOf(root: string, processFile: unknown, processEnv?: Record<string, string | undefined>): string;
+export function hostProblem(host: string): string;
+export const DEFAULT_REVIEN_URL: string;
+export function normaliseRevienAddress(url: unknown): string;
+export function backgroundRunsProblems(cfg: unknown): string[];
+export function revienProblems(cfg: unknown, processRevienUrl?: string): string[];
+export { tenantFilesProblem, tenantsDirProblem, tenantHoldsAppProblem } from './own-files-lib.mjs';

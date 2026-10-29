@@ -1,0 +1,53 @@
+# Default browser seat: m1k1o/neko Chromium (WebRTC streaming, built-in login, multi-viewer).
+# Start:  cp .env.example .env   (set NEKO_SEAT_*_PASSWORD, NEKO_SEAT_NAT_IP)  then  docker compose -p seat up -d   (the project name is already "seat")
+# SECURITY: anyone with the viewer URL + a password controls this browser and every login in it.
+# The viewer binds to 127.0.0.1 by default; set NEKO_SEAT_BIND to a private-network IP (e.g. a VPN/tailnet address) to
+# reach it from a phone. CDP is always 127.0.0.1-only. See README.md.
+
+name: seat
+
+services:
+  seat:
+    # Pinned by digest (tag at pin time: latest, Chromium 154). Bump deliberately.
+    image: ghcr.io/m1k1o/neko/chromium@sha256:2471119c7b4010067f76f3421a78a8bcf35e3c223b2d1f4db084914ec915fb30
+    restart: unless-stopped
+    ports:
+      - "${NEKO_SEAT_BIND:-127.0.0.1}:${NEKO_SEAT_PORT:-3201}:8080"
+      # WebRTC media: ONE UDP port (neko udpmux) and one TCP fallback port, same number on host and container
+      # so the ICE candidates neko advertises are reachable as-is.
+      - "${NEKO_SEAT_BIND:-127.0.0.1}:${NEKO_SEAT_RTC_PORT:-52000}:${NEKO_SEAT_RTC_PORT:-52000}/udp"
+      - "${NEKO_SEAT_BIND:-127.0.0.1}:${NEKO_SEAT_RTC_PORT:-52000}:${NEKO_SEAT_RTC_PORT:-52000}/tcp"
+      # DevTools Protocol: FULL CONTROL of the browser. Loopback only, deliberately NOT tied to the bind above.
+      - "127.0.0.1:${NEKO_SEAT_CDP_PORT:-9232}:9223"
+    environment:
+      - NEKO_DESKTOP_SCREEN=${NEKO_SEAT_SCREEN:-1600x1000@30}
+      - NEKO_MEMBER_PROVIDER=multiuser
+      - NEKO_MEMBER_MULTIUSER_USER_PASSWORD=${NEKO_SEAT_USER_PASSWORD:?set NEKO_SEAT_USER_PASSWORD in .env}
+      - NEKO_MEMBER_MULTIUSER_ADMIN_PASSWORD=${NEKO_SEAT_ADMIN_PASSWORD:?set NEKO_SEAT_ADMIN_PASSWORD in .env}
+      - NEKO_WEBRTC_UDPMUX=${NEKO_SEAT_RTC_PORT:-52000}
+      - NEKO_WEBRTC_TCPMUX=${NEKO_SEAT_RTC_PORT:-52000}
+      # The address the phone dials for media: the host's tailnet/VPN IP. No TURN server needed.
+      - NEKO_WEBRTC_NAT1TO1=${NEKO_SEAT_NAT_IP:?set NEKO_SEAT_NAT_IP in .env}
+      # Implicit hosting: the first viewer who clicks/taps the stream takes control automatically, with no
+      # toolbar "request control" tap. Set NEKO_SEAT_IMPLICIT_HOSTING=false to go back to explicit requests.
+      - NEKO_SESSION_IMPLICIT_HOSTING=${NEKO_SEAT_IMPLICIT_HOSTING:-true}
+    volumes:
+      # Replaces the image's chromium supervisor program: adds the remote-debugging flag + the relay.
+      - ./chromium.conf:/etc/neko/supervisord/chromium.conf:ro
+      # Replaces the image's browser policy: the stock one sets DeveloperToolsAvailability=2, which
+      # disables the DevTools port. Everything else is kept.
+      - ./policies.json:/etc/chromium/policies/managed/policies.json:ro
+      - ./cdp-relay.py:/opt/cdp-relay.py:ro
+      - seat-profile:/home/neko/.config/chromium
+    shm_size: "1gb"
+    security_opt: ["no-new-privileges:true"]
+    networks: [seat]
+
+networks:
+  seat:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.enable_icc: "false"
+
+volumes:
+  seat-profile:

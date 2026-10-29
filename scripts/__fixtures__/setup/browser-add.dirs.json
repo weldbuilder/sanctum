@@ -1,0 +1,8 @@
+{
+  "app/data": {
+    "private": true
+  },
+  "app/data/browser-out": {
+    "private": true
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "app/tenants/ada/.env": {
+    "private": true,
+    "sha256": "dd802d8161ebcd242b099da364fa022da7e3427c97015ef0c3070b1b878cab8d",
+    "bytes": 27
+  },
+  "app/tenants/ada/tenant.yaml": {
+    "private": false,
+    "sha256": "da7dcd1a848ba9e299d68a0dd846e3f3c4fc32a5691354112483a5ffda0c9922",
+    "bytes": 366
+  }
+}

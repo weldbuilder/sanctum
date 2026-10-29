@@ -1,0 +1,98 @@
+
+Sanctum Mobile setup
+====================
+A few questions. Press Enter to keep the value in brackets. Run this again any time.
+
+Tenant ada: <SBX>/app/tenants/ada
+Its logins live in <SBX>/app/tenants/ada/data/harness (CLAUDE_CONFIG_DIR=<SBX>/app/tenants/ada/data/harness/claude, CODEX_HOME=<SBX>/app/tenants/ada/data/harness/codex, DSH_HOME=<SBX>/app/tenants/ada/data/harness/dsh); log in per tenant, never copy credential files between tenants.
+
+— This tenant (ada) —
+Its folder is <SBX>/app/tenants/ada; what it sets is written to tenant.yaml and .env there.
+Hostname this tenant is served at (empty = none yet) ada.example.net
+
+— Who lives here —
+Your companion's name [Echo] Ada
+Your name Sam
+Your timezone (IANA name) [UTC] 
+
+— The companion's home folder —
+The folder with AGENTS.md, identity/ and config/. Part one of the README makes it.
+Home folder [<SBX>/app/tenants/ada/home] 
+<SBX>/app/tenants/ada/home does not exist. Create it from the starter template? (Y/n) y
+Created <SBX>/app/tenants/ada/home. Open identity/profile.md and identity/companion.md there and fill in the << >> blanks.
+
+— The model —
+1) Codex: any model Codex can reach. DeepSeek on an API key, a ChatGPT plan, or any
+   provider you add to ~/.codex/config.toml (OpenAI-compatible APIs, local servers).
+2) Claude: the Claude Agent SDK, with a Claude login or an Anthropic API key.
+3) DeepSeek Harness: DeepSeek's own agent (alpha), on a DeepSeek API key or another
+   route it knows (docs/DSH.md).
+Which one? [2] 2
+Claude model id [claude-sonnet-5-5] 
+Sign in with `claude login` (a Claude plan), or paste an Anthropic API key here.
+This tenant's login lives in <SBX>/app/tenants/ada/data/harness/claude, <SBX>/app/tenants/ada/data/harness/codex and <SBX>/app/tenants/ada/data/harness/dsh: run `claude login` with CLAUDE_CONFIG_DIR / CODEX_HOME / DSH_HOME set to them (never copy credential files between tenants).
+Anthropic API key (empty = use the login) sk-ant-xyz
+
+— The app's features —
+Reminders and timers, a meal and care log, cycle tracking, notes and canvases, routines,
+and the presence orb all live in the app. With this on, your companion can write to them
+when you ask: "ate at 10:30" gets logged, "remind me at 3" sets a timer, "log my meds"
+ticks the box. Nothing is written without your say-so, and the app sets up all of the
+access itself; there is nothing to configure outside it. Off, they can read and talk, but
+every write is refused.
+Let your companion write to the app's features? (Y/n) 
+On. The Command Center pages (care, cycle, routines) are switched on with it.
+
+— Long-conversation memory (recommended: on) —
+Models can only hold so much of a conversation at once. Without this, the oldest
+messages quietly fall off the end and your companion loses the thread. With it on,
+Sanctum folds older messages into a short summary your companion keeps reading, so
+the shape of what happened stays even when the words don't. You can turn it off any
+time; the summaries are kept, not deleted, and the next message in each thread carries
+them into a fresh session once, so your companion keeps the thread.
+Long-conversation memory on Claude? (Y/n) n
+
+— Plugins —
+Who manages plugins?
+1) your companion: it can turn plugins on and off and edit them, and you see what changed in Settings.
+2) you: nothing runs until you have read and ratified its exact code, and a change stops it until you ratify again.
+Which one? [1] 
+Your companion manages plugins. Settings > Plugins shows what changed since you last looked.
+Plugins add tools and routes. A plugin on disk does nothing until it is named here, and
+the default is none. These ship with the app:
+1) Hello (example plugin) (hello)
+Which to turn on? Numbers or ids, comma-separated, "none" for none [none] 
+None turned on.
+
+— Discord —
+Two lanes that never touch, decided by CHANNEL: your own channel (the owner lane: only your
+account, only that channel), and, later and only if you
+choose, public servers. Everything she says on Discord passes a word gate first, against
+private lists you write. This step makes those lists. The public lane stays OFF, and bots
+never get answered; both are changed later in sanctum.yaml, one stage at a time.
+Note: public Discord needs dsh or Claude as the harness. On Codex the public lane is refused (it cannot
+run without its shell tool); the owner lane works on any harness.
+Set up Discord? (y/N) 
+
+— The app —
+App password (empty = make one up for you) pw one
+
+— Memory —
+One memory system at a time, or they fight over what to remember. Pick where memory lives:
+A tenant needs its own Revien daemon and address: the process's daemon is never shared, so Revien is not the default here.
+1) Revien (the README, Step 4): a local graph the companion searches and writes to.
+2) My own memory system: an MCP server or files I set up myself.
+3) The harness's built-in memory: Claude's auto-memory.
+4) None. The journal and HANDOFF.md in the home folder are all that lasts.
+5) Sanctum's own memory: built in, nothing to install. It recalls the closest lines from earlier conversations on this
+   computer, and stands in for Revien whenever Revien is not running.
+Which one? [4] 1
+Address of this tenant's own Revien daemon (http://host:port) ada.example.net:7438
+Give the address of a Revien daemon that only this tenant uses, like http://127.0.0.1:7438. Two tenants on one daemon would share memories.
+Address of this tenant's own Revien daemon (http://host:port) http://127.0.0.1:7438
+Browser: a tenant has browser tools only from a seat of its own. Set integrations.browser_url in this tenant's tenant.yaml to use one; the process's seat is never shared.
+Wrote <SBX>/app/tenants/ada/tenant.yaml
+Wrote <SBX>/app/tenants/ada/.env
+
+Tenants are read when the app starts: restart it to serve this one.
+To change any of this later: Settings in the app, or npm run setup -- --tenant ada again.
