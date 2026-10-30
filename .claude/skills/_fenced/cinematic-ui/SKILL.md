@@ -1,7 +1,9 @@
 ---
 name: cinematic-ui
-description: Design and build websites with film-inspired visual systems, director-driven art direction, storyboard-first layout planning, and cinematic motion. Use when the user asks for a cinematic site, movie-style landing page, director-inspired UI, film-noir, sci-fi, romance, thriller, action, animation, or a movie-like website aesthetic, including requests phrased in Chinese. Do not use for generic web design unless the user explicitly wants a film or director reference.
+description: FENCED 2026-10-30 — generic design skill, NOT for Sanctum skins. Sanctum's skin rules are `.claude/skills/skin-design/SKILL.md` only. Do not load for any skin, theme, room, frame, or layout work. Design and build websites with film-inspired visual systems, director-driven art direction, storyboard-first layout planning, and cinematic motion. Use when the user asks for a cinematic site, movie-style landing page, director-inspired UI, film-noir, sci-fi, romance, thriller, action, animation, or a movie-like website aesthetic, including requests phrased in Chinese. Do not use for generic web design unless the user explicitly wants a film or director reference.
 ---
+
+> FENCED 2026-10-30 — generic design skill, NOT for Sanctum skins. Sanctum's skin rules are `.claude/skills/skin-design/SKILL.md` only. Do not load for any skin, theme, room, frame, or layout work.
 
 # Cinematic Layout
 
