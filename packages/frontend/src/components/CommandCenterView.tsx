@@ -4086,8 +4086,8 @@ function CommandCenterStyles() {
         .cmd-dayhead { grid-template-columns: auto minmax(0, 1fr); row-gap: 0; column-gap: 0.6rem; }
         .cmd-dayhead > .cmd-manage { grid-column: auto; grid-row: auto; }
         .cmd-dayhead > .cmd-dayhead-ask { grid-column: 1 / -1; justify-self: center; justify-content: center; flex-wrap: wrap; column-gap: 0.45rem; row-gap: 0; text-align: center; }
-        .cmd-dayhead .horb { --orb-d: 52px; }
-        .cmd-dayhead-date { font-size: 1.4rem; }
+        .cmd-dayhead .horb { --orb-d: 44px; }
+        .cmd-dayhead-date { font-size: 1.25rem; line-height: 1.15; min-width: 0; overflow-wrap: anywhere; }
         /* one column: care's chips first, then the day and its automations, then the rest */
         .cmd-daymain, .cmd-dayside { display: contents; }
         /* the day speaks for itself here: Echo's words stay on a desktop, the ask stays everywhere */
