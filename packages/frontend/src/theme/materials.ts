@@ -310,6 +310,14 @@ export const FLAT: Partial<Record<MaterialId, FlatStyle>> = {
     woodgrain: null },
 };
 
+/** The glyph and ring of Home's medallions (they sit on the chrome, the wood or leather, not on the card). The Library's trim is the parchment's
+ *  brown and Ember's copper is dim on its leather, so each wears its own bright metal there (brass / light copper); the rest use their trim. */
+export const BADGE_INK: Partial<Record<MaterialId, string>> = { 'mounted-paper': '#E0BB78', 'smoked-copper': '#E3B99D' };
+
+/** The ink of icons (and their labels' glyphs) drawn on a material's parchment: a dark near-black with the paper's warmth, in place of the
+ *  Library's brown link/trim, which read wrong on the cream. Applied by skins-css to the Home and Files icons on paper. */
+export const ICON_INK: Partial<Record<MaterialId, string>> = { 'mounted-paper': '#2A1F14' };
+
 /** Squared chips and pills, for the materials whose plates are nearly square (their painted references). */
 export const CHIP_RADIUS: Partial<Record<MaterialId, number>> = { 'smoked-copper': 4, 'midnight-ink': 4, 'black-damask': 4, 'botanical-linen': 4, 'indigo-silk': 4 };
 
@@ -388,6 +396,9 @@ export const ROUTE_BARE: string[] = ['.observatory-view'];
  *  Celestial, by the owner's choice: its Command center and Home read as one set, navy with the gold studs and rim; Files
  *  (its places, recent cards, folder and open file) and the Notes cards are drawn the same way to stay in that set. */
 export const DEFAULT_FRAMED_ROUTE_PANELS: string[] = ['.cmd-panel', '.fl-plate', '.nt-card', '.ob-panel', '.ob-card', '.cve-body'];
+/** A route panel drawn on another of the material's substrates than the page default (chrome, or the card paper on a light material): Ember's
+ *  Notes cards are the navy leather ('user' substrate, the Home cards'), the rest of its pages keep the black. */
+export const ROUTE_PANEL_SUBSTRATE: Partial<Record<MaterialId, Record<string, 'user'>>> = {};  // B: 'smoked-copper': { '.nt-card': 'user' }
 /** Per-material override of the default list (a material listed here gets exactly that list; [] turns framing off for it). */
 export const FRAMED_ROUTE_OVERRIDES: Partial<Record<MaterialId, string[]>> = {};
 /** Every material wears the plate frame on its route panels, except Hedgewitch (its own paper system, no plates). Extra readable turns plates off in the generator. */
@@ -405,7 +416,8 @@ export const PLATES: PlateDef[] = [
   plate('.settings-subnav', 'none', '--surface-chrome', { kind: 'chrome', corner: 0, cornerMobile: 0, radius: 0, edge: 'right', mount: false }),
   plate('.nav-rail', 'none', '--surface-chrome', { corner: 0, cornerMobile: 0, radius: 0, edge: 'right', mount: false }),
   plate('.drawer-panel', 'none', '--surface-chrome', { corner: 0, cornerMobile: 0, radius: 0, edge: 'right', mount: false }),
-  plate('.mobile-topbar', 'none', '--surface-chrome', { corner: 0, cornerMobile: 0, radius: 0, edge: 'bottom', mount: false }),
+  /* The phone top bar is the header of every page but chat; chat's own header is `.chat-header`. Both wear the same frame (full border + corner fittings). */
+  plate('.mobile-topbar', 'none', '--surface-chrome', { kind: 'chrome', border: true, mount: false }),
   plate('.cdlg-panel', '0 8px 32px rgba(0, 0, 0, 0.55)', '--card-bg', { border: true }),
   plate('.home-card', '0 10px 30px rgba(20, 10, 5, 0.35)', '--card-bg', { corner: 22, cornerMobile: 18 }),
   plate('.night-shelf', 'none', '--card-bg', { border: true }),
@@ -1142,6 +1154,8 @@ export function skinVars(m: MaterialDef): Record<string, string> {
     if (t.relief.chromeShadow) { v['--skin-chrome-relief'] = t.relief.chromeShadow; v['--skin-chrome-trim'] = r.chromeTrim; }
     v['--skin-frame-relief'] = t.relief.frameShadow;
   }
+  if (BADGE_INK[m.id]) v['--skin-badge-ink'] = BADGE_INK[m.id]!;
+  if (ICON_INK[m.id]) v['--skin-icon-ink'] = ICON_INK[m.id]!;
   if (r.editor) {
     v['--skin-editor-bg'] = r.editor.bg; v['--skin-editor-text'] = r.editor.text;
     v['--skin-editor-placeholder'] = r.editor.placeholder; v['--skin-editor-focus'] = r.editor.focus;
