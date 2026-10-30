@@ -50,6 +50,8 @@ export interface ThinkingEntry {
   summary: string;
   textOffset: number;
   isComplete: boolean;
+  /** Assistant text that preceded a tool call: narration, not provider reasoning. */
+  narration?: boolean;
 }
 
 export interface ToolEntry {
@@ -516,6 +518,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
               summary: m.summary,
               textOffset: m.textOffset,
               isComplete: m.isComplete,
+              narration: m.narration,
             };
             nextEntries = [...currentEntries, entry].sort((a, b) => a.textOffset - b.textOffset);
           }

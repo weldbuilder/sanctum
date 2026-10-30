@@ -199,7 +199,7 @@ export interface Canvas {
 export type MessageSegment =
   | { type: 'text'; content: string }
   | { type: 'tool'; toolId: string; toolName: string; input?: string; output?: string; isError?: boolean }
-  | { type: 'thinking'; content: string; summary: string };
+  | { type: 'thinking'; content: string; summary: string; /** assistant text that preceded a tool call in the same turn (not the reply) */ narration?: boolean };
 
 export interface ThreadSummary {
   id: string;
