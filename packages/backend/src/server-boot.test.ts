@@ -107,7 +107,7 @@ describe('single-tenant boot golden', () => {
       const shutdownLine = (l: string) => /^(SIGTERM received|\[Orchestrator\] Stopping|Server closed)/.test(l);
       const actual = {
         lines: lines.filter((l) => signalled || !shutdownLine(l)).map(norm),
-        stderr: sc.stderr().split(/\r?\n/).filter(Boolean).map(norm),
+        stderr: sc.stderr().split(/\r?\n/).filter((l) => l && !/^\(node:\d+\) \[DEP\d+\]|^\(Use `node --trace-deprecation|^\(Use `node --trace-warnings/.test(l)).map(norm),
         // uptime and memory differ on every run: keep the shape and key order, zero the numbers.
         health: { status: health.status, body: health.body.replace(/-?\d+(\.\d+)?(e[+-]?\d+)?/gi, '0') },
         authCheck: check,
