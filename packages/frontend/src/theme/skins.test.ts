@@ -161,7 +161,8 @@ describe('generated stylesheet', () => {
     // The room rules every room shares. Changed on purpose: the painting is shown whole (zoomed out to fit, contain) over the
     // same painting covering, blurred, behind it, instead of covering and cropping; both no-repeat, at the room's own position.
     const body = readFileSync(join(FRONTEND, 'src/theme/skins.css'), 'utf8').split('/* ── focus')[0];
-    expect(body).toMatch(/body::after \{[^}]*background-size: contain;/);
+    expect(body).toMatch(/body::after \{[^}]*background-size: cover;/); // changed on purpose: the room is full-bleed on desktop too (was contain)
+    expect(body).not.toMatch(/background-size: contain/);
     expect(body).toMatch(/@media \(max-width: 768px\) \{\s*body::after \{ background-size: cover; \}/); // a phone fills its screen
     expect(body).toMatch(/body::before \{[^}]*background-size: cover;[^}]*filter: blur\(/);
     expect(body).toContain('background-repeat: no-repeat;');
@@ -188,6 +189,14 @@ describe('stylesheet rules for Extra readable and the frame', () => {
   it('Extra readable gives the composer (focus-within) the same 3px ring as every focused control', () => {
     expect(skins).toContain(':root[data-readability="extra"] :focus-visible { outline-width: 3px; }');
     expect(skins).toContain(':root[data-readability="extra"] .composer-inner:focus-within { outline-width: 3px; }');
+  });
+
+  it('drops the outer app-shell frame on desktop (insets 0, frame hidden, shell edge to edge) unless data-outer-frame="on"; phone untouched', () => {
+    const desktop = skins.split('@media (min-width: 769px) {').slice(1).map(b => b.split('\n}\n')[0]).join('\n');
+    expect(desktop).toContain(':root[data-decor="on"]:not([data-outer-frame="on"]) .skin-frame { display: none; }');
+    expect(desktop).toContain(':root[data-decor="on"]:not([data-outer-frame="on"]) .app-shell { padding: 0; }');
+    expect(desktop).toMatch(/--skin-inset-x: 0px;[^}]*--skin-inset-top: 0px;[^}]*--skin-inset-bottom: 0px;/);
+    expect(skins).toContain('max(var(--skin-gutter-y), env(safe-area-inset-top, 0px))'); // the phone shell padding stays
   });
 
   it('sets a desktop frame into the room, except Ember, whose full-window frame instead holds the rail set into it', () => {
