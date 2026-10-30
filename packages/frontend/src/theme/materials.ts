@@ -387,7 +387,13 @@ export const ROUTE_BARE: string[] = ['.observatory-view'];
 /** Route panels framed as the material's Home cards are: its fittings, rim and relief and their corner, over the chrome substrate.
  *  Celestial, by the owner's choice: its Command center and Home read as one set, navy with the gold studs and rim; Files
  *  (its places, recent cards, folder and open file) and the Notes cards are drawn the same way to stay in that set. */
-export const FRAMED_ROUTE_PANELS: Partial<Record<MaterialId, string[]>> = { 'indigo-silk': ['.cmd-panel', '.fl-plate', '.nt-card'] };
+export const DEFAULT_FRAMED_ROUTE_PANELS: string[] = ['.cmd-panel', '.fl-plate', '.nt-card', '.ob-panel', '.ob-card', '.cve-body'];
+/** Per-material override of the default list (a material listed here gets exactly that list; [] turns framing off for it). */
+export const FRAMED_ROUTE_OVERRIDES: Partial<Record<MaterialId, string[]>> = {};
+/** Every material wears the plate frame on its route panels, except Hedgewitch (its own paper system, no plates). Extra readable turns plates off in the generator. */
+export const FRAMED_ROUTE_PANELS: Partial<Record<MaterialId, string[]>> = Object.fromEntries(
+  MATERIAL_IDS.filter(id => id !== 'hedgewitch').map(id => [id, FRAMED_ROUTE_OVERRIDES[id] ?? DEFAULT_FRAMED_ROUTE_PANELS]),
+);
 
 export const PLATES: PlateDef[] = [
   plate('.message.companion', '0 2px 8px rgba(20, 10, 5, 0.22)', '--surface-companion', { border: true, ornament: true }),
