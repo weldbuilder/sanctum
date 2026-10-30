@@ -196,4 +196,11 @@ describe('Library icons are ink on parchment; Ember Notes cards are navy leather
     expect(declarations(node('fl-upload', plate)).color).toBeDefined();
     expect(buildSkinsCss()).toMatch(/\[data-material="mounted-paper"\][^{]*\.fl-section-head svg[^{]*\{ color: var\(--skin-icon-ink\)/);
   });
+  it('Ember Notes cards use the navy leather, its other route panels keep the black', () => {
+    const m = MATERIALS['smoked-copper'], r = root(m.id), notes = declarations(panel(r, 'notes', 'nt-card')), cmd = declarations(panel(r, 'command', 'cmd-panel'));
+    expect(m.texture!.user!.url).toBe('/skins/ember/ember-navy-leather.webp');
+    expect(notes['background-image']).toContain('ember-navy-leather.webp');
+    expect(notes['background-image']).not.toContain('ember-black-leather.webp');
+    expect(cmd['background-image']).toContain('ember-black-leather.webp');
+  });
 });
