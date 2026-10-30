@@ -734,17 +734,15 @@ export function MessageBubble({ message, isStreaming = false, streamTokens = '',
       aria-label={`${isCompanion ? 'Companion' : 'You'} message`}
       data-orn={(message.sequence ?? 0) % ORNAMENT_SLOTS}
     >
-      {/* Companion avatar — the logo, at the left of the bubble; first bubble of a run only */}
-      {isCompanion && !suppressHeader && (
-        <img className={`message-avatar${identity.avatar_url ? ' is-custom' : ''}`} src={avatarSrc(identity)} alt="" aria-hidden="true" width={36} height={36} />
-      )}
-
       {/* Attribution — suppressed in grouped same-role runs.
           Tools toggle only shown on legacy path (no segments); the accordion handles segments. */}
       {(!suppressHeader || (isCompanion && hasTools && !segments)) && (
         <div className="message-header">
           {!suppressHeader && (
             <>
+              {isCompanion && identity.avatar_url && (
+                <img className="message-avatar is-custom" src={avatarSrc(identity)} alt="" aria-hidden="true" width={22} height={22} />
+              )}
               <span className="message-role">{roleName}</span>
               <span className="message-time">{formatTime(message.created_at)}</span>
               {message.edited_at && !isDeleted && (
@@ -935,8 +933,9 @@ export function MessageBubble({ message, isStreaming = false, streamTokens = '',
         .message.companion {
           align-self: flex-start;
           width: auto;
-          max-width: 78%;
-          margin-left: 3.1rem;
+          max-width: min(78%, 680px);
+          margin-left: 0;
+          margin-right: auto;
           /* Parchment with a little of the wall through it: the bubbles sit in the room, not on top of it. */
           background: var(--surface-companion);
           color: var(--surface-companion-text);
@@ -948,25 +947,24 @@ export function MessageBubble({ message, isStreaming = false, streamTokens = '',
         .message.companion:hover {
           border-color: var(--border-hover, rgba(90, 65, 40, 0.28));
         }
+        /* Avatar sits inline in the header, before the name (no side gutter). */
         .message-avatar {
-          position: absolute;
-          left: -3.1rem;
-          top: 0.15rem;
-          width: 36px;
-          height: 36px;
-          border-radius: 0;
-          object-fit: contain;
-          box-shadow: none;
-          filter: drop-shadow(0 2px 5px rgba(20, 10, 5, 0.35));
+          flex: 0 0 auto;
+          align-self: center;
+          width: 22px;
+          height: 22px;
+          border-radius: 50%;
+          object-fit: cover;
         }
         /* A custom photo avatar gets the rounded tile; the Sanctum mark does not. */
-        .message-avatar.is-custom { border-radius: 9px; object-fit: cover; filter: none; box-shadow: 0 2px 6px rgba(20, 10, 5, 0.35); }
+        .message-avatar.is-custom { border-radius: 50%; object-fit: cover; filter: none; }
 
         /* User — lavender bubble, ink #3b2f52, right-anchored */
         .message.user {
           align-self: flex-end;
           margin-left: auto;
-          max-width: 72%;
+          margin-right: 0;
+          max-width: min(78%, 680px);
           background: var(--surface-user);
           -webkit-backdrop-filter: var(--surface-blur, none);
           backdrop-filter: var(--surface-blur, none);
@@ -1656,8 +1654,7 @@ export function MessageBubble({ message, isStreaming = false, streamTokens = '',
         }
 
         @media (max-width: 768px) {
-          .message.companion { max-width: calc(100% - 3.1rem); }
-          .message.user { max-width: 88%; }
+          .message.companion, .message.user { max-width: 78%; }
           .tool-output { max-width: calc(100vw - 5rem); }
           /* Always show read-aloud on mobile (no hover) */
           .ral-row > :not(.bubble-ts) { opacity: 1; }
