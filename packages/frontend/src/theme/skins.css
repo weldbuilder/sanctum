@@ -276,4 +276,15 @@ body::after {
     margin-top: 4px;
     margin-bottom: 4px;
   }
+
+  /* Composer pill: the generated plate stacks a 6px inset gilt/black ring and 30px corner fittings on a
+     1px border, which reads as a thick frame on a phone. Keep one gilt hairline + one dark inner line,
+     smaller fittings and tighter padding. Specificity matches the generated plate rules (+[data-material]). */
+  :root[data-decor="on"][data-surface-decor="on"][data-material]:not([data-material="hedgewitch"]):not([data-readability="extra"]) .composer-inner {
+    --plate-corner: 14px;
+    padding: 0.3rem 0.45rem;
+    gap: 0.3rem;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
+  }
+  :root[data-decor="on"] .composer { padding: 0.4rem 0.5rem 0.5rem; }
 }
