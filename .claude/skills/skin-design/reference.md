@@ -6,10 +6,10 @@ texture (and their fallback when decorations are off).
 
 ## Ember (`smoked-copper`, room `ember`)
 - Sources: `updated_ember_study_final.png` (the leathers), `updated_ember-hedgewitch.png` (the copper fittings).
-- A flat material (`FLAT`): black leather `#131310` for the panels, menu, companion bubbles and chat bar; navy leather
-  `#142036` for "You" and every Home card. Copper fittings, a copper rim.
+- A flat material (`FLAT`): black leather `#131310` for the panels, menu, companion bubbles and chat bar on every page except Notes; navy leather
+  `#142036` for "You", every Home card and the Notes plate. Copper fittings, a copper rim.
 - Cards and panels 3px with fittings; bubbles and the chat bar rounded 8px with no fittings; chips 4px.
-- Desktop is full-window: the frame on the window's edge, the rail set into the frame (exempt from the inset).
+- No outer frame; the copper fittings sit on the plates and the header on every page.
 
 ## Moonlit Cloister (`midnight-ink`, room `cloister`)
 - Source: `Updated_moonlit_menu_chat_repsonse.png`.
@@ -21,16 +21,16 @@ texture (and their fallback when decorations are off).
 ## Hedgewitch (`hedgewitch`, the kitchen; the legacy palette in `theme-hedgewitch.css`)
 - Source: the Hedgewitch half of `updated_ember-hedgewitch.png`.
 - Crinkled cream paper; "You" is the painting's dusty rose `#CFABAC` with a deeper lavender edge and plum ink; muted ink
-  `#5d5047`. Sage sprig on the companion's bubbles, yarrow on "You"; botanicals on the Home cards. A light skin: ivory allowed.
+  `#5d5047`. Sage sprig on the companion's bubbles, yarrow on "You"; botanicals on the Home cards. A light skin on its own paper; no ivory layer.
 - Unframed: the kitchen has no frame and no inset.
 
 ## Oxblood Library (`mounted-paper`, room `library`)
 - Sources: the Library half of `updated_library_vampire_set-menu-chat-response.png` (plates, brackets), `library.jpg` (the menu).
 - Aged parchment `#FFDA98` plates, a darker tan "You" `#B9834D`, burnt edges, a slim dark mount with a brass line. Polished gold
   riveted brackets.
-- The chrome (rail, drawer, top bar, header, chat list, chat bar) is the demo rail's oxblood wood `#301409`, its rim oxblood
-  `#7E3420`, its focus ring red copper `#BA5C3C`, its selected item wine red `#6A1F22`. The chat bar is wood, one surface.
-- A light skin: the parchment fields are allowed.
+- The parchment is the surface everywhere: the chrome (rail, drawer, top bar, header, chat list, chat bar) sits on it, with no
+  ivory layer. Icons are ink. The rim is oxblood `#7E3420`, the focus ring red copper `#BA5C3C`, the selected item wine red
+  `#6A1F22`. The chat bar is one surface.
 
 ## Crimson Velvet (`black-damask`, room `salon`)
 - Sources: the Vampire half of the same mock-up; `Vampire-salon.jpg` and its sibling demo for the menu.

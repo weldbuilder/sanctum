@@ -30,7 +30,8 @@ the rules that came out of that, and the workflow that keeps them true. The per-
    distinct surfaces, using the painting's own cloths (`ACCENTS` and `ACCENT_SUBSTRATE` in `materials.ts`). Dark-on-dark
    everywhere was rejected. Celestial is the owner's exception: its Home cards wear the navy of its Command center, and its
    Command panels wear the Home cards' gold studs and rim (`FRAMED_ROUTE_PANELS`), so the two pages read as one set; the
-   frame, not the cloth, sets them apart from the menu.
+   frame, not the cloth, sets them apart from the menu. The Library's menu sits on the same parchment as everything else and
+   reads distinct through its plate edge, brackets and ink icons, never through a different (ivory) colour.
 6. **Colours stay in the skin's family.** A selected item takes a colour of the skin (Library wine red, Velvet crimson), never
    a stray accent (lavender in a red room was rejected). The only constant across skins is the Sanctum mark.
 7. **Edges sit into their material.** A rim on a dark plate must not glow: it takes the skin's own dark-edge colour, not a bright
