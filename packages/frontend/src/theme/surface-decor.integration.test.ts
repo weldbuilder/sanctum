@@ -142,7 +142,8 @@ describe('surface decoration and room frame eligibility', () => {
       const card = declarations(attrs, '.home-card');
       expect(card['background-image'] ?? '').toContain('/skins/ember/ember-navy-leather.webp');
       expect(card['background-image'] ?? '').toContain('/skins/ember/ember-fitting-tl.webp');
-      expect(declarations(attrs, '.skin-frame').display).toBe(roomId === 'hedgewitch' ? 'none' : 'block');
+      expect(declarations(attrs, '.skin-frame').display).toBe('none'); // the outer frame is off by default on every width
+      expect(declarations({ ...attrs, 'data-outer-frame': 'on' }, '.skin-frame').display).toBe(roomId === 'hedgewitch' ? 'none' : 'block'); // with it on, the room decides
     }
     const attrs = applied(defaultDoc());
     expect(declarations(attrs, '.home-card')['background-image'] ?? '').toContain('/hedgewitch/hedgewitch-paper.webp');
@@ -191,7 +192,8 @@ describe('restored materials across every room', () => {
           }
           const user = declarations(attrs, '.message.user');
           if (materialId === 'black-damask') expect(user['background-image']).not.toMatch(/damask-cloth|texture-v1/);
-          expect(declarations(attrs, '.skin-frame').display).toBe(roomId === 'hedgewitch' ? 'none' : 'block');
+          expect(declarations(attrs, '.skin-frame').display).toBe('none'); // the outer frame is off by default on every width
+      expect(declarations({ ...attrs, 'data-outer-frame': 'on' }, '.skin-frame').display).toBe(roomId === 'hedgewitch' ? 'none' : 'block'); // with it on, the room decides
           if (roomId === 'hedgewitch') expect(declarations(attrs, '.app-shell')['--skin-gutter-x']).toBeUndefined();
         }
       }
