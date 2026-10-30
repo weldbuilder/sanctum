@@ -176,7 +176,7 @@ function ModelEffortStrip({
           flex-shrink: 0;
         }
         .me-glyph {
-          font-size: 0.5625rem;
+          font-size: 0.8rem;
           color: var(--text-muted, #6a6258);
           line-height: 1;
           letter-spacing: 0;
@@ -201,16 +201,16 @@ function ModelEffortStrip({
           border: none;
           border-bottom: 1px solid rgba(255,255,255,0.07);
           border-radius: 0.25rem;
-          padding: 0.125rem 0.1875rem;
+          padding: 0.1875rem 0.3125rem;
           min-width: 3.5rem;
-          max-width: 7rem;
+          max-width: 9rem;
           gap: 0.25rem;
         }
         .model-effort-strip .hsel-trigger .hsel-trigger-text,
         .model-effort-strip .hsel-trigger.mono .hsel-trigger-text {
           font-family: var(--font-mono, 'JetBrains Mono', monospace);
-          font-size: 0.625rem;
-          letter-spacing: 0.04em;
+          font-size: 0.8667rem;
+          letter-spacing: 0.02em;
           color: var(--text-muted, #6a6258);
           transition: color 150ms var(--hearth-curve, cubic-bezier(0.25,0.46,0.45,0.94));
         }
@@ -236,7 +236,7 @@ function ModelEffortStrip({
           right: -0.875rem;
           top: 50%;
           transform: translateY(-50%);
-          font-size: 0.5625rem;
+          font-size: 0.8rem;
           color: var(--amber, #c9a87c);
           opacity: 1;
           animation: meCheckFade 1.2s ease forwards;
@@ -267,11 +267,11 @@ function ModelEffortStrip({
         /* Mobile: tighten below 480px */
         @media (max-width: 480px) {
           .model-effort-strip .hsel-trigger {
-            max-width: 4.5rem;
+            max-width: 7rem;
           }
           .model-effort-strip .hsel-trigger .hsel-trigger-text,
           .model-effort-strip .hsel-trigger.mono .hsel-trigger-text {
-            font-size: 0.5625rem;
+            font-size: 0.8667rem;
           }
           .model-effort-strip {
             margin-left: 0.25rem;
@@ -406,7 +406,7 @@ function ShowThinkingToggle({
         .stt-eye { flex-shrink: 0; }
 
         .stt-state {
-          font-size: 0.4375rem;
+          font-size: 0.6667rem;
           line-height: 1;
           letter-spacing: 0;
           font-family: var(--font-mono, 'JetBrains Mono', monospace);
@@ -419,7 +419,7 @@ function ShowThinkingToggle({
           right: -0.75rem;
           top: 50%;
           transform: translateY(-50%);
-          font-size: 0.5rem;
+          font-size: 0.6667rem;
           color: var(--amber, #c9a87c);
           animation: sttCheckFade 1.2s ease forwards;
           pointer-events: none;
@@ -3115,7 +3115,7 @@ export function ChatView({ embedded = false }: { embedded?: boolean }) {
           position: absolute;
           top: 0.125rem;
           right: 0.125rem;
-          font-size: 0.4375rem;
+          font-size: 0.6667rem;
           font-family: var(--font-mono, 'JetBrains Mono', monospace);
           background: rgba(201, 168, 124, 0.20);
           color: var(--amber, #c9a87c);
