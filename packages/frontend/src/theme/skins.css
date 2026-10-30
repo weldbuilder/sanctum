@@ -243,3 +243,37 @@ body::after {
 :root[data-readability="extra"] .app-content:is([data-route="files"], [data-route="canvas"], [data-route="command"], [data-route="browser"], [data-route="observatory"]) {
   background: var(--surface-chrome);
 }
+
+/* ── chat bubbles sit on opposite sides (all widths) ──
+   Alignment/width live in MessageBubble; repeated here at skin specificity so no theme can widen them. */
+.message-row > .message.user      { max-width: min(78%, 680px); margin-left: auto; margin-right: 0; align-self: flex-end; box-sizing: border-box; min-width: 0; width: auto; }
+.message-row > .message.companion { max-width: min(78%, 680px); margin-right: auto; margin-left: 0; align-self: flex-start; box-sizing: border-box; min-width: 0; width: auto; }
+
+/* ── phones: thinner gilt, tighter gutters, more width for the bubbles ── */
+@media (max-width: 600px) {
+  .message-row > .message.user, .message-row > .message.companion { max-width: 78%; }
+
+  /* Outer frame: the 24px reserve shrinks to 10px, and the second, finer inner gilt line goes. */
+  :root[data-decor="on"] {
+    --skin-gutter-x: 10px;
+    --skin-gutter-y: 10px;
+    --skin-corner-size: 32px;
+  }
+  :root[data-decor="on"] .skin-line {
+    inset: 1.5px;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+  }
+
+  /* Ornate plates: smaller corner filigree, less padding, a hairline gilt edge. */
+  :root[data-decor="on"] :is(.message.user, .message.companion, .chat-header, .composer-inner) {
+    --plate-corner: 12px;
+    --plate-orn-size: 0px;
+    border-width: 1px;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+  }
+  :root[data-decor="on"] :is(.message.user, .message.companion) {
+    padding: 0.55rem 0.7rem;
+    margin-top: 4px;
+    margin-bottom: 4px;
+  }
+}
