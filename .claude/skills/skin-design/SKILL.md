@@ -18,9 +18,10 @@ the rules that came out of that, and the workflow that keeps them true. The per-
 2. **Match the painting's values, not its idea.** Measure before and after: sample the mock-up's plate (mean, 2nd and 98th
    percentile) and the screenshot's, and compare. A texture that reads "fake" has been too bright, too blotchy (large mottling)
    or too uniform; the fix was always the painting's own darker value and its fine grain, with the mottling kept faint.
-3. **No ivory inputs** in a skin whose palette has no ivory. Only the Library and Hedgewitch are light, paper skins; every other
-   skin's fields, chat bar and wizards stay dark. This covers screens outside the skins (the setup wizard is dark leather and
-   brass in every skin).
+3. **Only the Library and Hedgewitch are light, paper skins.** Every other skin's fields, chat bar and wizards stay dark,
+   including screens outside the skins (the setup wizard is dark leather and brass in every skin). In the Library the parchment
+   is the surface everywhere, the menu included: no ivory layer on top of it, anywhere. Icons on parchment are ink (dark),
+   never brown.
 4. **Contrast is a gate, not a goal.** Every ink on every textured plate must read 4.5:1 plus a 0.1 margin on the worst
    composite (the texture's lightest or darkest pixel at its alpha), and control borders and focus rings 3:1
    (`texturedPairs` in `materials.ts`, held by `materials.test.ts`). When a texture fails, cap or floor its extremes
@@ -32,8 +33,8 @@ the rules that came out of that, and the workflow that keeps them true. The per-
    frame, not the cloth, sets them apart from the menu.
 6. **Colours stay in the skin's family.** A selected item takes a colour of the skin (Library wine red, Velvet crimson), never
    a stray accent (lavender in a red room was rejected). The only constant across skins is the Sanctum mark.
-7. **Edges sit into their material.** A rim on a dark plate must not glow: the Library's wood plates take an oxblood rim and a
-   red-copper focus ring, not the parchment's brass. Remember the chat field is always focused, so its focus ring always shows.
+7. **Edges sit into their material.** A rim on a dark plate must not glow: it takes the skin's own dark-edge colour, not a bright
+   brass line. Remember the chat field is always focused, so its focus ring always shows.
 8. **The chat bar is one surface** (`CLEAR_COMPOSER_FIELD`): the bar is the field, the field inside it is clear. A light field
    set inside a dark bar read as two colours and was rejected.
 9. **Geometry from the painting.** Plates are nearly square with their fittings; chips and the Open chat button are 4px
@@ -44,13 +45,23 @@ the rules that came out of that, and the workflow that keeps them true. The per-
     Variety is structural, not random: a message's slot is its sequence in the thread (`ORNAMENT_SLOTS`, `ornamentVariants`),
     the corner cycles so neighbours differ top and bottom and a speaker's every other message swaps sides, and each painting
     meets every corner. A phone's Home cards and the chat list keep their ornament at the bottom, so text keeps the full width.
-11. **The desktop frame is set into the room** (`skins.css`): the scene shows round an inset frame with a soft shadow, the app
-    just inside its line, the rail flush. Ember is the exception: its approved desktop is full-window, the frame on the window's
-    edge, the rail set into the frame. Phones keep every frame on the screen's edge.
+11. **No outer app-shell frame**, on desktop or phone, unless `data-outer-frame=on`. This does not touch the header or the page
+    plates: they keep their frames and ornaments on every page of every skin.
 12. **An approved skin does not move as a side effect.** Shared code (frame, ornament slots, accents, rims, the chat list) touches
     every skin. After any shared change, screenshot every skin it reaches and compare with its last approved shot; exempt a skin
-    (as Ember is from the frame inset) rather than let it drift.
+    rather than let it drift.
 13. **No personal names** anywhere in the repo, commit messages or PR text: demo content uses Echo (the companion) and Sam.
+14. **Desktop menu** (1920): about 160px wide, a dark fill with the room faintly through it, a gold hairline on its right edge,
+    icon-and-label rows. Only the active item gets a plate. (Under 1100px the compact rail is 80px.)
+15. **Chat bubbles** are capped at about 3/4 of the width on desktop.
+16. **Phone room backgrounds** show the portrait painting (2:3 asset) whole across the full width from the top; its bottom fifth
+    fades into the blurred fill. Never cover-zoom it into one wall panel. Hedgewitch (landscape) keeps `cover`.
+17. **Files page** in every skin sits on that skin's paper or plate, never a flat brown.
+18. **Ember**: its frames and fittings appear on every page. Notes uses the navy leather plate
+    (`/skins/ember/ember-navy-leather.webp`), not black.
+19. **Appearance, Customize** section is collapsed by default on every skin.
+20. **Indigo-silk (Celestial) is reserved.** Do not touch its material, palette or assets without the owner's word.
+21. **Settings on desktop is a real two-pane page**, not the phone column stretched. The phone root type size is 17px.
 
 ## The workflow
 
