@@ -3,7 +3,7 @@
 ## Skins
 
 Before changing anything a skin draws (`packages/frontend/src/theme`, `public/skins`, `theme-hedgewitch.css`, or a component's
-surface colours), load the `skin-design` skill (`.claude/skills/skin-design/`). The rules that always hold:
+surface colours), load the `skin-design` skill (`.claude/skills/skin-design/`). It is the only source of skin rules. `.claude/skills/_fenced/` (`cinematic-ui`, `taste-skill`) is fenced: generic design skills, never loaded for any skin, theme, room, frame or layout work. The rules that always hold:
 
 - Every texture, fitting and ornament is cut from that skin's painted mock-up; no drawn SVG look.
 - No ivory or light input surface in a skin whose palette has no ivory (only the Library and Hedgewitch are light).
