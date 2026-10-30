@@ -22,6 +22,7 @@ import React, {
 import type { Canvas } from '@sanctum/shared';
 import { renderMarkdown } from '../utils/markdown';
 import { useChatStore } from '../store/chat';
+import { copyText } from '../lib/copyText';
 
 // ─── Resize persistence ────────────────────────────────────────────────────────
 
@@ -153,12 +154,11 @@ function CanvasPanelInner({ canvas, onClose, onUpdate }: CanvasPanelProps) {
   }, [canvas.id]);
 
   const handleCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(canvas.content);
+    if (await copyText(canvas.content)) {
       setCopyFlash(true);
       if (copyTimer.current) clearTimeout(copyTimer.current);
       copyTimer.current = setTimeout(() => setCopyFlash(false), 1600);
-    } catch { /* clipboard denied */ }
+    }
   }, [canvas.content]);
 
   const handleEditToggle = useCallback(() => {
