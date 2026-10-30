@@ -191,12 +191,14 @@ describe('stylesheet rules for Extra readable and the frame', () => {
     expect(skins).toContain(':root[data-readability="extra"] .composer-inner:focus-within { outline-width: 3px; }');
   });
 
-  it('drops the outer app-shell frame on desktop (insets 0, frame hidden, shell edge to edge) unless data-outer-frame="on"; phone untouched', () => {
-    const desktop = skins.split('@media (min-width: 769px) {').slice(1).map(b => b.split('\n}\n')[0]).join('\n');
-    expect(desktop).toContain(':root[data-decor="on"]:not([data-outer-frame="on"]) .skin-frame { display: none; }');
-    expect(desktop).toContain(':root[data-decor="on"]:not([data-outer-frame="on"]) .app-shell { padding: 0; }');
-    expect(desktop).toMatch(/--skin-inset-x: 0px;[^}]*--skin-inset-top: 0px;[^}]*--skin-inset-bottom: 0px;/);
-    expect(skins).toContain('max(var(--skin-gutter-y), env(safe-area-inset-top, 0px))'); // the phone shell padding stays
+  it('drops the outer app-shell frame on every width, phone included (insets 0, frame hidden, shell edge to edge) unless data-outer-frame="on"', () => {
+    // top level, outside any media query, so it holds at phone widths and for Ember too
+    const topLevel = skins.replace(/@media[^{]*\{(?:[^{}]|\{[^{}]*\})*\}/g, '');
+    expect(topLevel).toContain(':root[data-decor="on"]:not([data-outer-frame="on"]) .skin-frame { display: none; }');
+    expect(topLevel).toContain(':root[data-decor="on"]:not([data-outer-frame="on"]) .app-shell { padding: 0; }');
+    expect(topLevel).toMatch(/--skin-inset-x: 0px;[^}]*--skin-inset-top: 0px;[^}]*--skin-inset-bottom: 0px;/);
+    expect(skins).toContain(':root[data-decor="on"][data-outer-frame="on"] .mobile-topbar { padding-top: 0.5rem; }');
+    expect(skins).toContain('max(var(--skin-gutter-y), env(safe-area-inset-top, 0px))'); // the framed shell padding stays
   });
 
   it('sets a desktop frame into the room, except Ember, whose full-window frame instead holds the rail set into it', () => {
