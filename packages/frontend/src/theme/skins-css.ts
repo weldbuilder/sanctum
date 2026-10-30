@@ -155,7 +155,7 @@ function routePanelsCss(): string[] {
     if (framed?.length && relief) {
       const f = `:root[data-material="${m.id}"][data-surface-decor="on"]:not([data-readability="extra"]) :is(${framed.join(', ')})`;
       const corners = ['tl', 'tr', 'br', 'bl'].map(c => `var(--skin-fitting-${c}, none)`);
-      const radius = PLATES.find(p => p.selector === '.home-card')!.radius;
+      const radius = m.flat?.radius ?? PLATES.find(p => p.selector === '.home-card')!.radius; // flat materials (smoked copper) keep their own near-square card radius
       out.push(`${f} { --plate-corner: ${relief.cornerPx ?? 18}px; border-color: transparent; border-radius: ${radius}px; outline: 1px solid var(--skin-trim); outline-offset: -1px; box-shadow: var(--skin-plate-relief); background-origin: border-box; background-image: ${[...corners, `linear-gradient(${veil}, ${veil})`, 'var(--skin-tex-chrome, none)'].join(', ')}; background-position: 0 0, 100% 0, 100% 100%, 0 100%, 0 0, 0 0; background-size: ${corners.map(() => 'var(--plate-corner) var(--plate-corner)').join(', ')}, auto, var(--skin-tex-chrome-size); background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, repeat; background-blend-mode: normal, normal, normal, normal, normal, ${m.texture?.chrome.blend ?? 'normal'}; }`);
       out.push(`@media (max-width: 768px) { ${f} { --plate-corner: ${relief.cornerMobilePx ?? relief.cornerPx ?? 18}px; } }`);
     }
