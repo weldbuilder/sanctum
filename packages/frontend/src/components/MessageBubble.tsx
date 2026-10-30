@@ -9,6 +9,7 @@ import { useIdentity, avatarSrc } from '../store/identity';
 
 // ─── Base URL (matches SettingsView) ──────────────────────────────────────────
 import { BASE } from '../lib/base';
+import { copyText } from '../lib/copyText';
 import { ORNAMENT_SLOTS } from '../theme/materials';
 
 // ─── Attachment contract ──────────────────────────────────────────────────────
@@ -390,13 +391,12 @@ function MessageActionRow({ message, isCompanion, isLastCompanion, onReply, onRe
   }
 
   async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(message.content);
+    if (await copyText(message.content)) {
       setCopyFlash(true);
       if (copyTimer.current) clearTimeout(copyTimer.current);
       copyTimer.current = setTimeout(() => setCopyFlash(false), 1400);
-    } catch (err) {
-      console.warn('[Actions] Copy failed:', err);
+    } else {
+      console.warn('[Actions] Copy failed');
     }
   }
 
