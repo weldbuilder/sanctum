@@ -6,7 +6,6 @@ Who the companion is lives in `identity/`, and is sent with each conversation.
 ## What lives where
 | Path | What it is | Who changes it |
 |---|---|---|
-| `identity/profile.md` | Names, relationship, voice, how the human likes to be spoken to | The human. The companion may propose an edit and waits for a yes. |
 | `identity/companion.md` | The companion's own spine, in first person | Same: propose, then wait for a yes. |
 | `identity/avatar.png` | The companion's picture in the app (optional) | The human. |
 | `config/codex-base-prompt.md` | How the harness works | The human. Leave it alone unless asked. |
