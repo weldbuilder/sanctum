@@ -41,7 +41,7 @@ body::before {
 body::after {
   inset: 0;
   z-index: -2;
-  background-size: contain;
+  background-size: cover;
 }
 /* A phone fills the screen with its portrait painting: zoomed out to fit, it left half the screen to the fill. */
 @media (max-width: 768px) {
@@ -149,6 +149,18 @@ body::after {
 @media (min-width: 769px) {
   :root[data-decor="on"][data-room="ember"] .app-shell { padding: 3px; }
   :root[data-decor="on"][data-room="ember"] .app-content { padding: 21px 21px 21px 0; }
+}
+/* Desktop: no outer app-shell frame. The room is full-bleed and the app fills the window edge to edge; the panel plates keep
+   their own frames and corners. Phones (max-width 768px) keep the outer frame for now. A future toggle sets
+   data-outer-frame="on" on <html> to bring it back on desktop. */
+@media (min-width: 769px) {
+  :root[data-decor="on"]:not([data-outer-frame="on"]) {
+    --skin-inset-x: 0px;
+    --skin-inset-top: 0px;
+    --skin-inset-bottom: 0px;
+  }
+  :root[data-decor="on"]:not([data-outer-frame="on"]) .skin-frame { display: none; }
+  :root[data-decor="on"]:not([data-outer-frame="on"]) .app-shell { padding: 0; }
 }
 :root[data-decor="on"] .nav-rail { height: 100%; }
 /* The gutter already clears the notch, so the top bar does not add the inset a second time. */
