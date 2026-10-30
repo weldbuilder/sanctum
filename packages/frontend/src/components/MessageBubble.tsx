@@ -736,30 +736,16 @@ export function MessageBubble({ message, isStreaming = false, streamTokens = '',
       aria-label={`${isCompanion ? 'Companion' : 'You'} message`}
       data-orn={(message.sequence ?? 0) % ORNAMENT_SLOTS}
     >
-      {/* Attribution — suppressed in grouped same-role runs.
-          Tools toggle only shown on legacy path (no segments); the accordion handles segments. */}
-      {(!suppressHeader || (isCompanion && hasTools && !segments)) && (
+      {/* No name/avatar/time header: the sides say who is speaking and the time sits under the text (.bubble-ts).
+          Legacy messages without segments keep their tools toggle. */}
+      {isCompanion && hasTools && !segments && (
         <div className="message-header">
-          {!suppressHeader && (
-            <>
-              {isCompanion && identity.avatar_url && (
-                <img className="message-avatar is-custom" src={avatarSrc(identity)} alt="" aria-hidden="true" width={22} height={22} />
-              )}
-              <span className="message-role">{roleName}</span>
-              <span className="message-time">{formatTime(message.created_at)}</span>
-              {message.edited_at && !isDeleted && (
-                <span className="message-edited">edited</span>
-              )}
-            </>
-          )}
-          {isCompanion && hasTools && !segments && (
-            <button
-              className="tools-toggle"
-              onClick={() => setShowTools(s => !s)}
-            >
-              {showTools ? 'hide' : `${toolEvents.length} tool${toolEvents.length !== 1 ? 's' : ''}`}
-            </button>
-          )}
+          <button
+            className="tools-toggle"
+            onClick={() => setShowTools(s => !s)}
+          >
+            {showTools ? 'hide' : `${toolEvents.length} tool${toolEvents.length !== 1 ? 's' : ''}`}
+          </button>
         </div>
       )}
 
@@ -874,6 +860,9 @@ export function MessageBubble({ message, isStreaming = false, streamTokens = '',
           <span className="bubble-ts" aria-label={`Sent at ${formatBubbleTime(message.created_at, prevTimestamp)}`}>
             {formatBubbleTime(message.created_at, prevTimestamp)}
           </span>
+          {message.edited_at && !isDeleted && (
+            <span className="message-edited">edited</span>
+          )}
         </div>
       )}
 
