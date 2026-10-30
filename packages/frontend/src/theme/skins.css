@@ -125,8 +125,8 @@ body::after {
 /* A desktop sets the frame into the room, as in the mockups: the scene shows all round it, the frame (line, corners,
    gutter) sits that far in from the window's edge with a soft shadow off it, and the app sits just inside its line, the
    rail flush against it (the corners' curve is behind the rail on the left, and clear of the views' own padding elsewhere).
-   A phone keeps the frame on the screen's own edge, where every pixel of width counts, and so does Ember, whose approved
-   desktop is full-window with the frame on the edge. */
+   The outer frame itself is off by default (below); this is the set-in layout used when
+   data-outer-frame="on". Ember's is full-window with the frame on the edge. */
 @media (min-width: 769px) {
   :root[data-decor="on"]:not([data-room="ember"]) {
     --skin-inset-x: clamp(16px, 2.6vw, 48px);
@@ -151,20 +151,19 @@ body::after {
   :root[data-decor="on"][data-room="ember"] .app-content { padding: 21px 21px 21px 0; }
 }
 /* Desktop: no outer app-shell frame. The room is full-bleed and the app fills the window edge to edge; the panel plates keep
-   their own frames and corners. Phones (max-width 768px) keep the outer frame for now. A future toggle sets
-   data-outer-frame="on" on <html> to bring it back on desktop. */
-@media (min-width: 769px) {
-  :root[data-decor="on"]:not([data-outer-frame="on"]) {
-    --skin-inset-x: 0px;
-    --skin-inset-top: 0px;
-    --skin-inset-bottom: 0px;
-  }
-  :root[data-decor="on"]:not([data-outer-frame="on"]) .skin-frame { display: none; }
-  :root[data-decor="on"]:not([data-outer-frame="on"]) .app-shell { padding: 0; }
+   their own frames and corners. The same on a phone (every width, Ember included, as on desktop). A future toggle sets
+   data-outer-frame="on" on <html> to bring the frame back. */
+:root[data-decor="on"]:not([data-outer-frame="on"]) {
+  --skin-inset-x: 0px;
+  --skin-inset-top: 0px;
+  --skin-inset-bottom: 0px;
 }
+:root[data-decor="on"]:not([data-outer-frame="on"]) .skin-frame { display: none; }
+:root[data-decor="on"]:not([data-outer-frame="on"]) .app-shell { padding: 0; }
 :root[data-decor="on"] .nav-rail { height: 100%; }
-/* The gutter already clears the notch, so the top bar does not add the inset a second time. */
-:root[data-decor="on"] .mobile-topbar { padding-top: 0.5rem; }
+/* The framed gutter already clears the notch, so the top bar does not add the inset a second time. Without the outer frame
+   (the default) the top bar keeps its own safe-area inset. */
+:root[data-decor="on"][data-outer-frame="on"] .mobile-topbar { padding-top: 0.5rem; }
 
 /* Code, tool output and the thinking timeline own a pair of their own: inside them the
    usual ink variables are re-pointed at it, so nothing in there inherits an ink chosen
