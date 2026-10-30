@@ -160,6 +160,8 @@ export function MessageList({ messages, toolEvents, thinkingEvents, streaming, o
   }, []);
 
   const isActiveStreaming = streaming.messageId !== null;
+  // Provider reasoning follows the thread's toggle; narration and tool calls always show (they were reply text / work).
+  const liveEntries = (streaming.timelineEntries ?? []).filter(e => showThinking || e.kind === 'tool' || e.narration);
 
   // ─── Grouping: same-role runs collapse header/timestamp ──────────────────────
   // A message is "grouped" when the immediately preceding visible message has the
@@ -254,11 +256,7 @@ export function MessageList({ messages, toolEvents, thinkingEvents, streaming, o
         {/* Streaming message */}
         {isActiveStreaming && (
           <div className="message-row">
-            {/* Live thinking accordion — shows when show_thinking ON and there are entries */}
-            {showThinking && (streaming.timelineEntries?.length ?? 0) > 0 && (
-              <LiveThinkingAccordion entries={streaming.timelineEntries ?? []} />
-            )}
-            {streaming.tokens ? (
+            {streaming.tokens || liveEntries.length > 0 ? (
               <MessageBubble
                 message={{
                   id: streaming.messageId!,
@@ -282,9 +280,10 @@ export function MessageList({ messages, toolEvents, thinkingEvents, streaming, o
                 }}
                 isStreaming
                 streamTokens={streaming.displayedTokens ?? streaming.tokens}
-                toolEvents={showThinking ? [] : streaming.toolEvents}
+                toolEvents={[]}
                 thinkingEvents={[]}
                 showThinking={false}
+                liveEntries={liveEntries}
               />
             ) : (
               <TypingIndicator />

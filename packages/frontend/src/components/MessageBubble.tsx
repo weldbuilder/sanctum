@@ -1,9 +1,9 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import type { Message, MessageSegment } from '@sanctum/shared';
-import type { ToolEvent, ThinkingEvent } from '../store/chat';
+import type { ToolEvent, ThinkingEvent, TimelineEntry } from '../store/chat';
 import { renderMarkdown } from '../utils/markdown';
 import { HearthAudioPlayer } from './HearthAudioPlayer';
-import { PersistedThinkingAccordion } from './ThinkingAccordion';
+import { PersistedThinkingAccordion, LiveThinkingAccordion } from './ThinkingAccordion';
 import { useConfirm } from './ConfirmDialog';
 import { useIdentity, avatarSrc } from '../store/identity';
 
@@ -262,6 +262,8 @@ interface Props {
   suppressHeader?: boolean;
   /** Whether the thinking timeline should be visible (from thread's show_thinking) */
   showThinking?: boolean;
+  /** Live thinking/tool timeline of the message that is streaming; rendered as the in-bubble disclosure. */
+  liveEntries?: TimelineEntry[];
   /** Whether this is the last companion message in the thread — used to scope the Regenerate button */
   isLastCompanion?: boolean;
   /** created_at of the previous message in the list — used for cross-day bubble timestamp formatting */
@@ -625,7 +627,7 @@ const MarkdownBody = React.memo(function MarkdownBody({ html }: { html: string }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function MessageBubble({ message, isStreaming = false, streamTokens = '', toolEvents = [], thinkingEvents = [], onReply, suppressHeader = false, showThinking = true, isLastCompanion = false, prevTimestamp }: Props) {
+export function MessageBubble({ message, isStreaming = false, streamTokens = '', toolEvents = [], thinkingEvents = [], onReply, suppressHeader = false, showThinking = true, liveEntries, isLastCompanion = false, prevTimestamp }: Props) {
   const [showTools, setShowTools] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
@@ -788,6 +790,11 @@ export function MessageBubble({ message, isStreaming = false, streamTokens = '',
         ) : (
           // ─── Legacy / streaming rendering ────────────────────────────────
           <>
+            {/* Live disclosure: narration + tool calls, collapsed, inside the bubble */}
+            {isStreaming && liveEntries && liveEntries.length > 0 && (
+              <LiveThinkingAccordion entries={liveEntries} />
+            )}
+
             {/* Thinking events — legacy path (when no segments) */}
             {hasThinking && isCompanion && showThinking && thinkingEvents.map((ev, i) => (
               <ThinkingBlock key={i} event={ev} index={i} />
