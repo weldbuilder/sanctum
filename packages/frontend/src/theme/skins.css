@@ -300,4 +300,20 @@ body::after {
   :root[data-surface-decor="on"][data-material]:not([data-material="hedgewitch"]):not([data-material="smoked-copper"]):not([data-material="midnight-ink"]):not([data-material="botanical-linen"]):not([data-material="indigo-silk"]):not([data-readability="extra"]) .message-row > :is(.message.user, .message.companion) {
     padding: 0.45rem 0.6rem;
   }
+
+  /* Route panels (Command, Files, Notes, Observatory, Editor body): the same thinning as the bubbles above, so a phone
+     shows one frame on every page. The generated framed-panel rule sets no padding (panels keep their own content padding),
+     so none is touched here. Specificity (0,7,0) beats the generated (0,5,0) framed rule and its 768px media twin. */
+  :root[data-surface-decor="on"][data-material]:not([data-material="hedgewitch"]):not([data-material="smoked-copper"]):not([data-readability="extra"]) :is(.cmd-panel, .fl-plate, .nt-card, .ob-panel, .ob-card, .cve-body) {
+    --plate-corner: 14px;
+    border-width: 1px;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
+  }
+  /* Smoked copper's phone chat is flat (generated: --plate-corner 0, a soft drop shadow, no fittings), so its route panels match:
+     no brackets, no ring, the 1px trim outline and the same drop. Extra :not keeps it above the generated copper rule. */
+  :root[data-surface-decor="on"][data-material="smoked-copper"]:not([data-material="hedgewitch"]):not([data-readability="extra"]) :is(.cmd-panel, .fl-plate, .nt-card, .ob-panel, .ob-card, .cve-body) {
+    --plate-corner: 0px;
+    border-width: 1px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  }
 }
