@@ -2675,7 +2675,7 @@ function CommandCenterStyles() {
       .cmd-panel {
         background: rgba(255, 255, 255, 0.02);
         border: 1px solid var(--border, rgba(255,255,255,0.06));
-        border-radius: var(--radius-card, 1.125rem);
+        border-radius: 5px; /* the plate radius (materials.ts PLATES) */
         overflow: hidden;
         min-width: 0;
         position: relative;
@@ -2832,7 +2832,7 @@ function CommandCenterStyles() {
         gap: 0.5rem;
         margin-top: 0.7rem;
         padding: 0.3rem 0.8rem;
-        border-radius: 999px;
+        border-radius: 5px; /* same as .cmd-panel */
         background: var(--chip-bg, var(--surface-chrome, #2c1a10));
         border: 1px solid color-mix(in srgb, var(--skin-trim, #c9a87c) 55%, transparent);
         color: var(--chip-text, var(--surface-chrome-text, #efe4d0));
