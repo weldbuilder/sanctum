@@ -398,7 +398,7 @@ export const ROUTE_BARE: string[] = ['.observatory-view'];
 export const DEFAULT_FRAMED_ROUTE_PANELS: string[] = ['.cmd-panel', '.fl-plate', '.nt-card', '.ob-panel', '.ob-card', '.cve-body'];
 /** A route panel drawn on another of the material's substrates than the page default (chrome, or the card paper on a light material): Ember's
  *  Notes cards are the navy leather ('user' substrate, the Home cards'), the rest of its pages keep the black. */
-export const ROUTE_PANEL_SUBSTRATE: Partial<Record<MaterialId, Record<string, 'user'>>> = {};  // B: 'smoked-copper': { '.nt-card': 'user' }
+export const ROUTE_PANEL_SUBSTRATE: Partial<Record<MaterialId, Record<string, 'user'>>> = { 'smoked-copper': { '.nt-card': 'user' } };
 /** Per-material override of the default list (a material listed here gets exactly that list; [] turns framing off for it). */
 export const FRAMED_ROUTE_OVERRIDES: Partial<Record<MaterialId, string[]>> = {};
 /** Every material wears the plate frame on its route panels, except Hedgewitch (its own paper system, no plates). Extra readable turns plates off in the generator. */
