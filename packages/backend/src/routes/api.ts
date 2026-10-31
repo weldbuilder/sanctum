@@ -175,7 +175,8 @@ router.get('/health', (req, res) => {
 // currently serving. A loaded tab compares this against its own compile-time
 // __BUILD_ID__; a mismatch means a newer bundle is deployed → offer reload.
 router.get('/version', (req, res) => {
-  res.json({ buildId: (req.app.locals.buildId as string | undefined) ?? 'dev', version: PACKAGE_VERSION });
+  const fresh = req.app.locals.currentBuildId as (() => string) | undefined;
+  res.json({ buildId: fresh?.() ?? (req.app.locals.buildId as string | undefined) ?? 'dev', version: PACKAGE_VERSION });
 });
 
 // Auth endpoints
