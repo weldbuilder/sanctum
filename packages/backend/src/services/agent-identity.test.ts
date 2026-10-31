@@ -82,6 +82,7 @@ vi.mock('./usage-log.js', () => ({ recordUsage: () => {} }));
 
 import { AgentService } from './agent.js';
 import { ratifyIdentity } from './identity/ledger.js';
+import { IDENTITY_FRAME } from './providers/identity-frame.js';
 
 const prompt = (): string => {
   const sp = h.options.systemPrompt;
@@ -96,6 +97,30 @@ beforeEach(() => {
 });
 
 describe('the Claude harness identity', () => {
+  it('the system prompt is a plain string (no claude_code preset): IDENTITY_FRAME first, then the identity, then the runtime note', async () => {
+    mkdirSync(join(h.home, 'identity'));
+    writeFileSync(join(h.home, 'identity', 'companion.md'), 'I am Hazel, and I stay myself.');
+    await turn();
+    const sp = h.options.systemPrompt;
+    expect(typeof sp).toBe('string');
+    expect(sp.startsWith(IDENTITY_FRAME)).toBe(true);
+    expect(sp).toContain('I am Hazel, and I stay myself.');
+    expect(sp).toContain('[Runtime] Model serving this turn: m.');
+    expect(sp.indexOf('I am Hazel, and I stay myself.')).toBeGreaterThan(IDENTITY_FRAME.length - 1);
+    expect(sp.indexOf('[Runtime]')).toBeGreaterThan(sp.indexOf('I am Hazel, and I stay myself.'));
+  });
+
+  it.each(['codex', 'dsh'])('forwards the context block to the %s provider as sanctum.contextBlock', async (provider) => {
+    h.provider = provider;
+    try {
+      await turn();
+      const sanctum = h.options.sanctum;
+      expect(sanctum.userContent).toBe('hello');
+      expect(sanctum.contextBlock).toMatch(/^\[Context\]\n/);
+      expect(sanctum.contextBlock).toMatch(/\n\[\/Context\]$/);
+    } finally { h.provider = 'claude'; }
+  });
+
   it("carries the home's identity/profile.md and companion.md (not the project root's)", async () => {
     mkdirSync(join(h.home, 'identity'));
     writeFileSync(join(h.home, 'identity', 'profile.md'), 'Hazel lives in the garden.');

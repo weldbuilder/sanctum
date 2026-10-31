@@ -746,10 +746,10 @@ export class AgentService {
       (VALID_EFFORT as readonly string[]).includes(thread.effort))
       ? (thread.effort as EffortLevel)
       : undefined;
-    // System prompt. When a system_prompt_file is configured, the lean frame +
-    // CLAUDE.md REPLACE the claude_code preset entirely (no generic harness on
-    // top — the real register fix). Read fresh so Settings edits apply live.
-    // Falls back to preset + CLAUDE.md append when no frame file is set.
+    // System prompt: always a plain string, never the claude_code preset (no generic
+    // harness on top — the real register fix). Built as IDENTITY_FRAME, the identity
+    // (claudeMd), the configured frame file when present, then the runtime note.
+    // The frame file is read fresh so Settings edits apply live.
     // The identity half gets the same live-edit treatment: re-read when its
     // source files' mtimes changed (was memoized forever at first init).
     refreshCompanionIdentity();
@@ -759,8 +759,8 @@ export class AgentService {
     // Runtime self-knowledge: the claude_code preset normally tells the model
     // which model it is. Replacing the preset (the register fix) dropped that, so
     // the companion could only guess its version. Re-inject the RESOLVED model (per-thread
-    // aware) on the frame path so he can state it as fact. The preset path still
-    // carries it natively, so only the frame branch needs the note.
+    // aware) on every run so he can state it as fact. With no preset, nothing else
+    // carries it, so the note is always appended.
     const runtimeNote = `\n\n[Runtime] Model serving this turn: ${model}. This line is injected by the home and is the ground truth for "what model are you on?" — state it directly; don't second-guess your own version.`;
     // A plain string, no claude_code preset: frame line + identity first, then the configured frame file (if any), then
     // the runtime note. Mirrors harness-chat.js (identity first, mechanics after). The SDK needs no preset for tools.

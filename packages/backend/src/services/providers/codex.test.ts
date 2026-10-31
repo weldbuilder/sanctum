@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const h = vi.hoisted(() => ({
   rollingCfg: { enabled: false } as any,
   models: { model: '', model_autonomous: '' },
-  exec: { params: null as any, events: [] as any[], calls: 0, base: '' },
+  exec: { params: null as any, events: [] as any[], calls: 0, base: '', path: '' },
   rolling: { turns: [] as any[], serve: null as any, compact: 0, readServeCalls: 0, fail: false },
   recall: '' as string,
   recallCalls: [] as string[],
@@ -19,7 +19,11 @@ vi.mock('../../config.js', () => ({
 }));
 vi.mock('./codex-exec.js', () => ({
   // The combined base instructions (frame, identity, base prompt) are written to a file in production; the mock keeps the text.
-  materializeBaseInstructions: (text: string) => { h.exec.base = text; return '/tmp/sanctum-codex-base/test.md'; },
+  // The path is derived from the text, as in production (content-addressed), so an identity edit yields a new path.
+  materializeBaseInstructions: (text: string) => {
+    let n = 5381; for (let k = 0; k < text.length; k++) n = ((n * 33) ^ text.charCodeAt(k)) >>> 0;
+    h.exec.base = text; h.exec.path = `/tmp/sanctum-codex-base/${n.toString(16)}-${text.length}.md`; return h.exec.path;
+  },
   runCodexExec: (p: any) => { h.exec.params = p; h.exec.calls++; return (async function* () { for (const e of h.exec.events) yield e; })(); },
 }));
 vi.mock('../rolling-context.js', () => ({
@@ -97,7 +101,7 @@ describe('codex adapter', () => {
     h.agentHome = makeHome({ 'profile.md': 'Companion: Hazel', 'companion.md': 'I am Hazel.' });
     h.rollingCfg = { enabled: false };
     h.models = { model: '', model_autonomous: '' };
-    h.exec.params = null; h.exec.calls = 0; h.exec.base = '';
+    h.exec.params = null; h.exec.calls = 0; h.exec.base = ''; h.exec.path = '';
     h.exec.events = [
       { type: 'thread.started', thread_id: 'th_exec' },
       { type: 'item.completed', item: { id: 'm1', type: 'agent_message', text: 'Blessed be, friend.' } },
@@ -128,7 +132,8 @@ describe('codex adapter', () => {
     expect(captured.input).not.toContain('Companion Identity');
     expect(captured.input).not.toContain('You are Hazel.'); // Resonant's own system prompt is not used
     // The client is pointed at the materialized combined file, not at the raw base prompt
-    expect(captured.clientOpts.config.model_instructions_file).toBe('/tmp/sanctum-codex-base/test.md');
+    expect(h.exec.path).toMatch(/^\/tmp\/sanctum-codex-base\/[0-9a-f]+-\d+\.md$/);
+    expect(captured.clientOpts.config.model_instructions_file).toBe(h.exec.path);
     expect(captured.threadOpts.modelReasoningEffort).toBe('high');
     expect(out[0]).toMatchObject({ type: 'system', session_id: 'th_1' });
     const text = out.filter(m => m.event?.delta?.type === 'text_delta').map(m => m.event.delta.text).join('');
@@ -149,6 +154,9 @@ describe('codex adapter', () => {
     expect(h.exec.params.prompt).toContain('summarise');
     expect(h.exec.params.sandboxMode).toBe('read-only');
     expect(h.exec.params.prompt).not.toContain('Companion Identity');
+    // Read-only runs get the plain home base prompt in the system slot; identity is never materialized for them
+    expect(h.exec.params.baseFile).toBe(realPathMod.join(h.agentHome, 'config', 'codex-base-prompt.md'));
+    expect(h.exec.base).toBe('');
     expect(out.at(-1)).toMatchObject({ type: 'result', subtype: 'success' });
   });
 
@@ -217,6 +225,24 @@ describe('codex adapter', () => {
     expect(captured.resumed).toBe('th_1');
     expect(captured.input).toBe('again');
     expect(captured.threadOpts.sandboxMode).toBe('read-only');
+    // Plain base prompt in the system slot, identity not materialized
+    expect(captured.clientOpts.config.model_instructions_file).toBe(realPathMod.join(h.agentHome, 'config', 'codex-base-prompt.md'));
+    expect(h.exec.base).toBe('');
+  });
+
+  it('an identity edit between two runs yields a new model_instructions_file (the client cache is keyed on it)', async () => {
+    realFs.writeFileSync(realPathMod.join(h.agentHome, 'identity', 'companion.md'), 'I am Hazel, edition one.');
+    await drain(codexQuery({ prompt: 'one', options: {} as any }));
+    const first = captured.clientOpts.config.model_instructions_file;
+    expect(first).toBe(h.exec.path);
+    captured.clientOpts = undefined;
+    realFs.writeFileSync(realPathMod.join(h.agentHome, 'identity', 'companion.md'), 'I am Hazel, edition two.');
+    await drain(codexQuery({ prompt: 'two', options: {} as any }));
+    expect(captured.clientOpts).toBeDefined(); // a new client was built, not the cached one
+    const second = captured.clientOpts.config.model_instructions_file;
+    expect(second).toBe(h.exec.path);
+    expect(second).not.toBe(first);
+    expect(h.exec.base).toContain('edition two.');
   });
 
   describe('rolling mode', () => {
@@ -237,7 +263,9 @@ describe('codex adapter', () => {
       const input: string = h.exec.params.prompt;
       const i = (x: string) => input.indexOf(x);
       expect(input).not.toContain('# Companion Identity'); // it is in the system slot
-      expect(h.exec.params.baseFile).toBe('/tmp/sanctum-codex-base/test.md');
+      expect(h.exec.params.baseFile).toBe(h.exec.path);
+      expect(h.exec.base).toContain('I am Hazel.');
+      expect(input).not.toContain('I am Hazel.'); // the identity body is in the system slot, not the message
       expect(h.exec.base.startsWith(CODEX_IDENTITY_FRAME)).toBe(true);
       expect(h.exec.base).toContain('I am Hazel.');
       expect(i('[Memory — recalled from Revien')).toBe(0);
@@ -257,6 +285,7 @@ describe('codex adapter', () => {
       await drain(codexQuery({ prompt: 'raw hello', options: sanctumOpts() }));
       expect(h.exec.params.prompt.split('raw hello').length - 1).toBe(1);
       expect(h.exec.params.prompt).not.toContain('Pat: raw hello');
+      expect(h.exec.params.prompt).not.toContain('USER: raw hello');
     });
 
     it('uses the stable rolling session id everywhere and ignores resume', async () => {
@@ -325,6 +354,8 @@ describe('codex adapter', () => {
       expect(input).toContain('could not be loaded for this message');
       expect(input).not.toContain('[Conversation so far]');
       expect(input).not.toContain('# Companion Identity');
+      expect(input).not.toContain('I am Hazel.');
+      expect(h.exec.base).toContain('I am Hazel.');
       expect(input.endsWith('[Current message]\nraw hello')).toBe(true);
     });
 
@@ -353,6 +384,7 @@ describe('codex adapter', () => {
       const input: string = h.exec.params.prompt;
       expect(input).not.toContain('second');
       expect(input).not.toContain('Pat: first');
+      expect(input).not.toContain('USER: first');
     });
 
     it('always keeps the newest turn, even when it alone is over the budget', async () => {
