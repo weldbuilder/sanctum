@@ -355,6 +355,7 @@ export function MindSection({ base }: { base: string }) {
           color: var(--text-muted, #6a6258);
           margin: 0 0 0.375rem;
         }
+        @media (min-width: 769px) { .settings-view .mind-seam-note { font-size: 14px; } }
         .mind-fields {
           display: flex;
           flex-direction: column;

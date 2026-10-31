@@ -142,6 +142,8 @@ export function AppearanceSection() {
 
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [message, setMessage] = useState('');
+  // Customize (colours and fonts) is folded away on every material until opened.
+  const [customOpen, setCustomOpen] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -351,7 +353,18 @@ export function AppearanceSection() {
           </div>
         )}
 
-        <Eyebrow label="colours & fonts" sub={isClassic ? 'live, saved to your hearth' : `custom colours for ${MATERIALS[material].label}`} />
+        <button
+          type="button"
+          className="ap-collapse"
+          aria-expanded={customOpen}
+          aria-controls="ap-customize"
+          onClick={() => setCustomOpen(o => !o)}
+        >
+          <span className="ap-collapse-chev" aria-hidden="true">{customOpen ? '\u25BE' : '\u25B8'}</span>
+          <span className="ap-collapse-label">customize</span>
+          <span className="ap-collapse-sub">{isClassic ? 'colours & fonts, live, saved to your hearth' : `colours & fonts for ${MATERIALS[material].label}`}</span>
+        </button>
+        {customOpen && <div id="ap-customize">
         <Group>
           <p className="appearance-lead">
             {isClassic
@@ -430,6 +443,7 @@ export function AppearanceSection() {
             reset to defaults
           </Btn>
         </div>
+        </div>}
       </div>
 
       <style>{`
@@ -533,6 +547,21 @@ export function AppearanceSection() {
         .ap-label { display: flex; flex-direction: column; gap: 0.125rem; min-width: 0; flex: 1 1 10rem; font-size: 0.9rem; color: var(--ap-text); }
         .ap-hint { font-size: 0.8rem; color: var(--ap-muted); }
         .ap-select { width: auto; min-width: 11rem; max-width: 100%; min-height: 44px; background: var(--ap-field); color: var(--ap-field-text); border: 1px solid var(--ap-border); }
+
+        .ap-collapse {
+          display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.25rem 0.6rem; width: 100%;
+          min-height: 44px; padding: 0.6rem 0.25rem; margin-top: 0.5rem;
+          background: transparent; color: var(--ap-text); border: 0; border-top: 1px solid var(--ap-border);
+          font-family: inherit; text-align: left; cursor: pointer;
+        }
+        .ap-collapse:focus-visible { outline: 3px solid var(--ap-focus); outline-offset: 2px; }
+        .ap-collapse-chev { width: 1rem; flex: none; }
+        .ap-collapse-label { font-family: var(--font-serif, 'Lora', serif); font-style: italic; font-size: 1.15rem; }
+        .ap-collapse-sub { font-family: var(--font-mono, monospace); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ap-muted); }
+
+        /* Under a skin the panel is the skin's own plate (its parchment, leather or cloth), not a second flat slab on top of it.
+           The text pair is the same panel pair the plate is drawn in. */
+        :root[data-surface-decor="on"][data-material]:not([data-material="hedgewitch"]):not([data-readability="extra"]) .ap-safe { background: transparent; }
 
         .ap-btn, .ap-restore {
           min-height: 44px;
@@ -674,6 +703,38 @@ export function AppearanceSection() {
           flex-wrap: wrap;
           gap: 0.875rem;
           margin-top: 1.5rem;
+        }
+
+        /* Desktop: pickers spread across the page instead of one column. */
+        @media (min-width: 769px) {
+          .ap-safe { padding: 0.5rem 1.5rem 1.25rem; }
+          .appearance-lead { font-size: 14px; }
+          .ap-rooms { grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: 1rem; }
+          .ap-avatar { width: 72px; height: 72px; }
+          .ap-room-name { font-size: 1rem; }
+          .ap-room-sub, .ap-room-check { font-size: 14px; }
+          .ap-avatar-cap { font-size: 13px; }
+          .ap-s-send, .ap-s-item { font-size: 14px; }
+          .ap-label, .theme-row-label, .ap-pending-text { font-size: 1rem; }
+          .ap-hint, .theme-row-hint { font-size: 14px; }
+          .theme-row-value { font-size: 13px; min-width: 4.5rem; }
+          .ap-select, .theme-font-select, .ap-btn, .ap-restore { font-size: 1rem; }
+          .ap-status { font-size: 0.9375rem; }
+          .ap-select { min-width: 16rem; }
+          .theme-font-select { max-width: 22rem; }
+          .appearance-section .sp-group:has(> .theme-row:not(.theme-row-font)) {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            column-gap: 1.5rem;
+          }
+          /* Label and swatch stay on one line; a long label wraps inside its own column instead of pushing the swatch down. */
+          .appearance-section .sp-group:has(> .theme-row:not(.theme-row-font)) > .theme-row { flex-wrap: nowrap; }
+          .appearance-section .sp-group:has(> .theme-row:not(.theme-row-font)) .theme-row-left { flex: 1 1 0; min-width: 0; }
+          .appearance-section .sp-group:has(> .theme-row-font) {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(24rem, 1fr));
+            column-gap: 1.5rem;
+          }
         }
       `}</style>
     </div>

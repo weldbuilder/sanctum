@@ -189,7 +189,7 @@ export function PluginsSection({ base }: { base: string }) {
 
   return (
     <div className="plugins-section">
-      <style>{`.pl-hint { color: var(--text-muted, #6a6258); font-size: 0.8125rem; }`}</style>
+      <style>{`.pl-hint { color: var(--text-muted, #6a6258); font-size: 0.8125rem; } @media (min-width: 769px) { .settings-view .pl-hint { font-size: 14px; } }`}</style>
       {companion ? (
         <p className="pl-hint" style={{ margin: '0 0 1rem' }}>
           Your companion manages plugins: it can turn them on and off and edit them, and what it changes is marked here so you can look. Plugins run with the app's own access, and your companion can change anything the OS user can, by design. To read and approve code before it runs instead, set plugins.trust to "person" in sanctum.yaml.
