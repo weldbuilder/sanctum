@@ -464,6 +464,8 @@ export function SettingsView() {
           color: var(--text-muted, #6a6258) !important;
         }
 
+        :root[data-material="mounted-paper"] .settings-subnav .settings-subnav-text { color: var(--subnav-ink, #F8E8CF); }
+        :root[data-material="mounted-paper"] .settings-subnav .settings-subnav-logout { color: var(--subnav-ink, #F8E8CF) !important; }
         .settings-subnav-logout:hover {
           color: var(--subnav-danger, #c87c6a) !important;
         }
@@ -496,6 +498,18 @@ export function SettingsView() {
           padding: 1.5rem 1.75rem 2rem;
         }
 
+        /* Desktop: a real page. The plate fills the room (left-aligned to the same
+           1.5rem gutter as the chat header plate) instead of a centered 40rem pillar. */
+        @media (min-width: 769px) {
+          .settings-content-scroll { padding: 1.5rem 1.5rem 3rem; }
+          .settings-content-inner {
+            max-width: 1152px;
+            margin: 0;
+            padding: 2rem 2.5rem 2.5rem;
+            font-size: 1rem;
+          }
+        }
+
         .settings-section-header {
           margin-bottom: 0.125rem;
         }
@@ -508,6 +522,23 @@ export function SettingsView() {
           color: var(--text-primary, #e2dbd0);
           letter-spacing: -0.01em;
           line-height: 1.2;
+        }
+        /* After the base rule, so it wins at equal specificity. */
+        @media (min-width: 769px) {
+          .settings-section-title { font-size: 28px; }
+        }
+
+        /* Desktop section menu: the same translucent strip as the nav rail (its fill, blur and gold hairline are
+           painted in skins.css), labels at 15px, the current section plated the way the rail plates its room. */
+        @media (min-width: 769px) {
+          .settings-subnav-text { font-size: 15px; }
+          .settings-subnav-btn { border: 1px solid transparent; }
+          .settings-subnav-btn.active {
+            color: var(--menu-ink, var(--surface-chrome-text, #efe4d0));
+            background: var(--surface-chrome-selected, rgba(146, 128, 196, 0.30));
+            border-color: color-mix(in oklab, var(--skin-chrome-trim, var(--skin-trim, var(--gold, #c4a872))) 75%, transparent);
+          }
+          .settings-subnav-btn.active::before { opacity: 0; }
         }
 
         /* ── Dark glass, same as the Command Center. Controls stay parchment so
@@ -543,6 +574,13 @@ export function SettingsView() {
           border: 1px solid var(--settings-field-border, rgba(255, 250, 240, 0.22));
         }
         .settings-view input::placeholder, .settings-view textarea::placeholder { color: var(--settings-field-placeholder, #b7a98f); opacity: 1; }
+        /* The provider/model dropdown trigger follows the field colours, not --bg-input (parchment on a light skin) under the room's light ink. */
+        .settings-view .hsel-trigger {
+          background: var(--settings-field-bg, rgba(34, 44, 26, 0.72));
+          color: var(--settings-field-text, #f3ead7);
+          border-color: var(--settings-field-border, rgba(255, 250, 240, 0.22));
+        }
+        .settings-view .hsel-trigger:disabled { color: var(--settings-disabled-text, #b7a98f); }
         /* Field text uses the field's own ink, not the lavender the mono slot carries. */
         .settings-view input, .settings-view textarea, .settings-view select, .settings-view .mono, .settings-view .sp-field-value.mono, .settings-view code { color: var(--settings-field-text, #f3ead7) !important; }
       `}</style>

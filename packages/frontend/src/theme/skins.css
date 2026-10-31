@@ -186,8 +186,21 @@ body::after {
     box-shadow: none !important;
     outline: 0 !important;
   }
+  /* The Settings section menu is the rail's twin: same fill, blur and hairline, no plate. */
+  :root .settings-subnav {
+    background-color: color-mix(in srgb, var(--plate-bg, var(--surface-chrome)) 60%, transparent) !important;
+    background-image: none !important;
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    border: 0 !important;
+    border-right: 1px solid color-mix(in oklab, var(--skin-chrome-trim, var(--skin-trim, var(--gold))) 40%, transparent) !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    outline: 0 !important;
+  }
   /* Extra readable keeps its 2px accessibility ring on both (the generic ring rule below loses to the !important above). */
-  :root[data-readability="extra"] .nav-rail { box-shadow: 0 0 0 2px var(--control-border) !important; }
+  :root[data-readability="extra"] .nav-rail,
+  :root[data-readability="extra"] .settings-subnav { box-shadow: 0 0 0 2px var(--control-border) !important; }
 }
 /* The framed gutter already clears the notch, so the top bar does not add the inset a second time. Without the outer frame
    (the default) the top bar keeps its own safe-area inset. */
