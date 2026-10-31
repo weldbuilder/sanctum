@@ -3447,6 +3447,11 @@ export function ChatView({ embedded = false }: { embedded?: boolean }) {
           padding: 1.25rem 1.5rem 1.25rem 1.25rem;
         }
         .chat-main-row { gap: 1rem; }
+        @media (min-width: 769px) {
+          /* The closed canvas panel is a zero-width flex item; its gap pushed the right gutter 1rem past the left. */
+          .chat-main-row { gap: 0; }
+          .chat-main-row > .cpanel-wrapper--open { margin-left: 1rem; }
+        }
         .chat-view .main-area { border-radius: var(--radius-panel, 14px); }
 
         @media (min-width: 769px) {
@@ -3474,7 +3479,7 @@ export function ChatView({ embedded = false }: { embedded?: boolean }) {
             backdrop-filter: blur(6px);
             border: 1px solid rgba(255, 250, 240, 0.28);
             box-shadow: var(--panel-shadow, 0 10px 30px rgba(20, 10, 5, 0.35));
-            max-width: 68rem;
+            max-width: none;
             margin: 0 auto;
           }
           /* Collapsed: the tab becomes a small "Daily ⌄" pill at the top right */
@@ -3558,7 +3563,7 @@ export function ChatView({ embedded = false }: { embedded?: boolean }) {
         }
         .reply-label { color: var(--link, #6d5b93); }
         .reply-clear:hover { background: var(--bg-hover, rgba(90, 65, 40, 0.1)); }
-        .message-list { max-width: 56rem; }
+        .message-list { max-width: none; }
 
         /* ── The wall shows through the chat. Nothing sits between the room and
            the bubbles; the bubbles carry the colour. Header is green glass,
