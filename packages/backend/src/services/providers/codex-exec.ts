@@ -4,7 +4,7 @@
 // event objects the SDK does (thread.started, item.*, turn.*, error).
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { createInterface } from 'node:readline';
@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 import { childEnv } from './child-env.js';
 import { childRunBase } from '../../tenancy/child.js';
 import { tenancyEnabled, tenantTmpRoot } from '../../tenancy/context.js';
-import { ownAssertReal } from '../../tenancy/own-files.js';
+import { ownAssertReal, ownWriteFileAtomic } from '../../tenancy/own-files.js';
 
 export interface ExecParams {
   sandboxMode: 'read-only' | 'workspace-write' | 'danger-full-access';
@@ -119,23 +119,32 @@ export async function* runCodexExec(p: ExecParams & { prompt: string; signal?: A
 
 /** Codex only takes base instructions as a file (model_instructions_file). Write the combined text (frame, identity,
  *  then the base prompt) once under a content-hash name and return the path; the same text reuses the same file.
- *  Tenant mode (D7): the file lives under the tenant's own TMPDIR (the one its Codex child gets), never the process-wide tmpdir.
- *  Written to a temp name then renamed, so a partial file never sits at the final path. */
+ *  Tenant mode (D7): the file lives in <dataDir>/harness/codex-base, a SIBLING of the tenant's TMPDIR (harness/tmp), because the
+ *  sandboxed child can write its TMPDIR and must not be able to rewrite its own identity file. It stays readable by the child (no read
+ *  roots are configured in buildExecArgs; workspace-write reads are unrestricted). An existing file is never trusted: it is read back and
+ *  rewritten when it differs. Written to a temp name in the same folder then renamed, so a partial file never sits at the final path. */
 export function materializeBaseInstructions(text: string): string {
   const root = tenantTmpRoot();
-  const dir = join(root ?? tmpdir(), 'sanctum-codex-base');
+  const dir = root ? join(dirname(root), 'codex-base') : join(tmpdir(), 'sanctum-codex-base');
+  if (root) ownAssertReal(dir); // (a linked path component is refused BEFORE anything is made)
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  if (root) ownAssertReal(dir); // (a tenant folder that became a link is refused, never written into)
+  if (root) ownAssertReal(dir);
   const f = join(dir, `${createHash('sha256').update(text).digest('hex').slice(0, 24)}.md`);
-  if (!existsSync(f)) {
-    const tmp = `${f}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
-    try {
-      writeFileSync(tmp, text, { mode: 0o600 });
-      renameSync(tmp, f);
-    } catch (e) {
-      try { unlinkSync(tmp); } catch { /* never written */ }
-      throw e;
-    }
+  const same = (): boolean => { try { return readFileSync(f, 'utf8') === text; } catch { return false; } };
+  if (same()) return f;
+  if (root) {
+    try { ownWriteFileAtomic(f, text, { mode: 0o600 }); } catch (e) { if (same()) return f; throw e; } // (Windows: rename onto an identical file)
+    return f;
+  }
+  const tmp = `${f}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+  try {
+    const fd = openSync(tmp, 'wx', 0o600);
+    try { writeSync(fd, text); } finally { closeSync(fd); }
+    renameSync(tmp, f);
+  } catch (e) {
+    try { unlinkSync(tmp); } catch { /* never written */ }
+    if (same()) return f;
+    throw e;
   }
   return f;
 }
