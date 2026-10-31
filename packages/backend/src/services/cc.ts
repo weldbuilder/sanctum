@@ -2,6 +2,7 @@
 // Ported from the reference app's household-management tools
 import crypto from 'crypto';
 import { getDb, getConfig, setConfig } from './db.js';
+import { mealWatchersActive } from './meal-watchers.js';
 import { getSanctumConfig } from '../config.js';
 import { tenantLocal } from '../tenancy/context.js';
 
@@ -1355,7 +1356,10 @@ export function getCcStatus(): string {
   // Routines — care-routine summary for today (plain prose; watchers read the
   // DB directly, never parse this line)
   try {
-    const routines = getRoutineStatusToday();
+    // With every meal watcher paused (the Automations toggle), the meal routines drop out too: no meal text in orientation.
+    const mealsOn = mealWatchersActive();
+    const mealCats = new Set(['breakfast', 'lunch', 'dinner', 'meal']);
+    const routines = getRoutineStatusToday().filter((r) => mealsOn || !mealCats.has(r.routine.category));
     if (routines.length > 0) {
       const tz = getSanctumConfig().identity.timezone;
       lines.push('**Routines:** ' + routines.map(r => {
