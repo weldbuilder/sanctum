@@ -250,8 +250,8 @@ const frontendBuildPath = frontendPaths.find(p => existsSync(p));
 // Build-id: identifies the exact frontend bundle this server is serving. Written
 // by scripts/write-build-id.mjs (build/.build-id) with the SAME value vite bakes
 // into __BUILD_ID__ at compile time. The /api/version route returns this so a
-// stale mobile tab can detect a newer deploy and offer to reload. Read once at
-// boot — the served bundle does not change while the process is up.
+// stale mobile tab can detect a newer deploy and offer to reload. Read at boot,
+// and again on each /api/version (see currentBuildId below), so a rebuild is never misreported.
 {
   let buildId = process.env.BUILD_ID ?? 'dev';
   if (frontendBuildPath) {
@@ -262,6 +262,13 @@ const frontendBuildPath = frontendPaths.find(p => existsSync(p));
     }
   }
   app.locals.buildId = buildId;
+  // The stamp is re-read when asked: a rebuild without a restart (the front end is served live from disk) must not leave this process
+  // reporting the id of the bundle it booted with, or every freshly loaded tab sees "new version" forever.
+  const stampPath = frontendBuildPath ? join(frontendBuildPath, '.build-id') : null;
+  app.locals.currentBuildId = (): string => {
+    if (!stampPath) return buildId;
+    try { return readFileSync(stampPath, 'utf-8').trim() || buildId; } catch { return buildId; }
+  };
   console.log(`Frontend build id: ${buildId}`);
 }
 
