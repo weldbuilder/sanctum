@@ -1,5 +1,14 @@
-import { describe, it, expect } from 'vitest';
-import { buildExecArgs, codexChildEnv } from './codex-exec.js';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+const h = vi.hoisted(() => ({ root: undefined as string | undefined }));
+vi.mock('../../tenancy/context.js', async (orig) => ({
+  ...(await orig<typeof import('../../tenancy/context.js')>()),
+  tenantTmpRoot: () => h.root,
+}));
+import { buildExecArgs, codexChildEnv, materializeBaseInstructions } from './codex-exec.js';
 
 const base = { sandboxMode: 'workspace-write' as const, cwd: 'C:\\home', networkAccess: true };
 const cfgs = (a: string[]) => a.flatMap((x, i) => (a[i - 1] === '--config' ? [x] : []));
@@ -61,5 +70,23 @@ describe('the codex child environment', () => {
   it('leaves out MIND_API_KEY and passes everything else through', () => {
     const env = codexChildEnv({ MIND_API_KEY: 'mind-secret', OPENAI_API_KEY: 'o', PATH: '/bin' });
     expect(env).toEqual({ OPENAI_API_KEY: 'o', PATH: '/bin' });
+  });
+});
+
+describe('materializeBaseInstructions', () => {
+  let tenantTmp = '';
+  afterEach(() => { h.root = undefined; if (tenantTmp) rmSync(tenantTmp, { recursive: true, force: true }); tenantTmp = ''; });
+
+  it('writes under the tenant temp root, not os.tmpdir(), content-addressed, with no .tmp left', () => {
+    tenantTmp = mkdtempSync(join(tmpdir(), 'codex-base-test-'));
+    h.root = join(tenantTmp, 'harness', 'tmp');
+    const a = materializeBaseInstructions('one');
+    expect(a.startsWith(join(h.root, 'sanctum-codex-base'))).toBe(true);
+    expect(readFileSync(a, 'utf8')).toBe('one');
+    expect(materializeBaseInstructions('one')).toBe(a);
+    const b = materializeBaseInstructions('two');
+    expect(b).not.toBe(a);
+    expect(readFileSync(b, 'utf8')).toBe('two');
+    expect(readdirSync(join(h.root, 'sanctum-codex-base')).filter((n) => n.endsWith('.tmp'))).toEqual([]);
   });
 });

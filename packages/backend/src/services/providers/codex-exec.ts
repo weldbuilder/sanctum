@@ -3,15 +3,16 @@
 // history, and Codex is handed a fresh prompt every time. Emits the same JSONL
 // event objects the SDK does (thread.started, item.*, turn.*, error).
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { createHash, randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { createInterface } from 'node:readline';
 import { dirname, join } from 'node:path';
 import { childEnv } from './child-env.js';
 import { childRunBase } from '../../tenancy/child.js';
-import { tenancyEnabled } from '../../tenancy/context.js';
+import { tenancyEnabled, tenantTmpRoot } from '../../tenancy/context.js';
+import { ownAssertReal } from '../../tenancy/own-files.js';
 
 export interface ExecParams {
   sandboxMode: 'read-only' | 'workspace-write' | 'danger-full-access';
@@ -117,11 +118,24 @@ export async function* runCodexExec(p: ExecParams & { prompt: string; signal?: A
 }
 
 /** Codex only takes base instructions as a file (model_instructions_file). Write the combined text (frame, identity,
- *  then the base prompt) once under a content-hash name and return the path; the same text reuses the same file. */
+ *  then the base prompt) once under a content-hash name and return the path; the same text reuses the same file.
+ *  Tenant mode (D7): the file lives under the tenant's own TMPDIR (the one its Codex child gets), never the process-wide tmpdir.
+ *  Written to a temp name then renamed, so a partial file never sits at the final path. */
 export function materializeBaseInstructions(text: string): string {
-  const dir = join(tmpdir(), 'sanctum-codex-base');
+  const root = tenantTmpRoot();
+  const dir = join(root ?? tmpdir(), 'sanctum-codex-base');
   mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (root) ownAssertReal(dir); // (a tenant folder that became a link is refused, never written into)
   const f = join(dir, `${createHash('sha256').update(text).digest('hex').slice(0, 24)}.md`);
-  if (!existsSync(f)) writeFileSync(f, text, { mode: 0o600 });
+  if (!existsSync(f)) {
+    const tmp = `${f}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+    try {
+      writeFileSync(tmp, text, { mode: 0o600 });
+      renameSync(tmp, f);
+    } catch (e) {
+      try { unlinkSync(tmp); } catch { /* never written */ }
+      throw e;
+    }
+  }
   return f;
 }
