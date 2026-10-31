@@ -2704,6 +2704,63 @@ function PendingPanel({ base }: { base: string }) {
 
 // ─── OrchestratorSection ──────────────────────────────────────────────────────
 
+/* Desktop floor (>=769px): body text >= 14px, pills/badges >= 12px. Phone sizes untouched. */
+const ORCH_DESKTOP_FLOOR_CSS = `
+@media (min-width: 769px) {
+  .settings-view .wt-row-hint,
+  .settings-view .wt-del-confirm-msg,
+  .settings-view .del-confirm-msg,
+  .settings-view .sch-complex-note,
+  .settings-view .sch-cron-code,
+  .settings-view .sch-summary-label,
+  .settings-view .sch-summary-cron,
+  .settings-view .wake-cron,
+  .settings-view .wake-cron-summary,
+  .settings-view .wake-next,
+  .settings-view .handoff-blurb,
+  .settings-view .handoff-meta-v,
+  .settings-view .handoff-msg,
+  .settings-view .wtw-blurb,
+  .settings-view .wtw-seg-label,
+  .settings-view .wtw-seg-sub,
+  .settings-view .pend-rel-time,
+  .settings-view .pend-abs-time,
+  .settings-view .pend-ctx,
+  .settings-view .pend-conditions,
+  .settings-view .pend-waiting,
+  .settings-view .pend-edit-hint,
+  .settings-view .pend-edit-error,
+  .settings-view .pend-prompt-textarea,
+  .settings-view .pend-step-value,
+  .settings-view .orch-status-msg,
+  .settings-view .orch-error-msg,
+  .settings-view .sysprompt-textarea,
+  .settings-view .sysprompt-save,
+  .settings-view .pend-pause-btn { font-size: 14px; }
+  .settings-view .sch-day-btn { font-size: 13px; }
+  .settings-view .wt-row-type,
+  .settings-view .wt-row-label,
+  .settings-view .wake-label,
+  .settings-view .pend-label { font-size: 14px; }
+  .settings-view .wt-scheduled-pip,
+  .settings-view .pend-cooldown,
+  .settings-view .handoff-meta-k,
+  .settings-view .wtw-meta { font-size: 13px; }
+  .settings-view .wt-row-chevron,
+  .settings-view .sch-freq-pill,
+  .settings-view .wake-running-badge,
+  .settings-view .wake-model-pill,
+  .settings-view .wake-target-pill,
+  .settings-view .pend-kind-tag,
+  .settings-view .pend-paused-tag,
+  .settings-view .pend-cond-chip,
+  .settings-view .pend-fire-count,
+  .settings-view .pend-meta-dot,
+  .settings-view .pend-edit-label,
+  .settings-view .pend-step-unit { font-size: 12px; }
+}
+`;
+
 export function OrchestratorSection({ base }: { base: string }) {
   // ── Part A state ──
   const [wakeTypes, setWakeTypes] = useState<WakeTypeRecord[]>([]);
@@ -2970,6 +3027,7 @@ export function OrchestratorSection({ base }: { base: string }) {
 
   return (
     <div className="orch-section">
+      <style>{ORCH_DESKTOP_FLOOR_CSS}</style>
 
       {/* ═══════════════════════════════════════════════════════
           Watchtower — the dial for the companion's chance to reach

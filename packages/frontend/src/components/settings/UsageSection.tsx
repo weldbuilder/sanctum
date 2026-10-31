@@ -319,6 +319,7 @@ export function UsageSection({ base }: { base: string }) {
           cursor: pointer;
           transition: color 200ms var(--hearth-curve, ease), border-color 200ms var(--hearth-curve, ease), background 200ms var(--hearth-curve, ease);
         }
+        @media (min-width: 769px) { .settings-view .usage-window-tab { font-size: 13px; } }
         .usage-window-tab:hover {
           color: var(--text-secondary, #a09689);
           border-color: rgba(255,255,255,0.12);

@@ -340,6 +340,12 @@ export function LogsSection({ base }: { base: string }) {
           margin-top: 0.5rem;
         }
 
+        @media (min-width: 769px) {
+          .settings-view .logs-seg-btn, .settings-view .logs-follow, .settings-view .logs-note { font-size: 14px; }
+          .settings-view .logs-panel { font-size: 14px; }
+          .settings-view .logs-truncated { font-size: 12px; }
+        }
+
         @media (max-width: 600px) {
           .logs-panel { height: 20rem; font-size: 0.6875rem; }
           .logs-filter { min-width: 5rem; }
