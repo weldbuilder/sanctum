@@ -6,6 +6,26 @@ import { getSanctumConfig } from '../config.js';
 import { getRolling, type Rolling } from './rolling-context.js';
 import { renderLine } from './rolling/theora-rolling-context.js';
 
+/** Who speaks each prior line: the configured names, so the model can tell its own earlier words from the person's. */
+export function speakerNames(): { user: string; companion: string } {
+  const id = (getSanctumConfig() as any).identity ?? {};
+  const clean = (v: unknown) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '');
+  return { user: clean(id.user_name) || 'YOU', companion: clean(id.companion_name) || 'COMPANION' };
+}
+
+/** One rendered transcript line: `<NAME>: text`. */
+export function renderNamedLine(turn: HistoryTurn): string {
+  const n = speakerNames();
+  return `${turn.role === 'assistant' ? n.companion : n.user}: ${turn.content}`;
+}
+
+/** The `[Conversation so far]` block with its one-line preface, '' when there are no lines. */
+export function conversationBlock(lines: string[]): string {
+  if (!lines.length) return '';
+  const name = speakerNames().companion;
+  return `Prior turns of this conversation. Lines marked ${name}: are your own earlier words.\n\n[Conversation so far]\n${lines.join('\n')}`;
+}
+
 export type HistoryTurn = { role: 'user' | 'assistant'; content: string };
 
 /**
@@ -34,7 +54,7 @@ export interface RollingHistory {
   summary: string;
   /** A line for the prompt when turns were left out, '' otherwise. */
   notice: string;
-  /** The newest turns, rendered `ROLE: text`, oldest first. */
+  /** The newest turns, rendered `NAME: text` (renderNamedLine), oldest first. */
   lines: string[];
   /** The rolling service, for the fold after the reply; null when history failed to load. */
   rolling: Rolling | null;
@@ -43,9 +63,10 @@ export interface RollingHistory {
   segments: number;
 }
 
-/** `force` assembles the history although rolling is switched off for the
+/** `named` renders the tail as `<NAME>: text` (the dsh seat); otherwise the shared `ROLE: text`.
+ *  `force` assembles the history although rolling is switched off for the
  *  active provider: the one-time carry-over into a fresh session. */
-export async function assembleRollingHistory(threadId: string, userContent: string, autonomous: boolean, opts?: { force?: boolean }): Promise<RollingHistory> {
+export async function assembleRollingHistory(threadId: string, userContent: string, autonomous: boolean, opts?: { force?: boolean; named?: boolean }): Promise<RollingHistory> {
   const rc = getSanctumConfig().agent.rolling;
   try {
     const rolling = getRolling();
@@ -57,7 +78,7 @@ export async function assembleRollingHistory(threadId: string, userContent: stri
     const kept: string[] = [];
     let chars = 0;
     for (let i = tail.length - 1; i >= 0 && kept.length < rc.history_max_turns; i--) {
-      const line = renderLine(tail[i]);
+      const line = opts?.named ? renderNamedLine(tail[i]) : renderLine(tail[i]);
       if (kept.length > 0 && chars + line.length + 1 > rc.history_max_chars) break;
       chars += line.length + 1;
       kept.unshift(line);

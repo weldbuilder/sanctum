@@ -24,6 +24,7 @@ import { harnessHomes } from '../tenancy/child.js';
 import { companionPath } from '../tenancy/house.js';
 import { backgroundRunsOff, currentTenant, envFor, tenancyEnabled, tenantLocal } from '../tenancy/context.js';
 import crypto from 'crypto';
+import { IDENTITY_FRAME } from './providers/identity-frame.js';
 import { existsSync } from 'fs';
 import { readOwnText, writeThreadFile } from '../tenancy/own-files.js';
 import { join, dirname } from 'path';
@@ -761,11 +762,9 @@ export class AgentService {
     // aware) on the frame path so he can state it as fact. The preset path still
     // carries it natively, so only the frame branch needs the note.
     const runtimeNote = `\n\n[Runtime] Model serving this turn: ${model}. This line is injected by the home and is the ground truth for "what model are you on?" — state it directly; don't second-guess your own version.`;
-    const systemPrompt: Options['systemPrompt'] = frame
-      ? `${st().claudeMd ? `${frame}\n\n${st().claudeMd}` : frame}${runtimeNote}`
-      : (st().claudeMd
-          ? { type: 'preset', preset: 'claude_code', append: st().claudeMd }
-          : { type: 'preset', preset: 'claude_code' });
+    // A plain string, no claude_code preset: frame line + identity first, then the configured frame file (if any), then
+    // the runtime note. Mirrors harness-chat.js (identity first, mechanics after). The SDK needs no preset for tools.
+    const systemPrompt: Options['systemPrompt'] = [IDENTITY_FRAME, st().claudeMd, frame].filter((x) => x && x.trim()).join('\n\n') + runtimeNote;
 
     const options: Options = {
       model,
@@ -941,7 +940,7 @@ export class AgentService {
       // enrichedPrompt (see buildAttachmentNote above); no streaming-input branch
       // is needed, which keeps resume/session handling simple and uniform.
       // Codex / dsh: the adapter owns thread history and needs the raw user message.
-      if (activeProvider() !== 'claude') (options as any).sanctum = { threadId, userContent: content, autonomous: isAutonomous, senderIsOwner: isAutonomous ? undefined : senderIsOwnerFor(platformOpts?.platform, platformOpts?.senderIsOwner), ...(hold ? { noIngest: true } : {}), ...(noMemory ? { memory: 'none' } : {}) };
+      if (activeProvider() !== 'claude') (options as any).sanctum = { threadId, userContent: content, contextBlock, autonomous: isAutonomous, senderIsOwner: isAutonomous ? undefined : senderIsOwnerFor(platformOpts?.platform, platformOpts?.senderIsOwner), ...(hold ? { noIngest: true } : {}), ...(noMemory ? { memory: 'none' } : {}) };
       const result = query({ prompt: enrichedPrompt, options });
       st().activeQuery = result;
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 
 const h = vi.hoisted(() => ({ turns: [] as any[], serve: null as any, fail: false, max: { chars: 24000, turns: 30 } }));
-vi.mock('../config.js', () => ({ getSanctumConfig: () => ({ agent: { rolling: { history_max_chars: h.max.chars, history_max_turns: h.max.turns } } }) }));
+vi.mock('../config.js', () => ({ getSanctumConfig: () => ({ identity: { user_name: 'Pat', companion_name: 'Hazel' }, agent: { rolling: { history_max_chars: h.max.chars, history_max_turns: h.max.turns } } }) }));
 vi.mock('./rolling-context.js', () => ({
   getRolling: () => ({
     readTurns: async () => { if (h.fail) throw new Error('db gone'); return h.turns; },
@@ -9,7 +9,7 @@ vi.mock('./rolling-context.js', () => ({
     maybeCompact: () => Promise.resolve({}),
   }),
 }));
-import { assembleRollingHistory, withoutCurrentMessage } from './rolling-history.js';
+import { assembleRollingHistory, conversationBlock, withoutCurrentMessage } from './rolling-history.js';
 
 const t = (id: string, role: 'user' | 'assistant', content: string) => ({ id, role, content, at: '' });
 
@@ -21,6 +21,8 @@ describe('assembleRollingHistory', () => {
     const r = await assembleRollingHistory('th', 'hello there', false);
     expect(r.summary).toBe('SUMMARY');
     expect(r.lines).toEqual(['USER: mid u', 'ASSISTANT: mid a']);
+    const named = await assembleRollingHistory('th', 'hello there', false, { named: true });
+    expect(named.lines).toEqual(['Pat: mid u', 'Hazel: mid a']);
     expect(r.notice).toBe('');
     expect(r.rolling).not.toBeNull();
   });
@@ -45,5 +47,12 @@ describe('withoutCurrentMessage', () => {
     const turns = [t('1', 'user', 'a'), t('2', 'assistant', 'b'), t('3', 'user', 'hi')];
     expect(withoutCurrentMessage(turns, '[tone] hi', false).map((x) => x.id)).toEqual(['1', '2']);
     expect(withoutCurrentMessage(turns, 'hi', true).length).toBe(3); // wakes save no user message
+  });
+});
+
+describe('conversationBlock', () => {
+  it('prefaces the block with the line naming the companion, and is empty with no lines', () => {
+    expect(conversationBlock(['Pat: hi', 'Hazel: hello'])).toBe('Prior turns of this conversation. Lines marked Hazel: are your own earlier words.\n\n[Conversation so far]\nPat: hi\nHazel: hello');
+    expect(conversationBlock([])).toBe('');
   });
 });

@@ -19,7 +19,7 @@
 //   1. Base prompt = the persona. <agent.cwd>/config/dsh-base-prompt.md, else
 //      agent.dsh.base_instructions_file; sent as the system-prompt personaPrefix
 //      with dsh's own "You are an AI agent powered by DeepSeek Harness" opener off.
-//   2. Identity = the self, prepended to the main conversation's message.
+//   2. Identity = the self, sent in the system slot after the frame line (both rolling and non-rolling main runs).
 //   3. AGENTS.md = workspace law. dsh-agent-instructions loads it by itself.
 //   Rolling mode (agent.rolling.dsh, main conversation only): every turn is a
 //   fresh ephemeral run; session id is the stable `rolling:<threadId>`.
@@ -31,9 +31,10 @@ import { identityBlock } from '../identity/block.js';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getSanctumConfig } from '../../config.js';
+import { IDENTITY_FRAME } from './identity-frame.js';
 import { runDshExec } from './dsh-exec.js';
 import { routeKeyVar } from './dsh-key.js';
-import { assembleRollingHistory } from '../rolling-history.js';
+import { assembleRollingHistory, conversationBlock } from '../rolling-history.js';
 import { recallForPrompt, ingestTurn, MEMORY_HEADER } from '../revien.js';
 import { mindRecallBlock } from '../mind-client.js';
 import { childRunBase } from '../../tenancy/child.js';
@@ -44,6 +45,9 @@ function resolveBaseFile(): string {
   const baseCfg = agentCfg.dsh.base_instructions_file;
   return existsSync(homeBase) ? homeBase : (baseCfg && existsSync(baseCfg) ? baseCfg : '');
 }
+
+/** The first line of the system slot on a rolling run: the identity below it is who is speaking, not a file to discuss. */
+export const DSH_IDENTITY_FRAME = IDENTITY_FRAME;
 
 function readBasePrompt(): string {
   const f = resolveBaseFile();
@@ -269,7 +273,7 @@ export function dshQuery({ prompt, options }: { prompt: string | AsyncIterable<a
       }
     }
 
-    const sanctum = (opts as any).sanctum as { threadId: string; userContent: string; autonomous?: boolean; senderIsOwner?: boolean; noIngest?: boolean; memory?: 'none'; sealed?: boolean } | undefined;
+    const sanctum = (opts as any).sanctum as { threadId: string; userContent: string; autonomous?: boolean; senderIsOwner?: boolean; noIngest?: boolean; memory?: 'none'; sealed?: boolean; contextBlock?: string } | undefined;
     // memory: 'none' (the public lane): no recall, no ingest, no thread history, no fold.
     const noMemory = sanctum?.memory === 'none';
     const rollingOn = !readOnly && !noMemory && cfg.agent.rolling?.dsh !== false && !!sanctum?.threadId;
@@ -311,11 +315,14 @@ export function dshQuery({ prompt, options }: { prompt: string | AsyncIterable<a
       sandboxMode, cwd: workingDirectory, command: dx.command, home: sealed ? undefined : dx.home || undefined, // a sealed run gets a pristine home of its own (dsh-exec.ts)
       model, modelProvider: dx.model_provider || undefined, apiKeyEnv: dx.api_key_env || undefined,
       baseUrl: dx.base_url || undefined, effort,
-      basePrompt: sealed ? readPublicBasePrompt() : readBasePrompt(),
+      basePrompt: sealed ? readPublicBasePrompt() : readBasePrompt(), // (a rolling turn replaces this with frame + identity + this, below)
       mcp: sealed ? undefined : opts.mcpServers as Record<string, any> | undefined,
       ...(sealed ? { sealed: true, noProjectDocs: true, maxSteps: typeof opts.maxTurns === 'number' && opts.maxTurns > 0 ? opts.maxTurns : 1 } : {}),
     };
 
+    // Identity rides in the system slot (frame, identity, then the base prompt). The frame is always there, so dsh's
+    // own "coding agent" persona can never return, even when the identity folder is empty.
+    const withIdentity = (base: string): string => [DSH_IDENTITY_FRAME, identityBlock('dsh'), base].filter((x) => x && x.trim()).join('\n\n');
     let input = prompt;
     let fixedSession = false;
     let ephemeral = false;
@@ -327,17 +334,22 @@ export function dshQuery({ prompt, options }: { prompt: string | AsyncIterable<a
       state.sessionId = `rolling:${threadId}`;
       fixedSession = true; ephemeral = true;
       // Fail-soft history assembly (see rolling-history.ts).
-      const history = await assembleRollingHistory(threadId, sanctum!.userContent, !!sanctum!.autonomous);
+      const history = await assembleRollingHistory(threadId, sanctum!.userContent, !!sanctum!.autonomous, { named: true });
       rolling = history.rolling;
       const { summary, notice, lines } = history;
+      // Identity rides in the system slot (frame, identity, then the base prompt), not in the user message.
+      if (!sealed) execBase.basePrompt = withIdentity(execBase.basePrompt);
+      // The orientation block agent.ts put in front of the person's words comes out of the message and goes above the conversation.
+      const ctx = sanctum?.contextBlock ?? '';
+      const message = ctx && prompt.startsWith(ctx) ? prompt.slice(ctx.length).replace(/^\n+/, '') : prompt;
       input = [
-        identityBlock('dsh'),
         memoryBlock,
         mindBlock,
         summary,
         notice,
-        lines.length ? `[Conversation so far]\n${lines.join('\n')}` : '',
-        `[Current message]\n${prompt}`,
+        ctx && message !== prompt ? ctx : '',
+        conversationBlock(lines),
+        `[Current message]\n${message}`,
       ].filter(Boolean).join('\n\n');
     } else if (readOnly) {
       const taskBrief = !resumeId ? systemText(opts.systemPrompt) : '';
@@ -346,8 +358,8 @@ export function dshQuery({ prompt, options }: { prompt: string | AsyncIterable<a
       ephemeral = !resumeId;
       sessionId = resumeId;
     } else {
+      if (!sealed) execBase.basePrompt = withIdentity(execBase.basePrompt);
       const head = [
-        !resumeId || dx.identity_every_turn ? identityBlock('dsh') : '',
         memoryBlock,
         mindBlock,
       ].filter(Boolean);

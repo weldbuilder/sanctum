@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const h = vi.hoisted(() => ({
   rollingCfg: { enabled: false } as any,
   models: { model: '', model_autonomous: '' },
-  exec: { params: null as any, events: [] as any[], calls: 0 },
+  exec: { params: null as any, events: [] as any[], calls: 0, base: '' },
   rolling: { turns: [] as any[], serve: null as any, compact: 0, readServeCalls: 0, fail: false },
   recall: '' as string,
   recallCalls: [] as string[],
@@ -18,6 +18,8 @@ vi.mock('../../config.js', () => ({
   getSanctumConfig: () => ({ identity: h.identityCfg, agent: { cwd: h.agentHome, codex: { model: h.models.model, model_autonomous: h.models.model_autonomous, sandbox_mode: 'workspace-write', network_access: true, additional_directories: [], base_instructions_file: '/repo/prompts/codex-base-prompt.md', identity_every_turn: true }, rolling: { history_max_chars: 24000, history_max_turns: 30, claude: false, ...h.rollingCfg, codex: !!h.rollingCfg.enabled } } }),
 }));
 vi.mock('./codex-exec.js', () => ({
+  // The combined base instructions (frame, identity, base prompt) are written to a file in production; the mock keeps the text.
+  materializeBaseInstructions: (text: string) => { h.exec.base = text; return '/tmp/sanctum-codex-base/test.md'; },
   runCodexExec: (p: any) => { h.exec.params = p; h.exec.calls++; return (async function* () { for (const e of h.exec.events) yield e; })(); },
 }));
 vi.mock('../rolling-context.js', () => ({
@@ -71,7 +73,7 @@ vi.mock('@openai/codex-sdk', () => ({
   },
 }));
 
-import { codexQuery } from './codex.js';
+import { codexQuery, CODEX_IDENTITY_FRAME } from './codex.js';
 import { ratifyIdentity } from '../identity/ledger.js';
 import { createRequire } from 'node:module';
 
@@ -95,7 +97,7 @@ describe('codex adapter', () => {
     h.agentHome = makeHome({ 'profile.md': 'Companion: Hazel', 'companion.md': 'I am Hazel.' });
     h.rollingCfg = { enabled: false };
     h.models = { model: '', model_autonomous: '' };
-    h.exec.params = null; h.exec.calls = 0;
+    h.exec.params = null; h.exec.calls = 0; h.exec.base = '';
     h.exec.events = [
       { type: 'thread.started', thread_id: 'th_exec' },
       { type: 'item.completed', item: { id: 'm1', type: 'agent_message', text: 'Blessed be, friend.' } },
@@ -111,17 +113,22 @@ describe('codex adapter', () => {
     const out: any[] = [];
     for await (const m of q as any) out.push(m);
 
-    // Layer 2: identity files from the home are joined ahead of her message, in order
-    const i = (s: string) => captured.input.indexOf(s);
-    expect(i('# Companion Identity')).toBe(0);
-    expect(i('Companion: Hazel')).toBeGreaterThan(0);
+    // Identity lives in the system slot (the base instructions file), not in the message: frame first, then the files in order, then the base prompt
+    const base = h.exec.base;
+    const i = (s: string) => base.indexOf(s);
+    expect(i(CODEX_IDENTITY_FRAME)).toBe(0);
+    expect(i('# Companion Identity')).toBeGreaterThan(i(CODEX_IDENTITY_FRAME));
+    expect(i('Companion: Hazel')).toBeGreaterThan(i('# Companion Identity'));
     expect(i('## Companion Narrative')).toBeGreaterThan(i('Companion: Hazel'));
     expect(i('I am Hazel.')).toBeGreaterThan(i('## Companion Narrative'));
-    expect(i('[Current message]')).toBeGreaterThan(i('I am Hazel.'));
-    expect(captured.input.endsWith('hi')).toBe(true);
+    expect(i('BASE')).toBeGreaterThan(i('I am Hazel.')); // the home's base prompt follows the identity
+    expect(base.endsWith('BASE')).toBe(true);
+    // ...and the message carries none of it
+    expect(captured.input).toBe('hi');
+    expect(captured.input).not.toContain('Companion Identity');
     expect(captured.input).not.toContain('You are Hazel.'); // Resonant's own system prompt is not used
-    // Layer 1: the home's base prompt wins over the repo fallback
-    expect(captured.clientOpts.config.model_instructions_file.replace(/[^a-z./-]/gi, '/')).toContain('/config/codex-base-prompt.md');
+    // The client is pointed at the materialized combined file, not at the raw base prompt
+    expect(captured.clientOpts.config.model_instructions_file).toBe('/tmp/sanctum-codex-base/test.md');
     expect(captured.threadOpts.modelReasoningEffort).toBe('high');
     expect(out[0]).toMatchObject({ type: 'system', session_id: 'th_1' });
     const text = out.filter(m => m.event?.delta?.type === 'text_delta').map(m => m.event.delta.text).join('');
@@ -174,31 +181,34 @@ describe('codex adapter', () => {
   it('the identity block is read from the home identity folder: every file in it, edits live on the next turn', async () => {
     realFs.writeFileSync(realPathMod.join(h.agentHome, 'identity', 'notes.md'), 'HOUSE NOTES');
     await drain(codexQuery({ prompt: 'hi', options: {} as any }));
-    expect(captured.input).toContain('Companion: Hazel');
-    expect(captured.input).toContain('## notes.md\n\nHOUSE NOTES');
+    expect(h.exec.base).toContain('Companion: Hazel');
+    expect(h.exec.base).toContain('## notes.md\n\nHOUSE NOTES');
     realFs.writeFileSync(realPathMod.join(h.agentHome, 'identity', 'companion.md'), 'I am Hazel, edited.');
     await drain(codexQuery({ prompt: 'again', options: {} as any }));
-    expect(captured.input).toContain('I am Hazel, edited.');
+    expect(h.exec.base).toContain('I am Hazel, edited.');
+    expect(captured.input).toBe('again');
   });
 
   it('boots on the ratified identity while a change waits, and says so; unratified serves the live files', async () => {
     const ledgerDir = realFs.mkdtempSync(realPathMod.join(realOs.tmpdir(), 'sanctum-test-home-ledger-'));
     h.identityCfg = { companion_name: 'Hazel', user_name: 'Pat', ledger_dir: ledgerDir };
     await drain(codexQuery({ prompt: 'hi', options: {} as any })); // first sight: nothing ratified, live is served
-    expect(captured.input).toContain('I am Hazel.');
+    expect(h.exec.base).toContain('I am Hazel.');
     ratifyIdentity(h.agentHome, { ledgerDir, trustStat: false }, { by: 'person' });
     realFs.writeFileSync(realPathMod.join(h.agentHome, 'identity', 'companion.md'), 'HOSTILE REWRITE');
     await drain(codexQuery({ prompt: 'again', options: {} as any }));
-    expect(captured.input).toContain('I am Hazel.');
-    expect(captured.input).not.toContain('HOSTILE REWRITE');
-    expect(captured.input).toContain('A change to companion.md is waiting for the person to ratify it; this run uses the ratified version.');
+    expect(h.exec.base).toContain('I am Hazel.');
+    expect(h.exec.base).not.toContain('HOSTILE REWRITE');
+    expect(h.exec.base).toContain('A change to companion.md is waiting for the person to ratify it; this run uses the ratified version.');
   });
 
-  it('main conversation resends identity on a resumed thread (identity_every_turn)', async () => {
+  it('main conversation on a resumed thread: identity rides the system slot again, the message stays bare', async () => {
     const q = codexQuery({ prompt: 'and again', options: { resume: 'th_1' } as any });
     for await (const _ of q as any) { /* drain */ }
-    expect(captured.input.startsWith('# Companion Identity')).toBe(true);
-    expect(captured.input.endsWith('and again')).toBe(true);
+    expect(captured.resumed).toBe('th_1');
+    expect(captured.input).toBe('and again');
+    expect(h.exec.base.startsWith(CODEX_IDENTITY_FRAME)).toBe(true);
+    expect(h.exec.base).toContain('I am Hazel.');
   });
 
   it('resumed subagents get the bare prompt and run read-only', async () => {
@@ -220,18 +230,24 @@ describe('codex adapter', () => {
       h.rolling.serve = { covered: 2, segments: 1, block: 'ROLLING-BLOCK', render: (d: number) => (d ? `ROLLING-BLOCK dropped=${d}` : 'ROLLING-BLOCK') };
     });
 
-    it('builds the five sections in order and ends with the prompt as received', async () => {
-      const prompt = '[Context]\nenv\n[/Context]\n\nraw hello';
-      await drain(codexQuery({ prompt, options: sanctumOpts() }));
+    it('builds the sections in order: memory, summary, context, conversation, then the bare current message; identity is not in the message', async () => {
+      const ctx = '[Context]\nenv\n[/Context]';
+      const prompt = `${ctx}\n\nraw hello`;
+      await drain(codexQuery({ prompt, options: sanctumOpts({ sanctum: { threadId: 'T1', userContent: 'raw hello', contextBlock: ctx } }) }));
       const input: string = h.exec.params.prompt;
       const i = (x: string) => input.indexOf(x);
-      expect(i('# Companion Identity')).toBe(0);
-      expect(i('[Memory — recalled from Revien')).toBeGreaterThan(i('I am Hazel.'));
+      expect(input).not.toContain('# Companion Identity'); // it is in the system slot
+      expect(h.exec.params.baseFile).toBe('/tmp/sanctum-codex-base/test.md');
+      expect(h.exec.base.startsWith(CODEX_IDENTITY_FRAME)).toBe(true);
+      expect(h.exec.base).toContain('I am Hazel.');
+      expect(i('[Memory — recalled from Revien')).toBe(0);
       expect(i('- She has a cat named Miso.')).toBeGreaterThan(i('[Memory'));
       expect(i('ROLLING-BLOCK')).toBeGreaterThan(i('Miso'));
-      expect(i('[Conversation so far]\nUSER: mid u\nASSISTANT: mid a')).toBeGreaterThan(i('ROLLING-BLOCK'));
-      expect(i('[Current message]\n')).toBeGreaterThan(i('ASSISTANT: mid a'));
-      expect(input.endsWith(`[Current message]\n${prompt}`)).toBe(true);
+      expect(i('[Context]\nenv\n[/Context]')).toBeGreaterThan(i('ROLLING-BLOCK')); // context above the history
+      expect(i('Prior turns of this conversation. Lines marked Hazel: are your own earlier words.\n\n[Conversation so far]\nPat: mid u\nHazel: mid a')).toBeGreaterThan(i('[/Context]'));
+      expect(i('[Current message]\n')).toBeGreaterThan(i('Hazel: mid a'));
+      expect(input.endsWith('[Current message]\nraw hello')).toBe(true); // only the person's words
+      expect(input.split('[Context]').length - 1).toBe(1);
       expect(input).not.toContain('old u'); // covered by the summary
       expect(h.exec.params.sandboxMode).toBe('workspace-write');
       expect(h.rolling.compact).toBe(1);
@@ -240,7 +256,7 @@ describe('codex adapter', () => {
     it('does not duplicate the current user message in the conversation', async () => {
       await drain(codexQuery({ prompt: 'raw hello', options: sanctumOpts() }));
       expect(h.exec.params.prompt.split('raw hello').length - 1).toBe(1);
-      expect(h.exec.params.prompt).not.toContain('USER: raw hello');
+      expect(h.exec.params.prompt).not.toContain('Pat: raw hello');
     });
 
     it('uses the stable rolling session id everywhere and ignores resume', async () => {
@@ -288,7 +304,7 @@ describe('codex adapter', () => {
       const input: string = h.exec.params.prompt;
       expect(input).not.toContain('[Memory');
       expect(input).toContain('[2 earlier turns of this thread are not shown here');
-      expect(input).toContain('[Conversation so far]\nUSER: mid u\nASSISTANT: mid a');
+      expect(input).toContain('[Conversation so far]\nPat: mid u\nHazel: mid a');
     });
 
     it('announces dropped turns even when a summary exists (context loss is never silent)', async () => {
@@ -298,7 +314,7 @@ describe('codex adapter', () => {
       expect(input).toContain('ROLLING-BLOCK');
       expect(input).toContain('[1 earlier turn of this thread is not shown here');
       expect(input.indexOf('[1 earlier turn')).toBeGreaterThan(input.indexOf('ROLLING-BLOCK'));
-      expect(input).toContain('[Conversation so far]\nASSISTANT: mid a');
+      expect(input).toContain('[Conversation so far]\nHazel: mid a');
     });
 
     it('a broken history source degrades the prompt and never fails the turn', async () => {
@@ -308,7 +324,7 @@ describe('codex adapter', () => {
       const input: string = h.exec.params.prompt;
       expect(input).toContain('could not be loaded for this message');
       expect(input).not.toContain('[Conversation so far]');
-      expect(input.startsWith('# Companion Identity')).toBe(true);
+      expect(input).not.toContain('# Companion Identity');
       expect(input.endsWith('[Current message]\nraw hello')).toBe(true);
     });
 
@@ -327,7 +343,7 @@ describe('codex adapter', () => {
       await drain(codexQuery({ prompt: 'tell me about the garden', options: opts }));
       const input: string = h.exec.params.prompt;
       expect(input.split('tell me about the garden').length - 1).toBe(1);
-      expect(input).toContain('[Conversation so far]\nUSER: old u\nASSISTANT: old a\n\n[Current message]');
+      expect(input).toContain('[Conversation so far]\nPat: old u\nHazel: old a\n\n[Current message]');
     });
 
     it('a queued later message is left for its own turn', async () => {
@@ -336,7 +352,7 @@ describe('codex adapter', () => {
       await drain(codexQuery({ prompt: 'first', options: { sanctum: { threadId: 'T1', userContent: 'first' } } as any }));
       const input: string = h.exec.params.prompt;
       expect(input).not.toContain('second');
-      expect(input).not.toContain('USER: first');
+      expect(input).not.toContain('Pat: first');
     });
 
     it('always keeps the newest turn, even when it alone is over the budget', async () => {
@@ -346,7 +362,7 @@ describe('codex adapter', () => {
       h.rollingCfg = { enabled: true, history_max_chars: 100 };
       await drain(codexQuery({ prompt: 'next', options: { sanctum: { threadId: 'T1', userContent: 'next' } } as any }));
       const input: string = h.exec.params.prompt;
-      expect(input).toContain(`ASSISTANT: ${big}`);
+      expect(input).toContain(`Hazel: ${big}`);
       expect(input).toContain('[1 earlier turn of this thread is not shown here');
     });
 
@@ -355,7 +371,7 @@ describe('codex adapter', () => {
       expect(h.recallCalls).toEqual([]);
       expect(h.ingestCalls).toEqual([]);
       expect(h.exec.params.prompt).not.toContain('[Memory');
-      expect(h.exec.params.prompt).toContain('USER: raw hello'); // the last saved user turn is history here, not the current message
+      expect(h.exec.params.prompt).toContain('Pat: raw hello'); // the last saved user turn is history here, not the current message
     });
 
     it('skips an MCP server whose name Codex cannot parse instead of losing the turn', async () => {
@@ -371,13 +387,14 @@ describe('codex adapter', () => {
   });
 
   describe('rolling disabled or not applicable', () => {
-    it('rolling disabled: SDK path, resume and identity_every_turn still apply; memory and ingest still run', async () => {
+    it('rolling disabled: SDK path and resume still apply, identity is in the system slot not the message; memory and ingest still run', async () => {
       h.recall = '- a memory';
       await drain(codexQuery({ prompt: 'and again', options: { resume: 'th_1', sanctum: { threadId: 'T1', userContent: 'raw' } } as any }));
       expect(h.exec.calls).toBe(0);
       expect(captured.resumed).toBe('th_1');
-      expect(captured.input.startsWith('# Companion Identity')).toBe(true);
-      expect(captured.input).toContain('[Memory — recalled from Revien');
+      expect(captured.input).not.toContain('Companion Identity');
+      expect(h.exec.base).toContain('I am Hazel.');
+      expect(captured.input.startsWith('[Memory — recalled from Revien')).toBe(true);
       expect(captured.input.endsWith('[Current message]\n\nand again')).toBe(true);
       expect(h.rolling.readServeCalls).toBe(0);
       expect(h.ingestCalls).toEqual([{ threadId: 'T1', user: 'raw', assistant: 'Blessed be, friend.' }]);
@@ -387,7 +404,8 @@ describe('codex adapter', () => {
       await drain(codexQuery({ prompt: 'hello again', options: { resume: 'rolling:T1', sanctum: { threadId: 'T1', userContent: 'hello again' } } as any }));
       expect(h.exec.calls).toBe(0);
       expect(captured.resumed).toBeUndefined(); // started fresh instead
-      expect(captured.input.startsWith('# Companion Identity')).toBe(true);
+      expect(captured.input).toBe('hello again');
+      expect(h.exec.base.startsWith(CODEX_IDENTITY_FRAME)).toBe(true);
     });
 
     it('read-only subagents trigger no recall, no ingest, and no rolling even when enabled', async () => {

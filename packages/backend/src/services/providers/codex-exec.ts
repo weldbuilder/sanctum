@@ -3,6 +3,9 @@
 // history, and Codex is handed a fresh prompt every time. Emits the same JSONL
 // event objects the SDK does (thread.started, item.*, turn.*, error).
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { createInterface } from 'node:readline';
 import { dirname, join } from 'node:path';
@@ -111,4 +114,14 @@ export async function* runCodexExec(p: ExecParams & { prompt: string; signal?: A
     p.signal?.removeEventListener('abort', kill);
     kill();
   }
+}
+
+/** Codex only takes base instructions as a file (model_instructions_file). Write the combined text (frame, identity,
+ *  then the base prompt) once under a content-hash name and return the path; the same text reuses the same file. */
+export function materializeBaseInstructions(text: string): string {
+  const dir = join(tmpdir(), 'sanctum-codex-base');
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const f = join(dir, `${createHash('sha256').update(text).digest('hex').slice(0, 24)}.md`);
+  if (!existsSync(f)) writeFileSync(f, text, { mode: 0o600 });
+  return f;
 }

@@ -62,7 +62,7 @@ function makeHome(files: Record<string, string>): string {
   return home;
 }
 import { ratifyIdentity } from '../identity/ledger.js';
-import { dshQuery, claudeToolName, hasFailedExit, resetSealedKeyWarning } from './dsh.js';
+import { dshQuery, DSH_IDENTITY_FRAME, claudeToolName, hasFailedExit, resetSealedKeyWarning } from './dsh.js';
 
 // Raw event streams recorded from a live dsh 0.2.1-alpha.2 run (spike), replayed through the adapter.
 const fixture = (name: string) => realRead(new URL(`./__fixtures__/dsh-spike/${name}.jsonl`, import.meta.url), 'utf-8')
@@ -233,13 +233,14 @@ describe('dsh adapter', () => {
     expect(h.exec.params.senderIsOwner).toBe(false);
   });
 
-  it('joins the three layers: persona as base prompt, identity ahead of the message', async () => {
+  it('joins the layers in the system slot: frame, identity, then the persona; the message stays bare', async () => {
     await drain(dshQuery({ prompt: 'hi', options: { systemPrompt: { type: 'preset', preset: 'claude_code', append: 'You are Hazel.' } } as any }));
     const p = h.exec.params;
-    expect(p.basePrompt).toBe('BASE PERSONA');
-    expect(p.prompt.startsWith('# Companion Identity')).toBe(true);
-    expect(p.prompt.indexOf('## Companion Narrative')).toBeGreaterThan(p.prompt.indexOf('Companion: Hazel'));
-    expect(p.prompt.endsWith('[Current message]\n\nhi')).toBe(true);
+    expect(p.basePrompt.startsWith(DSH_IDENTITY_FRAME)).toBe(true);
+    expect(p.basePrompt.indexOf('# Companion Identity')).toBeGreaterThan(p.basePrompt.indexOf(DSH_IDENTITY_FRAME));
+    expect(p.basePrompt.indexOf('## Companion Narrative')).toBeGreaterThan(p.basePrompt.indexOf('Companion: Hazel'));
+    expect(p.basePrompt.endsWith('I am Hazel.\n\nBASE PERSONA')).toBe(true);
+    expect(p.prompt).toBe('hi'); // no identity, no head sections: just the person's words
     expect(p.prompt).not.toContain('You are Hazel.');
     expect(p.sandboxMode).toBe('workspace-write');
     expect(p.ephemeral).toBe(false);
@@ -249,11 +250,12 @@ describe('dsh adapter', () => {
   it('the identity block is read from the home identity folder: every file in it, edits live on the next turn', async () => {
     realFs.writeFileSync(realPath.join(h.agentHome, 'identity', 'notes.md'), 'HOUSE NOTES');
     await drain(dshQuery({ prompt: 'hi', options: {} as any }));
-    expect(h.exec.params.prompt).toContain('Companion: Hazel');
-    expect(h.exec.params.prompt).toContain('## notes.md\n\nHOUSE NOTES');
+    expect(h.exec.params.basePrompt).toContain('Companion: Hazel');
+    expect(h.exec.params.basePrompt).toContain('## notes.md\n\nHOUSE NOTES');
+    expect(h.exec.params.prompt).toBe('hi');
     realFs.writeFileSync(realPath.join(h.agentHome, 'identity', 'companion.md'), 'I am Hazel, edited.');
     await drain(dshQuery({ prompt: 'again', options: {} as any }));
-    expect(h.exec.params.prompt).toContain('I am Hazel, edited.');
+    expect(h.exec.params.basePrompt).toContain('I am Hazel, edited.');
   });
 
   it('boots on the ratified identity while a change waits, and says so', async () => {
@@ -262,15 +264,17 @@ describe('dsh adapter', () => {
     ratifyIdentity(h.agentHome, { ledgerDir, trustStat: false }, { by: 'person' });
     realFs.writeFileSync(realPath.join(h.agentHome, 'identity', 'companion.md'), 'HOSTILE REWRITE');
     await drain(dshQuery({ prompt: 'hi', options: {} as any }));
-    expect(h.exec.params.prompt).toContain('I am Hazel.');
-    expect(h.exec.params.prompt).not.toContain('HOSTILE REWRITE');
-    expect(h.exec.params.prompt).toContain('A change to companion.md is waiting for the person to ratify it; this run uses the ratified version.');
+    expect(h.exec.params.basePrompt).toContain('I am Hazel.');
+    expect(h.exec.params.basePrompt).not.toContain('HOSTILE REWRITE');
+    expect(h.exec.params.basePrompt).toContain('A change to companion.md is waiting for the person to ratify it; this run uses the ratified version.');
   });
 
-  it('resumes a real dsh session and resends identity (identity_every_turn)', async () => {
+  it('resumes a real dsh session; identity rides the system slot again and the message stays bare', async () => {
     await drain(dshQuery({ prompt: 'again', options: { resume: 'session-1' } as any }));
     expect(h.exec.params.sessionId).toBe('session-1');
-    expect(h.exec.params.prompt.startsWith('# Companion Identity')).toBe(true);
+    expect(h.exec.params.basePrompt.startsWith(DSH_IDENTITY_FRAME)).toBe(true);
+    expect(h.exec.params.basePrompt).toContain('I am Hazel.');
+    expect(h.exec.params.prompt).toBe('again');
   });
 
   it('a failed turn becomes an error result carrying code and message', async () => {
@@ -358,19 +362,35 @@ describe('dsh adapter', () => {
       h.rolling.serve = { covered: 2, segments: 1, block: 'ROLLING-BLOCK', render: (d: number) => (d ? `ROLLING-BLOCK dropped=${d}` : 'ROLLING-BLOCK') };
     });
 
-    it('is an ephemeral fresh run: identity, memory, summary, tail, then the message', async () => {
+    it('is an ephemeral fresh run: memory, summary, tail, then the message; identity rides in the system slot', async () => {
       await drain(dshQuery({ prompt: 'raw hello', options: so() }));
       const p = h.exec.params;
       const i = (x: string) => p.prompt.indexOf(x);
       expect(p.ephemeral).toBe(true);
       expect(p.sessionId).toBeUndefined();
-      expect(i('# Companion Identity')).toBe(0);
-      expect(i('[Memory]')).toBeGreaterThan(i('I am Hazel.'));
+      expect(p.basePrompt.startsWith(DSH_IDENTITY_FRAME)).toBe(true);
+      expect(p.basePrompt.indexOf('# Companion Identity')).toBeGreaterThan(p.basePrompt.indexOf(DSH_IDENTITY_FRAME));
+      expect(p.basePrompt.indexOf('I am Hazel.')).toBeGreaterThan(-1);
+      expect(p.basePrompt.endsWith('BASE PERSONA')).toBe(true);
+      expect(p.prompt).not.toContain('# Companion Identity');
+      expect(p.prompt).not.toContain('I am Hazel.');
+      expect(i('[Memory]')).toBe(0);
       expect(i('ROLLING-BLOCK')).toBeGreaterThan(i('Miso'));
-      expect(i('[Conversation so far]\nUSER: mid u\nASSISTANT: mid a')).toBeGreaterThan(i('ROLLING-BLOCK'));
+      expect(i('[Conversation so far]\nPat: mid u\nHazel: mid a')).toBeGreaterThan(i('ROLLING-BLOCK'));
+      expect(p.prompt).toContain('Prior turns of this conversation. Lines marked Hazel: are your own earlier words.\n\n[Conversation so far]');
       expect(p.prompt.endsWith('[Current message]\nraw hello')).toBe(true);
       expect(p.prompt).not.toContain('old u');
       expect(h.rolling.compact).toBe(1);
+    });
+
+    it('puts the [Context] orientation above the conversation; [Current message] is only the person\'s words', async () => {
+      const ctx = '[Context]\nORIENT\n[/Context]';
+      await drain(dshQuery({ prompt: `${ctx}\n\nraw hello`, options: so({ sanctum: { threadId: 'T1', userContent: 'raw hello', contextBlock: ctx } }) }));
+      const p: string = h.exec.params.prompt;
+      expect(p.indexOf('[Context]')).toBeGreaterThan(-1);
+      expect(p.indexOf('[Context]')).toBeLessThan(p.indexOf('[Conversation so far]'));
+      expect(p.indexOf('[Context]')).toBeGreaterThan(p.indexOf('ROLLING-BLOCK'));
+      expect(p.slice(p.indexOf('[Current message]'))).toBe('[Current message]\nraw hello');
     });
 
     it('uses the stable rolling session id and ignores resume; ingests once', async () => {

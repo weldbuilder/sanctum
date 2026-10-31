@@ -16,8 +16,8 @@
 //   1. Base prompt = the harness. <agent.cwd>/config/codex-base-prompt.md if it
 //      exists, else agent.codex.base_instructions_file. Replaces Codex's stock
 //      "You are Codex..." prompt for the run; ~/.codex/config.toml is untouched.
-//   2. Identity = the self. <agent.cwd>/identity/profile.md + companion.md,
-//      prepended to the main conversation's message (every turn by default).
+//   2. Identity = the self. <agent.cwd>/identity/profile.md + companion.md, placed after a
+//      frame line at the front of the base instructions (frame, identity, then the base prompt).
 //   3. AGENTS.md = workspace law. Codex discovers and injects it on its own.
 //   Sanctum's CLAUDE.md / system-prompt frame are not used on this path.
 //   Read-only subagents (digest/handoff/outlook) get their task brief instead of
@@ -41,11 +41,13 @@ import { existsSync, readFileSync } from 'node:fs';
 import { identityBlock } from '../identity/block.js';
 import { join } from 'node:path';
 import { getSanctumConfig } from '../../config.js';
-import { runCodexExec } from './codex-exec.js';
+import { runCodexExec, materializeBaseInstructions } from './codex-exec.js';
+import { IDENTITY_FRAME } from './identity-frame.js';
+import { readOwnOrApp } from '../../tenancy/own-files.js';
 import { childEnv } from './child-env.js';
 import { childRunBase } from '../../tenancy/child.js';
 import { currentTenant, tenancyEnabled } from '../../tenancy/context.js';
-import { assembleRollingHistory } from '../rolling-history.js';
+import { assembleRollingHistory, conversationBlock } from '../rolling-history.js';
 import { recallForPrompt, ingestTurn, MEMORY_HEADER } from '../revien.js';
 import { mindRecallBlock } from '../mind-client.js';
 
@@ -58,13 +60,22 @@ function resolveBaseFile(): string {
   return existsSync(homeBase) ? homeBase : (baseCfg && existsSync(baseCfg) ? baseCfg : '');
 }
 
-function getClient(mcpServers: Options['mcpServers']): Codex {
+/** The first line of the base instructions on a main run: the identity below it is who is speaking. */
+export const CODEX_IDENTITY_FRAME = IDENTITY_FRAME;
+
+/** The base-instructions file Codex gets: frame, identity, then the stock-replacing base prompt (if any), as one file. */
+function identityBaseFile(): string {
+  const f = resolveBaseFile();
+  const base = f ? readOwnOrApp(f) : '';
+  return materializeBaseInstructions([CODEX_IDENTITY_FRAME, identityBlock('codex'), base].filter((x) => x && x.trim()).join('\n\n'));
+}
+
+function getClient(mcpServers: Options['mcpServers'], baseFile: string): Codex {
   const mcp = toCodexMcp(mcpServers);
   // Swap Codex's stock "You are Codex..." base prompt (17k chars, its own
   // personality and formatting rules) for the lean companion one, so AGENTS.md
   // is not arguing with a coding-assistant persona on every turn. Passed as a
   // per-run override: ~/.codex/config.toml is never touched.
-  const baseFile = resolveBaseFile();
   const provider = getSanctumConfig().agent.codex.model_provider || '';
   const harnessMemory = !!getSanctumConfig().agent.harness_memory;
   // The tenant id is in the key: two tenants never share a client (each carries its own env, key and CODEX_HOME).
@@ -223,7 +234,7 @@ export function codexQuery({ prompt, options }: { prompt: string | AsyncIterable
   async function* run(): AsyncGenerator<any> {
     if (typeof prompt !== 'string') throw new Error('[codex] streaming-input prompts are not supported');
 
-    const sanctum = (opts as any).sanctum as { threadId: string; userContent: string; autonomous?: boolean; noIngest?: boolean; memory?: 'none' } | undefined;
+    const sanctum = (opts as any).sanctum as { threadId: string; userContent: string; autonomous?: boolean; noIngest?: boolean; memory?: 'none'; contextBlock?: string } | undefined;
     // memory: 'none' (the public lane): no recall, no ingest, no thread history, no fold, no harness memory.
     const noMemory = sanctum?.memory === 'none';
     const rollingOn = !readOnly && !noMemory && !!cfg.agent.rolling?.codex && !!sanctum?.threadId;
@@ -268,17 +279,20 @@ export function codexQuery({ prompt, options }: { prompt: string | AsyncIterable
       // History assembly is fail-soft (see rolling-history.ts): a broken history
       // source degrades the context for this one message and says so in the
       // prompt; it never fails or blocks the turn.
-      const history = await assembleRollingHistory(threadId, sanctum!.userContent, !!sanctum!.autonomous);
+      const history = await assembleRollingHistory(threadId, sanctum!.userContent, !!sanctum!.autonomous, { named: true });
       const rolling = history.rolling;
       const { summary, notice, lines } = history;
+      // The orientation block agent.ts put in front of the person's words comes out of the message and goes above the conversation.
+      const ctx = sanctum?.contextBlock ?? '';
+      const message = ctx && prompt.startsWith(ctx) ? prompt.slice(ctx.length).replace(/^\n+/, '') : prompt;
       const sections = [
-        identityBlock('codex'),
         memoryBlock,
         mindBlock,
         summary,
         notice,
-        lines.length ? `[Conversation so far]\n${lines.join('\n')}` : '',
-        `[Current message]\n${prompt}`,
+        ctx && message !== prompt ? ctx : '',
+        conversationBlock(lines),
+        `[Current message]\n${message}`,
       ].filter(Boolean);
       const input = sections.join('\n\n');
 
@@ -290,7 +304,7 @@ export function codexQuery({ prompt, options }: { prompt: string | AsyncIterable
         const events = runCodexExec({
           prompt: input, signal: ctl.signal, sandboxMode, cwd: workingDirectory,
           additionalDirectories: cx.additional_directories, model, modelProvider: cx.model_provider || undefined, harnessMemory: !noMemory && !!cfg.agent.harness_memory, networkAccess: cx.network_access,
-          baseFile: resolveBaseFile(), effort, mcp: toCodexMcp(opts.mcpServers),
+          baseFile: identityBaseFile(), effort, mcp: toCodexMcp(opts.mcpServers),
         });
         yield* translate(events, { fixedSession: true, model, showThinking, state });
         // The runner ends quietly when stopped; the app needs to hear it as a stop.
@@ -347,14 +361,13 @@ export function codexQuery({ prompt, options }: { prompt: string | AsyncIterable
       }
     } else {
       const head = [
-        !resumeId || cx.identity_every_turn ? identityBlock('codex') : '',
         memoryBlock,
         mindBlock,
       ].filter(Boolean);
       if (head.length) input = `${head.join('\n\n')}\n\n[Current message]\n\n${prompt}`;
     }
 
-    const client = getClient(opts.mcpServers);
+    const client = getClient(opts.mcpServers, readOnly ? resolveBaseFile() : identityBaseFile());
     const thread = resumeId ? client.resumeThread(resumeId, threadOpts) : client.startThread(threadOpts);
 
     try {
