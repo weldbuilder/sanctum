@@ -43,9 +43,20 @@ body::after {
   z-index: -2;
   background-size: cover;
 }
-/* A phone fills the screen with its portrait painting: zoomed out to fit, it left half the screen to the fill. */
+/* A phone shows its whole portrait painting (the file is 2:3) across the full width, from the top: cover on a 390x844 screen zoomed
+   it in by a third and left one wall panel filling the screen with the candles, curtains and furniture cropped away. Below the
+   painting (a phone is taller than 2:3) the last fifth of it fades into the blurred fill, so there is no hard edge. The legacy
+   Hedgewitch kitchen is a landscape painting and keeps cover. */
 @media (max-width: 768px) {
   body::after { background-size: cover; }
+  :root:not([data-room="hedgewitch"]) body::after {
+    inset: 0 0 auto 0;
+    aspect-ratio: 2 / 3;
+    background-size: 100% 100%;
+    background-position: 50% 0;
+    -webkit-mask-image: linear-gradient(#000 80%, transparent);
+    mask-image: linear-gradient(#000 80%, transparent);
+  }
 }
 
 /* ── focus: the ring always has its own colour, chrome gets the light one ── */
@@ -161,9 +172,32 @@ body::after {
 :root[data-decor="on"]:not([data-outer-frame="on"]) .skin-frame { display: none; }
 :root[data-decor="on"]:not([data-outer-frame="on"]) .app-shell { padding: 0; }
 :root[data-decor="on"] .nav-rail { height: 100%; }
+/* Desktop rail sits on the room, not on a slab: chrome ink at ~60% over a light blur, a single gold hairline on the right,
+   no plate textures, fittings, ornaments or frame. Wins over every skin's generated plate paint. The phone drawer is untouched. */
+@media (min-width: 769px) {
+  :root .nav-rail {
+    background-color: color-mix(in srgb, var(--plate-bg, var(--surface-chrome)) 60%, transparent) !important;
+    background-image: none !important;
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    border: 0 !important;
+    border-right: 1px solid color-mix(in oklab, var(--skin-chrome-trim, var(--skin-trim, var(--gold))) 40%, transparent) !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    outline: 0 !important;
+  }
+  /* Extra readable keeps its 2px accessibility ring on both (the generic ring rule below loses to the !important above). */
+  :root[data-readability="extra"] .nav-rail { box-shadow: 0 0 0 2px var(--control-border) !important; }
+}
 /* The framed gutter already clears the notch, so the top bar does not add the inset a second time. Without the outer frame
    (the default) the top bar keeps its own safe-area inset. */
 :root[data-decor="on"][data-outer-frame="on"] .mobile-topbar { padding-top: 0.5rem; }
+/* The header frame (the top bar on every page, the chat header on chat) is a framed plate with its own border and corner fittings, so it sits
+   below the notch / status bar rather than carrying the inset as padding, which pushed its top edge and the top corners under it. */
+@media (max-width: 768px) {
+  :root[data-decor="on"]:not([data-outer-frame="on"]) .mobile-topbar { margin-top: env(safe-area-inset-top, 0px); padding-top: 0.5rem; }
+  :root[data-decor="on"]:not([data-outer-frame="on"]) .chat-view .chat-header { margin-top: env(safe-area-inset-top, 0px); }
+}
 
 /* Code, tool output and the thinking timeline own a pair of their own: inside them the
    usual ink variables are re-pointed at it, so nothing in there inherits an ink chosen
@@ -257,12 +291,21 @@ body::after {
 
 /* ── chat bubbles sit on opposite sides (all widths) ──
    Alignment/width live in MessageBubble; repeated here at skin specificity so no theme can widen them. */
-.message-row > .message.user      { max-width: min(78%, 680px); margin-left: auto; margin-right: 0; align-self: flex-end; box-sizing: border-box; min-width: 0; width: auto; }
-.message-row > .message.companion { max-width: min(78%, 680px); margin-right: auto; margin-left: 0; align-self: flex-start; box-sizing: border-box; min-width: 0; width: auto; }
+.message-row > .message.user      { max-width: min(78%, 900px); margin-left: auto; margin-right: 0; align-self: flex-end; box-sizing: border-box; min-width: 0; width: auto; }
+.message-row > .message.companion { max-width: min(78%, 900px); margin-right: auto; margin-left: 0; align-self: flex-start; box-sizing: border-box; min-width: 0; width: auto; }
 
 /* ── phones: thinner gilt, tighter gutters, more width for the bubbles ── */
 @media (max-width: 600px) {
   .message-row > .message.user, .message-row > .message.companion { max-width: 78%; }
+
+  /* Phone type: bigger base, bubbles, composer (>=16px stops iOS focus-zoom), drawer, chat list, header selectors. */
+  :root .message-row > .message .message-content { font-size: 17px; line-height: 1.45; }
+  :root .composer-textarea, :root .composer input { font-size: 17px; }
+  :root .navlink-drawer .navlink-label { font-size: 16px; }
+  :root .thread-item, :root .thread-item .thread-name { font-size: 16px; }
+  :root .model-effort-strip .hsel-trigger .hsel-trigger-text,
+  :root .model-effort-strip .hsel-trigger.mono .hsel-trigger-text { font-size: 15px; }
+  :root .hsel-opt { font-size: 16px; }
 
   /* Outer frame: the 24px reserve shrinks to 10px, and the second, finer inner gilt line goes. */
   :root[data-decor="on"] {
