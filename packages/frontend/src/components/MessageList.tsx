@@ -333,10 +333,10 @@ export function MessageList({ messages, toolEvents, thinkingEvents, streaming, o
           display: flex;
           flex-direction: column;
           /* Bottom padding ≈ composer height so last message clears the glass */
-          padding: 1.5rem 1.25rem 5.5rem;
+          padding: 1.5rem 1rem 5.5rem;
           min-height: 100%;
-          max-width: 48rem;
-          margin: 0 auto;
+          max-width: none;
+          margin: 0;
           width: 100%;
           gap: 0;
         }
