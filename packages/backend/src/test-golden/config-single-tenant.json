@@ -25,7 +25,7 @@
     "agent": {
       "cwd": "<ROOT>",
       "claude_md_path": "<ROOT>/CLAUDE.md",
-      "system_prompt_file": "",
+      "system_prompt_file": "<ROOT>/prompts/companion-claude.md",
       "mcp_json_path": "<ROOT>/.mcp.json",
       "model": "claude-sonnet-5-5",
       "model_autonomous": "claude-sonnet-5-5",
@@ -216,7 +216,7 @@
     "agent": {
       "cwd": "<ROOT>/golden-home",
       "claude_md_path": "<ROOT>/CLAUDE.md",
-      "system_prompt_file": "",
+      "system_prompt_file": "<ROOT>/prompts/companion-claude.md",
       "mcp_json_path": "<ROOT>/.mcp.json",
       "model": "golden-model",
       "model_autonomous": "golden-model",

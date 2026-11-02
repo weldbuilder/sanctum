@@ -9,7 +9,8 @@ Who the companion is lives in `identity/`, and is sent with each conversation.
 | `identity/profile.md` | Names, relationship, voice, how the human likes to be spoken to | The human. The companion may propose an edit and waits for a yes. |
 | `identity/companion.md` | The companion's own spine, in first person | Same: propose, then wait for a yes. |
 | `identity/avatar.png` | The companion's picture in the app (optional) | The human. |
-| `config/codex-base-prompt.md` | How the harness works | The human. Leave it alone unless asked. |
+| `config/codex-base-prompt.md` | The harness for the Codex mind: how it works here | The human. Leave it alone unless asked. |
+| `config/dsh-base-prompt.md` | The harness for the dsh mind: how it works here | The human. Leave it alone unless asked. |
 | `HANDOFF.md` | Open threads from the last session | The companion rewrites it before a session ends. |
 | `journal/` | The companion's own writing | The companion, freely. |
 | `archive/` | Old chat exports | Read only. |

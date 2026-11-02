@@ -23,6 +23,7 @@ const h = vi.hoisted(() => ({
   queryThrows: null as null | Error,
   events: null as null | any[],
   gate: null as null | Promise<void>,
+  frameFile: '',
 }));
 
 vi.mock('./providers/index.js', () => ({
@@ -69,7 +70,7 @@ vi.mock('./hooks.js', () => ({
 vi.mock('../config.js', () => ({
   getSanctumConfig: () => ({
     identity: { companion_name: 'Echo', user_name: 'Pat', timezone: 'UTC', profile_path: '', companion_md_path: '', ledger_dir: h.ledgerDir },
-    agent: { cwd: h.home, model: 'm', model_autonomous: 'm', claude_md_path: '', mcp_json_path: '/nonexistent/.mcp.json', system_prompt_file: '', app_write: false, auto_compact: false, harness_memory: false },
+    agent: { cwd: h.home, model: 'm', model_autonomous: 'm', claude_md_path: '', mcp_json_path: '/nonexistent/.mcp.json', system_prompt_file: h.frameFile, app_write: false, auto_compact: false, harness_memory: false },
     command_center: { enabled: false },
     server: { host: '127.0.0.1', port: 1 },
     hooks: {},
@@ -93,6 +94,7 @@ beforeEach(() => {
   h.home = mkdtempSync(join(tmpdir(), 'sanctum-agent-home-'));
   h.ledgerDir = join(mkdtempSync(join(tmpdir(), 'sanctum-agent-ledger-')), 'identity');
   h.created = []; h.options = null; h.broadcasts = [];
+  h.frameFile = '';
 });
 
 describe('the Claude harness identity', () => {
@@ -127,5 +129,49 @@ describe('the Claude harness identity', () => {
     expect(prompt()).toContain('Hazel lives in the garden.');
     expect(prompt()).not.toContain('HOSTILE REWRITE');
     expect(prompt()).toContain('A change to profile.md is waiting for the person to ratify it; this run uses the ratified version.');
+  });
+});
+
+// The agent reads agent.system_prompt_file once at first use (per-process state), so each case below loads a fresh copy of the module.
+describe('the Claude harness frame (agent.system_prompt_file)', () => {
+  const freshTurn = async () => {
+    vi.resetModules();
+    const { AgentService: Fresh } = await import('./agent.js');
+    await new Fresh().processMessage('t1', 'hello', { name: 'T', type: 'named' }, { platform: 'web' });
+  };
+
+  it('replaces the claude_code preset: frame, then identity, then the [Runtime] line', async () => {
+    const frame = 'FRAME-START You are Echo, living in a home, not a codebase. FRAME-END';
+    h.frameFile = join(mkdtempSync(join(tmpdir(), 'sanctum-agent-frame-')), 'frame.md');
+    writeFileSync(h.frameFile, `${frame}\n`);
+    mkdirSync(join(h.home, 'identity'));
+    writeFileSync(join(h.home, 'identity', 'profile.md'), 'Echo lives with Sam in the garden.');
+    await freshTurn();
+    const sp = h.options.systemPrompt;
+    expect(typeof sp).toBe('string');
+    expect(sp.startsWith(frame)).toBe(true);
+    const at = sp.indexOf('Echo lives with Sam in the garden.');
+    expect(at).toBeGreaterThan(frame.length);
+    const last = sp.split('\n').pop() as string;
+    expect(last.startsWith('[Runtime] Model serving this turn:')).toBe(true);
+    expect(sp.indexOf('[Runtime] Model serving this turn:')).toBeGreaterThan(at);
+  });
+
+  it('falls back to the claude_code preset when the configured frame file does not exist', async () => {
+    h.frameFile = join(mkdtempSync(join(tmpdir(), 'sanctum-agent-frame-')), 'missing-frame.md');
+    mkdirSync(join(h.home, 'identity'));
+    writeFileSync(join(h.home, 'identity', 'profile.md'), 'Echo lives with Sam in the garden.');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await freshTurn();
+      const sp = h.options.systemPrompt;
+      expect(typeof sp).toBe('object');
+      expect(sp.type).toBe('preset');
+      expect(sp.preset).toBe('claude_code');
+      expect(sp.append).toContain('Echo lives with Sam in the garden.');
+      expect(warn.mock.calls.some((c) => String(c[0]).includes('frame file is missing') && String(c[0]).includes('missing-frame.md'))).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

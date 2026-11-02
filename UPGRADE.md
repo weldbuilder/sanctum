@@ -8,8 +8,8 @@ companion keeps slipping into a coding-assistant voice.
 To move over, inside your existing home folder:
 
 1. Make two folders: `identity` and `config`.
-2. Copy `identity/profile.md`, `identity/companion.md`, `config/codex-base-prompt.md`
-   and `start.sh` from this starter's `companion-home` into them. `start.sh` goes in
+2. Copy `identity/profile.md`, `identity/companion.md`, `config/codex-base-prompt.md`,
+   `config/dsh-base-prompt.md` and `start.sh` from this starter's `companion-home` into them. `start.sh` goes in
    the top of the home folder.
 3. Move your words across:
    - From `IDENTITY.md`: "Who I am", "What I care about", the drift signals and "What
@@ -141,3 +141,35 @@ tap **Ratify what is here now**. Until then your companion runs on the files as 
 that, a change made any other way (a text editor, your companion, anything on disk) waits for
 you there, and every run uses the version you ratified. Back up `data/identity/` with the rest
 of `data/`.
+
+---
+
+# The companion harness is now Claude's default frame
+
+One harness prompt now serves all three minds: a shared base plus a short tail for each
+(`prompts/README.md` has the map). Three things differ from before.
+
+**1. Claude's default frame changed.** `agent.system_prompt_file` used to be `""` (the
+standard coding-assistant preset with your identity appended). It now defaults to
+`./prompts/companion-claude.md`, so the system prompt is the harness, then your identity,
+then a `[Runtime] Model serving this turn: ...` line. To keep the old behaviour, set it
+back and restart:
+
+```yaml
+agent:
+  system_prompt_file: ""
+```
+
+The file is read fresh every turn, but the path is read at startup, so restart after
+changing the path. A path that is set but missing now logs a warning and falls back to
+the preset.
+
+**2. dsh has a base prompt.** `prompts/dsh-base-prompt.md` is new. Before, a home without
+its own `config/dsh-base-prompt.md` ran on dsh's stock persona; now it runs on the harness.
+
+**3. Existing homes keep what they have.** A home's own `config/codex-base-prompt.md` or
+`config/dsh-base-prompt.md` beats the shipped fallback, so nothing changes in your home
+until you want it to. To take the new harness there, copy the two files from this starter's
+`companion-home/config/` into your home's `config/` (replacing the Codex one), or delete
+your home's copy to use the shipped fallback. Check any edits you made first: the new file
+replaces them. The Codex base now rides every message at about 1,700 tokens a turn.
