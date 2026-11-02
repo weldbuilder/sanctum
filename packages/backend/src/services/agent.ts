@@ -91,6 +91,8 @@ function ensureInit() {
   st().systemPromptFile = config.agent.system_prompt_file || '';
   if (st().systemPromptFile && existsSync(st().systemPromptFile)) {
     console.log(`System-prompt frame active: ${st().systemPromptFile} (claude_code preset replaced)`);
+  } else if (st().systemPromptFile) {
+    console.warn(`[agent] System-prompt frame file is missing: ${st().systemPromptFile}. The claude_code preset will be used instead (no frame, no [Runtime] model line). Restore the file (npm run prompts:build) or set agent.system_prompt_file to "" to silence this.`);
   }
 
   // Load .mcp.json

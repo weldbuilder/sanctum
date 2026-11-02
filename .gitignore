@@ -46,6 +46,13 @@ scripts/launch.ps1
 prompts/*
 !prompts/wake.md
 !prompts/codex-base-prompt.md
+!prompts/companion-base.md
+!prompts/tail-claude.md
+!prompts/tail-codex.md
+!prompts/tail-dsh.md
+!prompts/companion-claude.md
+!prompts/dsh-base-prompt.md
+!prompts/README.md
 !prompts/codex-summarizer-prompt.md
 !prompts/discord-public-base.md
 

@@ -13,6 +13,7 @@
     "dev": "npm run dev --workspace=packages/backend",
     "build": "node scripts/build.mjs",
     "build:stamp": "node scripts/write-build-id.mjs",
+    "prompts:build": "node scripts/build-prompts.mjs",
     "start": "npm run start --workspace=packages/backend",
     "check": "npm run build --workspace=packages/shared && npm run check --workspaces --if-present",
     "test": "vitest run",

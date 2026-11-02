@@ -426,7 +426,7 @@ const DEFAULTS: SanctumConfig = {
   agent: {
     cwd: '.',
     claude_md_path: './CLAUDE.md',
-    system_prompt_file: '',
+    system_prompt_file: './prompts/companion-claude.md',
     mcp_json_path: './.mcp.json',
     model: 'claude-sonnet-5-5',
     model_autonomous: '', // '' = the same as agent.model (see resolveAutonomousModel)

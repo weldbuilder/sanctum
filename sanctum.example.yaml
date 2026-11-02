@@ -66,7 +66,11 @@ plugins:
 agent:
   cwd: "."                        # the agent's home dir (env: AGENT_CWD)
   claude_md_path: "./CLAUDE.md"   # the primary identity/system file
-  system_prompt_file: ""          # optional extra system-prompt file; "" = none
+  system_prompt_file: "./prompts/companion-claude.md"          # Claude: the shipped default is ./prompts/companion-claude.md, the harness frame that replaces the coding preset
+                                  # (frame + identity + a [Runtime] line). "" = the claude_code preset with identity appended. A set but
+                                  # missing file warns and falls back to the preset.
+                                  # Read fresh each turn; the path is read at startup (restart after changing it).
+                                  # Built from prompts/companion-base.md + tail-claude.md: edit those, run npm run prompts:build.
   mcp_json_path: "./.mcp.json"    # MCP servers the agent may call
   model: "claude-sonnet-5-5"          # interactive turns (env: AGENT_MODEL)
   model_autonomous: ""            # background/wake turns. "" = same as model. If you set a different one,
@@ -92,7 +96,7 @@ agent:
     base_url: ""                  # endpoint override for a route dsh already knows (openai, anthropic, openrouter...); "" = the route's own
     home: ""                      # DSH_HOME for this companion; "" = dsh's default
     sandbox_mode: "workspace-write"  # read-only | workspace-write | danger-full-access
-    base_instructions_file: "./prompts/dsh-base-prompt.md"  # used only if the home has no config/dsh-base-prompt.md; missing = dsh's stock persona
+    base_instructions_file: "./prompts/dsh-base-prompt.md"  # the shared harness; used only if the home has no config/dsh-base-prompt.md (the home's copy wins); "" or missing = dsh's stock persona
     identity_every_turn: true
   codex:
     # Models are whatever Codex can reach: DeepSeek, a ChatGPT plan, or any provider
@@ -105,10 +109,10 @@ agent:
     network_access: true          # keep true: the res CLI calls the local backend
     additional_directories: []    # extra writable dirs beyond agent.cwd
     # Three layers on Codex, all read from agent.cwd (the companion's home):
-    #   config/codex-base-prompt.md  the harness (replaces Codex's stock prompt)
+    #   config/codex-base-prompt.md  the harness for this mind (replaces Codex's stock prompt)
     #   identity/profile.md + identity/companion.md  who they are
     #   AGENTS.md  the rules of the folder (Codex loads this by itself)
-    base_instructions_file: "./prompts/codex-base-prompt.md"  # used only if the home has no config/codex-base-prompt.md
+    base_instructions_file: "./prompts/codex-base-prompt.md"  # the shared harness; used only if the home has no config/codex-base-prompt.md (the home's copy wins); "" = stock Codex
     identity_every_turn: true     # false = send identity on a thread's first message only (fewer tokens, edits apply to new threads)
 
   # ── Long-conversation memory (rolling context) ───────────────────────────────

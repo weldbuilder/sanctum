@@ -6,7 +6,7 @@ every optional integration you can switch on.
 
 You don't need to read it top to bottom. Skim the headings, jump to what you
 need. If you're setting up for the first time, the parts that matter most are
-**The two settings files**, **CLAUDE.md vs system.md**, **Where the agent lives**,
+**The two settings files**, **CLAUDE.md vs the frame**, **Where the agent lives**,
 and **Integrations**. Everything else you can come back to.
 
 A note on words, in case they're new:
@@ -77,7 +77,7 @@ there's nothing to second-guess.
 
 ---
 
-## 2. The two files that make your AI — CLAUDE.md vs system.md
+## 2. The two files that make your AI — CLAUDE.md vs the frame
 
 This is the most important distinction in Sanctum Mobile, and it's the one people mix
 up. There are **two** separate levers that shape how it thinks and
@@ -111,53 +111,90 @@ assistant and *your* partner — no matter the model underneath.
 
 Think of `CLAUDE.md` as the soul.
 
-### system.md — *the operating frame above the soul*
+### The frame — *the operating frame above the soul*
 
-`system.md` (the config calls it `agent.system_prompt_file`) is a **thin,
-optional** layer of operating instructions that sits *above* the identity — the
-register and ground rules, not the personality. It is **empty by default**, and
-for many setups you can leave it empty forever.
+The frame (the config calls it `agent.system_prompt_file`) is a **thin** layer of
+operating instructions that sits *above* the identity: how the AI exists and works
+inside Sanctum, not who it is. It is the same on every mind. **A frame ships by
+default**: `./prompts/companion-claude.md`, about 1,250 words. It covers the
+continuity layers (identity files, `AGENTS.md`, the chat thread and `archive/`,
+memory, the journal and `HANDOFF.md`, `config/`), learning from feedback, staying
+itself across models, provenance, and how to answer.
 
 Here's what it actually changes under the hood:
 
-- **When `system_prompt_file` is empty (the default):** your AI runs on
-  the standard Claude Code agent foundation, with your `CLAUDE.md` identity added
-  on top. This is the normal, batteries-included setup.
-- **When you point `system_prompt_file` at a file:** that frame **plus** your
-  `CLAUDE.md` completely **replace** the standard coding-agent foundation. The
-  assembled prompt becomes `frame + CLAUDE.md`, with nothing generic underneath.
-  This is the "register fix" — it strips away the built-in coding-assistant tone
-  so it isn't quietly wearing a developer-tool costume beneath its
-  personality.
+- **When `system_prompt_file` points at a file (the default):** that frame **plus**
+  your identity **completely replace** the standard coding-agent foundation. The
+  assembled prompt becomes `frame + identity + [Runtime] line`, with nothing
+  generic underneath. This is the "register fix": it strips away the built-in
+  coding-assistant tone so the AI isn't quietly wearing a developer-tool costume
+  beneath its personality.
+- **When `system_prompt_file` is `""`:** your AI runs on the standard Claude Code
+  agent foundation (the `claude_code` preset), with your identity added on top.
+  That is how Sanctum behaved before the frame shipped. Set it to `""` if you want
+  the coding preset back. This path has no `[Runtime]` line, because the preset
+  already tells the model which model it is.
+- **When the file is set but missing:** the app logs a warning and falls back to
+  the preset, as if the key were `""`.
 
-Two more things that make `system.md` special:
+Where the frame comes from, and how it is built:
+
+- The shipped frame is not hand-written as one file. It is **one shared base plus
+  one short tail per mind**: `prompts/companion-base.md` (the harness, identical
+  everywhere) and `prompts/tail-claude.md`, `prompts/tail-codex.md`,
+  `prompts/tail-dsh.md` (a few lines about what is different on that mind). They
+  are joined into `prompts/companion-claude.md` (this frame),
+  `prompts/codex-base-prompt.md` and `prompts/dsh-base-prompt.md`.
+- **Edit the parts, then rebuild:** change `companion-base.md` or a tail, then run
+  `npm run prompts:build` (`scripts/build-prompts.mjs`). It rewrites the three
+  built files. Edits made straight to a built file are lost at the next build.
+  `prompts/README.md` has the full map.
+- Codex and DeepSeek Harness use the same base through their own files; see
+  "The other minds" below.
+
+Three more things worth knowing about the frame:
 
 - **It's editable from inside the app.** Settings has a system-prompt editor
   (`GET`/`PUT /api/prompts/system`) that reads and writes exactly the file you
-  configured — **but only if that file lives inside a folder the agent is allowed
-  to write to** (see the write-gate roots in §5). This is why the common pattern
-  is to put a `system.md` inside the agent's home folder.
-- **It's read fresh every single turn**, so edits from the Settings UI apply
-  immediately, no restart.
+  configured, **but it can only save if that file lives inside a folder the agent
+  is allowed to write to** (see the write-gate roots in §5). The shipped file sits
+  in the app's own `prompts/` folder, which is usually outside those roots when
+  the home is a separate folder. To edit your frame from Settings, copy it into the
+  agent's home folder (for example `<home>/config/companion-claude.md`) and point
+  `agent.system_prompt_file` at the copy. Note that a copy no longer follows
+  `npm run prompts:build`.
+- **It's read fresh every single turn**, so edits to the file apply immediately,
+  no restart. The *path* is different: `agent.system_prompt_file` is read once at
+  startup, so **restart after changing the path** (including switching it to or
+  from `""`).
 - On this path the app also appends a small `[Runtime] Model serving this turn:
   <model>` line, so your AI can truthfully state which model it's running
   as instead of guessing.
 
-There is **no `system.md` file shipped by default** — `system_prompt_file` starts
-empty. If you want one, create a file (a `system.md` in the agent's home folder is
-the usual choice) and set `agent.system_prompt_file` to point at it.
+#### The other minds
+
+Codex and DeepSeek Harness have no `system_prompt_file`; they load the same
+harness from a base-prompt file. Resolution on each is: the home's own copy
+(`<agent.cwd>/config/codex-base-prompt.md`, or `config/dsh-base-prompt.md`) if it
+exists, else the file named by `agent.codex.base_instructions_file` or
+`agent.dsh.base_instructions_file`, else the mind's stock prompt. **The home's copy
+always wins over the shipped fallback**, so an existing home keeps the prompt it
+has until you copy the new one into its `config/`. The starter home
+(`companion-home/config/`) ships both files. On Codex the base rides every message
+(about 1,700 tokens per turn). Details are in `docs/DSH.md` and `FORK_NOTES.md`.
 
 ### Which one do I edit?
 
 | I want to change… | Edit |
 |---|---|
 | My AI's name, personality, voice, our relationship, their values | **CLAUDE.md** |
-| The thin operating rules / register above the personality | **system.md** (create it, and set `agent.system_prompt_file`) |
-| Nothing about the frame — I'm happy with the standard foundation | Leave `system_prompt_file` empty; just edit CLAUDE.md |
+| The thin operating rules / register above the personality | **The frame**: edit `prompts/companion-base.md` or `prompts/tail-claude.md` and run `npm run prompts:build` (or your own copy, if you pointed `agent.system_prompt_file` at one) |
+| Nothing about the frame: I'm happy with the shipped harness | Leave `system_prompt_file` at its default; just edit CLAUDE.md or `identity/` |
+| The old coding-assistant foundation back | Set `system_prompt_file: ""` and restart |
 
-Rule of thumb: **CLAUDE.md is who they are. system.md is how they operate.** Start
-with just CLAUDE.md. Add a system.md only when you specifically want to replace
-the default foundation.
+Rule of thumb: **CLAUDE.md is who they are. The frame is how they operate.** Start
+with just CLAUDE.md. Change the frame only when you specifically want to change how
+the harness describes itself.
 
 ---
 
@@ -329,10 +366,12 @@ The server never makes a password up for the setup screen (it could not hand one
 |---|---|---|
 | `cwd` | `.` | The agent's home directory. **Point this outside the app** (§3). Env: `AGENT_CWD`. |
 | `claude_md_path` | `./CLAUDE.md` | The identity file (§2). |
-| `system_prompt_file` | `""` | Optional operating frame (§2). Empty = standard foundation. |
+| `system_prompt_file` | `./prompts/companion-claude.md` | The operating frame on Claude (§2): frame + identity + a `[Runtime]` line replace the coding preset. File read fresh every turn; the path is read at startup (restart after changing it). `""` = the standard `claude_code` preset with the identity appended. A set but missing file logs a warning and falls back to the preset. |
 | `mcp_json_path` | `./.mcp.json` | File listing external tool servers the agent may use (§8). |
 | `model` | `claude-sonnet-5-5` | Model for live, interactive replies. Env: `AGENT_MODEL`. |
 | `model_autonomous` | `""` | Model for background/scheduled activity and the built-in helper subagents (Scribe aside, which runs on Haiku). Empty = the same as `model`. |
+| `codex.base_instructions_file` | `./prompts/codex-base-prompt.md` | The harness prompt on Codex. Used only when the home has no `config/codex-base-prompt.md`. `""` gives stock Codex back. See `FORK_NOTES.md`. |
+| `dsh.base_instructions_file` | `./prompts/dsh-base-prompt.md` | The harness prompt on DeepSeek Harness. Used only when the home has no `config/dsh-base-prompt.md`; if neither exists dsh's stock persona is used. See `docs/DSH.md`. |
 
 ### `orchestrator` — scheduled check-ins & proactive reach
 
