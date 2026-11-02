@@ -80,6 +80,17 @@ describe('buildPrompts', () => {
     expect(written).toContain(join(f.promptsDir, 'dsh-base-prompt.md'));
   });
 
+  it('the log line names the folders it really wrote to, not a fixed path', () => {
+    const f = fixture();
+    const lines: string[] = [];
+    buildPrompts({ promptsDir: f.promptsDir, homeConfigDir: f.homeConfigDir, log: (l: string) => lines.push(l) });
+    expect(lines).toHaveLength(3);
+    for (const l of lines) { expect(l).toMatch(/ to prompts\/ and home\/config\/$/); expect(l).not.toContain('companion-home'); }
+    const only: string[] = [];
+    buildPrompts({ promptsDir: f.promptsDir, log: (l: string) => only.push(l) });
+    for (const l of only) expect(l).toMatch(/ to prompts\/$/);
+  });
+
   it('replaces a stale built file, and without a home config folder writes only prompts/', () => {
     const f = fixture();
     writeFileSync(join(f.promptsDir, 'companion-claude.md'), 'STALE');

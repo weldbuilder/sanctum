@@ -148,7 +148,8 @@ exists; else the file named by `agent.system_prompt_file`, if it is non-empty an
 exists; else the preset. **The home's copy wins over the shipped file.** The
 starter home ships one, so a new home gets it; an existing home keeps the frame it
 has (the shipped file) until you copy `prompts/companion-claude.md` into its
-`config/` or save the frame once from Settings. In tenant mode the key defaults to
+`config/` or open Settings, system prompt, where the editor opens with the shipped
+harness and Save installs it as the home's copy. In tenant mode the key defaults to
 the tenant's own `home/config/companion-claude.md`.
 
 Where the frame comes from, and how it is built:

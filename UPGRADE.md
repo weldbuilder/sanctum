@@ -169,7 +169,7 @@ the path. With neither file present, a set key logs a warning and falls back to 
 **Existing homes, single-tenant and tenant: copy the frame in.** The starter home now ships
 `config/companion-claude.md`, but an existing home does not have one. Copy
 `prompts/companion-claude.md` from this app into `<home>/config/` (or open Settings, system
-prompt, and save the frame once, which creates that copy). A single-tenant home without it
+prompt: the editor opens with the shipped harness, and Save installs it as that copy). A single-tenant home without it
 still works, on the shipped file. A tenant home without it has no frame: a tenant's
 `agent.system_prompt_file` now defaults to `home/config/companion-claude.md`, so until the
 file is there that tenant runs on the preset and the log warns. A saved or copied home frame

@@ -183,7 +183,7 @@ A few settings worth knowing early (full list is documented inline in `resonant.
 There are two separate text inputs to the AI's system prompt, and it helps to know which is which:
 
 - **`CLAUDE.md` (the identity).** This is *who your AI is* — persona, values, voice, your relationship. It's the file you'll spend time on. It hot-reloads: edit it and the next message reflects the change.
-- **`agent.system_prompt_file` (the frame).** An **optional**, thin layer of operating instructions that sits *above* the persona. Set it to `""` to keep the standard Agent-SDK harness beneath your persona (the shipped default points at `./prompts/companion-claude.md`, and a copy at `<home>/config/companion-claude.md` wins over it). Settings can edit the frame (it saves the home copy), and the file is re-read every turn. Most people never need to.
+- **`agent.system_prompt_file` (the frame).** An **optional**, thin layer of operating instructions that sits *above* the persona. Set it to `""` to keep the standard Agent-SDK harness beneath your persona (the shipped default points at `./prompts/companion-claude.md`, and a copy at `<home>/config/companion-claude.md` wins over it, and over `""` too). Settings can edit the frame (it saves the home copy), and the file is re-read every turn. Most people never need to.
 
 ### The agent's home — `agent.cwd`
 

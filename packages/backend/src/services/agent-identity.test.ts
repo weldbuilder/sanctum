@@ -244,8 +244,8 @@ describe('the Claude harness frame (agent.system_prompt_file)', () => {
     } finally { warn.mockRestore(); }
   });
 
-  it('on Codex and dsh the missing-file warning and the "frame active" line are not printed', async () => {
-    h.provider = 'codex';
+  it.each(['codex', 'dsh'])('on %s the missing-file warning and the "frame active" line are not printed', async (provider) => {
+    h.provider = provider;
     h.frameFile = join(frameDir(), 'missing-frame.md');
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -256,5 +256,22 @@ describe('the Claude harness frame (agent.system_prompt_file)', () => {
       await freshTurn();
       expect(log.mock.calls.filter((c) => String(c[0]).includes('System-prompt frame active'))).toHaveLength(0);
     } finally { warn.mockRestore(); log.mockRestore(); }
+  });
+
+  // The frame is the Claude harness's system prompt only: Codex and dsh carry their own base prompts, so a turn on them neither reads the file
+  // nor lets it replace the preset (the per-turn read in agent.ts is gated on the provider).
+  it.each(['codex', 'dsh'])('on %s a frame that is there is not read per turn: the system prompt stays the preset', async (provider) => {
+    h.provider = provider;
+    h.frameFile = join(frameDir(), 'frame.md');
+    writeFileSync(h.frameFile, 'CONFIGURED FRAME');
+    homeCopy('HOME FRAME');
+    await freshTurn();
+    expect(typeof h.options.systemPrompt).toBe('object');
+    expect(h.options.systemPrompt.type).toBe('preset');
+    expect(JSON.stringify(h.options.systemPrompt)).not.toContain('FRAME');
+    // The same files on Claude do replace it (so the case above is about the gate, not about the files).
+    h.provider = 'claude';
+    await freshTurn();
+    expect(h.options.systemPrompt.startsWith('HOME FRAME')).toBe(true);
   });
 });

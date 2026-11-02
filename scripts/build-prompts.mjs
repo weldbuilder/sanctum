@@ -17,7 +17,7 @@
 // outputs into <home>/config/ (or, for Claude, save the frame once in Settings).
 
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -36,6 +36,8 @@ export function buildPrompts({ promptsDir, homeConfigDir, log = () => {} }) {
   const base = readFileSync(join(promptsDir, 'companion-base.md'), 'utf8');
   const written = [];
   if (homeConfigDir) mkdirSync(homeConfigDir, { recursive: true });
+  // The folders as the log names them: relative to the folder that holds prompts/ (the app root), whichever place they really are.
+  const shown = (dir) => (relative(dirname(promptsDir), dir) || '.').split('\\').join('/') + '/';
   for (const [mind, outName] of Object.entries(OUTPUTS)) {
     const tail = readFileSync(join(promptsDir, `tail-${mind}.md`), 'utf8');
     const text = base + tail;
@@ -45,7 +47,7 @@ export function buildPrompts({ promptsDir, homeConfigDir, log = () => {} }) {
       writeFileSync(out, text);
       written.push(out);
     }
-    log(`[prompts] wrote ${outName} (companion-base.md + tail-${mind}.md) to prompts/${homeConfigDir ? ' and companion-home/config/' : ''}`);
+    log(`[prompts] wrote ${outName} (companion-base.md + tail-${mind}.md) to ${shown(promptsDir)}${homeConfigDir ? ` and ${shown(homeConfigDir)}` : ''}`);
   }
   return written;
 }

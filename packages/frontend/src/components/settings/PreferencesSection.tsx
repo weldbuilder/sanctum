@@ -146,6 +146,10 @@ export function PreferencesSection({ base }: { base: string }) {
   const [sysPath, setSysPath] = useState('');
   const [sysSource, setSysSource] = useState('');
   const [sysReadPath, setSysReadPath] = useState('');
+  // true: the text shown is not yet the agent's own copy (the shipped harness, or a file the editor does not write), so a save is meaningful even unedited.
+  const [sysTemplate, setSysTemplate] = useState(false);
+  // The HTTP status when the frame could not be read ('' = no failure).
+  const [sysLoadError, setSysLoadError] = useState('');
   const [sysProvider, setSysProvider] = useState('claude');
   const [sysAgentsPath, setSysAgentsPath] = useState('');
   const [sysStatus, setSysStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -154,7 +158,8 @@ export function PreferencesSection({ base }: { base: string }) {
     async function loadSys() {
       try {
         const res = await fetch(`${base}/api/prompts/system`);
-        if (!res.ok) return;
+        if (!res.ok) { setSysLoadError(String(res.status)); return; }
+        setSysLoadError('');
         const data = await res.json();
         setSysConfigured(!!data.configured);
         setSysContent(data.content ?? '');
@@ -162,6 +167,7 @@ export function PreferencesSection({ base }: { base: string }) {
         setSysPath(data.path ?? '');
         setSysSource(data.source ?? '');
         setSysReadPath(data.read_path ?? '');
+        setSysTemplate(data.template === true);
         setSysProvider(data.provider ?? 'claude');
         setSysAgentsPath(data.agents_md ?? '');
       } catch { /* backend not up */ }
@@ -182,6 +188,7 @@ export function PreferencesSection({ base }: { base: string }) {
         setSysContent(sysDraft); setSysStatus('saved');
         // The save went to this path; from now on it is the file the agent reads.
         if (saved.path) { setSysPath(saved.path); setSysReadPath(saved.path); }
+        setSysTemplate(false);
         if (saved.source) setSysSource(saved.source);
       }
       else setSysStatus('error');
@@ -483,7 +490,10 @@ export function PreferencesSection({ base }: { base: string }) {
                 <span className="sysprompt-hint">
                   The lean operating frame, prepended before CLAUDE.md. Replaces the
                   Claude Code preset. <strong>Re-read every turn: a saved copy applies on the next message, no restart.</strong>
-                  {sysSource === 'configured' && sysReadPath && sysPath && sysReadPath !== sysPath && (
+                  {sysTemplate && sysSource === 'none' && (
+                    <> No frame is active; saving installs this harness as your own copy at {sysPath || 'the path below'}.</>
+                  )}
+                  {sysTemplate && sysSource === 'configured' && (
                     <> This text comes from a file the editor does not write to. Saving creates your own copy at the path below, and that copy is the one used from then on.</>
                   )}
                 </span>
@@ -502,12 +512,14 @@ export function PreferencesSection({ base }: { base: string }) {
                 <button
                   className="sysprompt-save"
                   onClick={saveSystemPrompt}
-                  disabled={sysDraft === sysContent || sysStatus === 'saving'}
+                  disabled={(sysDraft === sysContent && !sysTemplate) || sysStatus === 'saving'}
                 >
                   save frame
                 </button>
               </div>
             </div>
+          ) : sysLoadError ? (
+            <span className="sp-empty-text">The frame could not be read (HTTP {sysLoadError}).</span>
           ) : (
             <span className="sp-empty-text">
               No system_prompt_file configured. Set agent.system_prompt_file in

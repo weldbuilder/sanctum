@@ -63,11 +63,14 @@ only when the filesystem separates them. The recipe:
    /srv/sanctum/bea/private
    ```
 
-   A tenant's Claude frame is `home/config/companion-claude.md`. A home made from the
-   starter ships it, and the tenant can edit it from Settings (which saves that file and
-   never writes the app's `prompts/` folder). An older tenant home has none: copy
-   `prompts/companion-claude.md` from the app into its `config/`, or the tenant runs on the
-   preset until it is there (`agent.system_prompt_file` defaults to that path in tenant mode).
+   Each clone here is single-tenant, so its `agent.system_prompt_file` keeps the single-tenant
+   default, `./prompts/companion-claude.md`: a clone runs on the shipped frame, not on the
+   preset. A frame at `home/config/companion-claude.md` wins over it. A home made from the
+   starter ships one, and the user can edit it from Settings (which saves that file and
+   never writes the app's `prompts/` folder). An older home has none: it keeps the shipped
+   frame until the user copies `prompts/companion-claude.md` into its `config/`, or opens
+   Settings, system prompt, and saves once (the editor opens with the shipped harness, and
+   Save installs it as the home's copy).
 
 2. **Run the setup wizard in each clone** (`npm run setup`, or the first-run page). It
    writes that clone's `sanctum.yaml` and `.env`, so each tenant gets their own password
@@ -323,7 +326,7 @@ A tenant's own files are its own, and the rule lives where the write happens, no
    `Last-Modified`, `HEAD`, `If-None-Match` and `If-Modified-Since` as 304 (before any `Range`, as express answers), `Range` as 206 or 416, a file gone before the open as 404)
    and never hands the path to express, so a link swapped in after the check is never served. The rolling-context sidecars, the Google key file, a tenant's
    `plugins.dir` manifests and `help.md`, and the identity files are read the same way. The server also **reads** some files deeper in `home/`, which the scan does not cover: the
-   companion's avatar, its `SKILL.md` and command files, the system-prompt frame (`home/config/companion-claude.md`: shipped with new homes, editable from Settings, and an older tenant home can copy it from the app's `prompts/` folder), and the files the companion writes into `shared/`. Those reads go through the read
+   companion's avatar, its `SKILL.md` and command files, the system-prompt frame (in tenant mode `agent.system_prompt_file` defaults to the tenant's own home, so the file is `<home>/config/companion-claude.md`, following that tenant's `agent.cwd`: shipped with new homes, editable from Settings, and an older tenant home can copy it from the app's `prompts/` folder or save it once from Settings, whose editor opens with the shipped harness; with none there the tenant runs on the preset), and the files the companion writes into `shared/`. Those reads go through the read
    guard, so a link planted there is refused (the avatar and the skill answer 404 or are left out), never served. A refused read is a `400` (or `404`/`403` where the
    route already says so), never a `500`.
 
