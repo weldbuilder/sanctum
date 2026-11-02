@@ -114,7 +114,7 @@ import { embed, vectorToBuffer } from '../services/embeddings.js';
 import { searchVectors, getCacheStats, type SearchFilter } from '../services/vector-cache.js';
 import { saveFile, saveFileInternal, getContentTypeFromMime, getFile, deleteFile, listFiles } from '../services/files.js';
 import { getSafeWritePrefixes } from '../services/hooks.js';
-import { FrameRefused, protectedFrameFiles, readFrameThroughFd, samePath, underFolder, writeFrameThroughFd } from '../services/frame-guard.js';
+import { FrameRefused, fsRootOf, protectedFrameSet, readFrame, samePath, underFolder, writeFrame, type ProtectedFrameSet } from '../services/frame-guard.js';
 import { registry } from '../services/ws.js';
 import { getSanctumConfig, PROJECT_ROOT, CONFIG_FILE_NAMES, browserFrameOrigin, checkBrowserUrl, resolveBrowserUrlUpdate } from '../config.js';
 import { browserToolsConfigured } from '../services/browser-gate.js';
@@ -4047,7 +4047,7 @@ function deepestExisting(p: string): string {
  *  (also when agent.cwd itself is there). 400: the file is a link, is hard-linked or is not a regular file (the target itself is judged ALWAYS, also when a
  *  write root names it exactly), or a folder between it and the write root that holds it is a link or not a folder (a save would write through to whatever
  *  the link names). Mirrors the tenant rule (scripts/own-files-lib.mjs) for the single-tenant case, where tenantWriteRefusal does nothing. A target or folder
- *  that does not exist yet is fine: the save creates it. This is the PATH check; the save then opens the file and verifies the open handle (frame-guard.ts). */
+ *  that does not exist yet is fine: the save creates it. This is the PATH check, for a clear answer; the save then walks again by held descriptors (frame-guard.ts). */
 function frameWriteRefusal(target: string): { status: number; error: string } | null {
   const folders = appFrameFolders();
   if (folders.some((d) => underFolder(target, d))) return FRAME_IN_APP;
@@ -4082,27 +4082,33 @@ function frameWriteRefusal(target: string): { status: number; error: string } | 
   if (real && folders.some((d) => underFolder(real, d))) return FRAME_IN_APP;
   return null;
 }
-/** Make the folder `dir` (and the ones above it that are missing), one at a time, each checked as a folder it just made (not a link, a real folder): a
- *  folder swapped for a link in the middle of the walk is refused. The mkdir is the tenant-aware one (ownMkdir). */
-function makeFrameFolder(dir: string): void {
-  const missing: string[] = [];
-  for (let p = dir; ; p = dirname(p)) {
-    try { if (!lstatSync(p).isDirectory()) throw new FrameRefused(400, `${basename(p)} is not a folder; the frame cannot be saved inside it`); break; }
-    catch (e) { if (e instanceof FrameRefused) throw e; const code = (e as NodeJS.ErrnoException).code; if (code !== 'ENOENT') throw e; }
-    missing.unshift(p);
-    if (dirname(p) === p) break;
-  }
-  for (const p of missing) {
-    ownMkdir(p);
-    const st = lstatSync(p);
-    if (st.isSymbolicLink() || !st.isDirectory()) throw new FrameRefused(400, `${basename(p)} is not a plain folder; the frame is not saved through a link`);
-  }
+/** The folder a save or read of `p` walks from (services/frame-guard.ts holds each folder below it by descriptor): the longest write root that is a FOLDER
+ *  above `p` (agent.cwd is one; links above it are the operator's own layout). A path held only by a write root that names it exactly is walked from the
+ *  root of the file system, every folder on the way judged, as frameWriteRefusal judges it; a read of a file no write root holds (a configured frame
+ *  elsewhere) is walked from its own folder. */
+function frameBoundary(p: string, fallback: 'fs-root' | 'own-folder'): string {
+  const roots = [resolve(getSanctumConfig().agent.cwd), ...getSafeWritePrefixes().map((r) => resolve(r))].filter((r) => !samePath(r, p) && underFolder(p, r));
+  const longest = roots.sort((a, b) => b.length - a.length)[0];
+  if (longest) return longest;
+  return fallback === 'fs-root' ? fsRootOf(p) : dirname(p);
 }
+/** The app folder (prompts/ or companion-home/, either spelling) that `p` is spelled under, or ''. */
+const appFolderOf = (p: string): string => appFrameFolders().find((d) => underFolder(p, d)) ?? '';
 /** The harness the app ships: the starting text when no frame resolves. */
 const shippedFramePath = (): string => join(PROJECT_ROOT, 'prompts', FRAME_FILE_NAME);
-/** The frame text for the editor. Single-tenant: through an open descriptor that refuses a link and a file that is not regular (a FIFO must not hang the
- *  server), so the editor never shows the bytes of whatever a planted link names. A tenant: readOwnOrApp, which has the tenant layer's own guard. */
-const readFrameForEditor = (path: string): string => (currentTenant() ? readOwnOrApp(path) : readFrameThroughFd(path));
+/** The frame text for the editor, read through frame-guard's held-folder walk: no link on the way or at the name, a regular file with one name, no pipe (it
+ *  must not hang the server), so the editor never shows the bytes of whatever a planted link or hard link names. A file the path spells inside the app's
+ *  own folders (the shipped default, or a key naming one there) is the app's own: read from that folder, with the link checks and without the app-folder
+ *  refusal. Any other file is refused (403) when it really is one of the app's files or folders. A tenant's read passes the tenant layer's own guard
+ *  (readOwnOrApp, its checks and its sentences) first; the bytes shown are the held-walk read's. */
+function readFrameForEditor(file: string, guard: () => ProtectedFrameSet): string {
+  const path = resolve(file);
+  const tenant = !!currentTenant();
+  if (tenant) readOwnOrApp(path);
+  const app = appFolderOf(path);
+  if (app) return readFrame(path, { boundary: app, guard: null });
+  return readFrame(path, { boundary: frameBoundary(path, 'own-folder'), guard: guard(), allowedAt: tenant ? insideCurrentTenant : undefined });
+}
 const insideWriteRoots = (p: string): boolean =>
   getSafeWritePrefixes().some(root => p === resolve(root) || p.startsWith(resolve(root) + sep));
 /** The file a save writes: the home copy when there is one (it is the one the agent reads); else the configured file when it is inside the write
@@ -4131,14 +4137,16 @@ router.get('/prompts/system', (req, res) => {
     let readPath = found.path;
     let content = '';
     let template = false;
+    let guardSet: ProtectedFrameSet | null = null;
+    const guard = (): ProtectedFrameSet => (guardSet ??= protectedFrameSet(PROJECT_ROOT));
     if (found.path) {
-      content = readFrameForEditor(found.path);
+      content = readFrameForEditor(found.path, guard);
       // The text is the configured file's, and a save goes to the home copy instead: the save creates the copy.
       template = found.source === 'configured' && !!writePath && writePath !== found.path;
     } else {
       // No frame resolves (the agent is on the preset): start from the shipped harness, so the editor opens with something to install.
       const shipped = shippedFramePath();
-      try { content = readFrameForEditor(shipped); readPath = shipped; template = true; } catch { content = ''; }
+      try { content = readFrameForEditor(shipped, guard); readPath = shipped; template = true; } catch { content = ''; }
     }
     res.json({ configured: true, content, path: writePath, source: found.source, read_path: readPath, template, provider, agents_md });
   } catch (error) {
@@ -4162,12 +4170,16 @@ router.put('/prompts/system', (req, res) => {
     if (refused) { res.status(refused.status).json({ error: refused.error }); return; }
     const own = tenantWriteRefusal(resolved);
     if (own) { res.status(400).json({ error: own }); return; }
-    // The app's own tracked prompt files, by identity, once for this request. The save opens the file and is refused when the OPEN HANDLE is one of them,
-    // whatever the path checks above saw (a folder swapped for a link between the check and the open). The final write is through that handle in a tenant
-    // too (it was a temp file renamed over the target: path based); the tenant checks above all still run. Not kept: the atomic replace.
-    const appFiles = protectedFrameFiles(PROJECT_ROOT);
-    makeFrameFolder(dirname(resolved));
-    writeFrameThroughFd(resolved, content, appFiles, appFrameFolders());
+    // The checks above judged the PATH. The save itself (services/frame-guard.ts) trusts no path after the write root: on Linux every folder below it is
+    // opened, or made, through the held descriptor of the one above and checked by inode against the app's own folders and files (taken once, here), and
+    // the file is a temp file in the held parent renamed over the name (all or nothing). A folder swapped for a link at any moment only makes the save fail.
+    // In a tenant the write root's real place must be inside the tenant folder too; the tenant checks above all still run.
+    writeFrame(resolved, content, {
+      boundary: frameBoundary(resolved, 'fs-root'),
+      guard: protectedFrameSet(PROJECT_ROOT),
+      allowedAt: currentTenant() ? insideCurrentTenant : undefined,
+      mkdir: (dir) => { ownMkdir(dir); }, // (off Linux only: the folders are made by path there, each inside one just verified)
+    });
     res.json({ success: true, bytes: content.length, path: resolved, source: resolved === homeFramePath(getSanctumConfig().agent.cwd) ? 'home' : 'configured' });
   } catch (error) {
     if (error instanceof FrameRefused) { res.status(error.status).json({ error: error.message }); return; }

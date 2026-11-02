@@ -183,7 +183,10 @@ Three more things worth knowing about the frame:
   `npm run prompts:build`.
   The editor refuses links (a symlink, or a file with a second hard link) and the app's
   own prompt files, but it cannot see through a mount (a bind mount, a mounted share),
-  which is the operator's own layout.
+  which is the operator's own layout. On Linux a save holds every folder below the write
+  root by descriptor and replaces the file whole (a temp file renamed over it), so a folder
+  swapped for a link mid-save only makes the save fail; on macOS and Windows that race is
+  narrowed, not closed.
 - **It's read fresh every single turn**, so an edit to the file, or a saved home
   copy, applies on the next turn, no restart. The *path* is different:
   `agent.system_prompt_file` is read at the first use of the agent, not on every
