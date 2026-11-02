@@ -184,9 +184,14 @@ Three more things worth knowing about the frame:
   The editor refuses links (a symlink, or a file with a second hard link) and the app's
   own prompt files, but it cannot see through a mount (a bind mount, a mounted share),
   which is the operator's own layout. On Linux a save holds every folder below the write
-  root by descriptor and replaces the file whole (a temp file renamed over it), so a folder
-  swapped for a link mid-save only makes the save fail; on macOS and Windows that race is
-  narrowed, not closed.
+  root by descriptor and replaces the file whole (a temp file renamed over it), and it never
+  follows a link into the app's `prompts/` or `companion-home/` folders or writes, replaces
+  or removes an existing file there; in tenant mode it also stays inside the tenant folder.
+  Someone who can already rename folders into those app folders (the owner and the companion
+  can, in the default single-tenant layout) can put a new file of their own there, as they
+  could by hand, and a write root that is itself replaced by a link is followed, since a home
+  kept on another disk is a link too. On macOS and Windows the folder race is narrowed, not
+  closed.
 - **It's read fresh every single turn**, so an edit to the file, or a saved home
   copy, applies on the next turn, no restart. The *path* is different:
   `agent.system_prompt_file` is read at the first use of the agent, not on every

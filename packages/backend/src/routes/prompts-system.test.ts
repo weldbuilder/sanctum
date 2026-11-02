@@ -23,6 +23,13 @@ vi.mock('node:fs', async () => {
   }) as typeof actual.writeSync;
   return { ...actual, default: { ...actual, writeSync }, writeSync };
 });
+// The temp file's random name can be fixed for one request (a name already taken, EEXIST). Off unless a test sets it.
+const rnd = vi.hoisted(() => ({ fixed: null as string | null }));
+vi.mock('node:crypto', async () => {
+  const actual = await vi.importActual<typeof import('node:crypto')>('node:crypto');
+  const randomBytes = ((n: number, ...rest: any[]) => (rnd.fixed && n === 8 ? Buffer.from(rnd.fixed, 'hex') : (actual.randomBytes as any)(n, ...rest))) as typeof actual.randomBytes;
+  return { ...actual, default: { ...actual, randomBytes }, randomBytes };
+});
 vi.mock('../config.js', async () => {
   const actual = await vi.importActual<typeof import('../config.js')>('../config.js');
   const fs = await import('node:fs');
@@ -81,6 +88,7 @@ afterEach(() => {
   delete process.env.AGENT_PROVIDER;
   setFrameStageHookForTest(null);
   failWrites.on = false; failWrites.calls = 0;
+  rnd.fixed = null;
   h.cwd = '';
   // The app's own file is never touched by any case here.
   expect(readFileSync(appFrame(), 'utf8')).toBe(shipped);
@@ -675,6 +683,87 @@ describe('the save is all or nothing (Linux: a temp file in the held folder, ren
       if (readFileSync(homeCopy()).length === 0) empty++;
     }
     expect(empty).toBe(0);
+  });
+});
+
+describe('a folder or the temp file changed underneath a save or a read (Linux)', () => {
+  const tmpName = () => readdirSync(join(h.home, 'config')).find((n) => n.includes('.tmp-'))!;
+
+  it.runIf(procFdUsable()).each(['symlink', 'hard link'])('RACE: the temp file replaced by a %s to the tracked file before the rename: 400, no home copy, the app file unchanged, the other entry left alone', async (kind) => {
+    const tree = appTree();
+    let planted = '';
+    setFrameStageHookForTest((at) => {
+      if (at !== 'written') return;
+      planted = join(h.home, 'config', tmpName());
+      unlinkSync(planted);
+      if (kind === 'symlink') symlinkSync(appFrame(), planted); else linkSync(appFrame(), planted);
+    });
+    const r = await put('MY TEXT');
+    setFrameStageHookForTest(null);
+    expect(r.status).toBe(400);
+    expect(r.json.error).toBe('The frame path changed during the save');
+    expect(existsSync(homeCopy())).toBe(false);
+    expect(kind === 'symlink' ? lstatSync(planted).isSymbolicLink() : lstatSync(planted).nlink).toBe(kind === 'symlink' ? true : 2); // (not ours: not removed)
+    rmSync(planted);
+    sameTree(tree);
+  });
+
+  it.runIf(procFdUsable())('RACE: a folder put at the name before the rename (EISDIR): 400 "changed during the save", our temp file removed, the folder left', async () => {
+    setFrameStageHookForTest((at) => { if (at === 'written') mkdirSync(homeCopy()); });
+    const r = await put('X');
+    setFrameStageHookForTest(null);
+    expect(r.status).toBe(400);
+    expect(r.json.error).toBe('The frame path changed during the save');
+    expect(readdirSync(join(h.home, 'config'))).toEqual(['companion-claude.md']);
+    expect(statSync(homeCopy()).isDirectory()).toBe(true);
+  });
+
+  it.runIf(procFdUsable())('the temp name already taken (EEXIST): 400 "changed during the save", the other file untouched, no home copy', async () => {
+    mkdirSync(join(h.home, 'config'));
+    rnd.fixed = '00ff00ff00ff00ff';
+    const taken = join(h.home, 'config', '.companion-claude.md.tmp-00ff00ff00ff00ff');
+    writeFileSync(taken, 'THEIRS');
+    const r = await put('X');
+    expect(r.status).toBe(400);
+    expect(r.json.error).toBe('The frame path changed during the save');
+    expect(readFileSync(taken, 'utf8')).toBe('THEIRS');
+    expect(existsSync(homeCopy())).toBe(false);
+  });
+
+  it.runIf(procFdUsable())('a PUT whose write root is removed mid-walk (ENOENT): 400 "changed during the save", not a 500', async () => {
+    setFrameStageHookForTest((at) => { if (at === 'boundary') rmSync(h.home, { recursive: true }); });
+    try {
+      const r = await put('X');
+      expect(r.status).toBe(400);
+      expect(r.json.error).toBe('The frame path changed during the save');
+    } finally { setFrameStageHookForTest(null); mkdirSync(h.home, { recursive: true }); }
+  });
+
+  it.runIf(procFdUsable())('a GET whose folder is removed mid-walk (ENOENT): 400 "changed during the read", not a 500', async () => {
+    mkdirSync(join(h.home, 'config'));
+    writeFileSync(homeCopy(), 'HOME');
+    setFrameStageHookForTest((at) => { if (at === 'boundary') rmSync(join(h.home, 'config'), { recursive: true }); });
+    const r = await get();
+    setFrameStageHookForTest(null);
+    expect(r.status).toBe(400);
+    expect(r.json.error).toBe('The frame path changed during the read');
+  });
+
+  it.runIf(procFdUsable())('a save that fails after it made the missing folder takes that folder away again (one folder, then two nested)', async () => {
+    expect(existsSync(join(h.home, 'config'))).toBe(false);
+    failWrites.on = true;
+    expect((await put('A NEW FRAME, '.repeat(6000))).status).toBe(500);
+    failWrites.on = false; failWrites.calls = 0;
+    expect(existsSync(join(h.home, 'config'))).toBe(false);
+    h.configured = join(h.home, 'a', 'b', 'frame.md');
+    failWrites.on = true;
+    expect((await put('A NEW FRAME, '.repeat(6000))).status).toBe(500);
+    expect(existsSync(join(h.home, 'a'))).toBe(false);
+    // (the control: the same save, with the disk not full, keeps its folders)
+    failWrites.on = false; failWrites.calls = 0;
+    expect((await put('KEPT')).status).toBe(200);
+    expect(readFileSync(join(h.home, 'a', 'b', 'frame.md'), 'utf8')).toBe('KEPT');
+    rmSync(join(h.home, 'a'), { recursive: true });
   });
 });
 

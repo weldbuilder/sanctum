@@ -6,7 +6,12 @@
 // its real place is read back from /proc/self/fd/<fd> (readlink, never realpath). Every folder below it is opened, and made when missing, through the HELD
 // descriptor of the one above (/proc/self/fd/<fd>/<name>, O_NOFOLLOW), and every held folder is checked by inode against the app's own folders. The file is
 // written as a temp file inside the held parent and renamed over the name there, so a save is all or nothing and a folder swapped for a link at any moment
-// can only make the save fail: it never lands in, creates in, or deletes from the app's prompts/ or companion-home/.
+// can only make the save fail.
+//
+// What this guarantees: a save never follows a link into the app's prompts/ or companion-home/ folders and never writes, replaces or removes an existing file
+// there; in tenant mode it also stays inside the tenant folder. What it does not: someone who can already rename folders into those app folders (the owner and
+// the companion can, in the default single-tenant layout) can put a new file of their own there, as they could by hand; and a write root that is itself
+// replaced by a link is followed, since a home kept on another disk is a link too.
 //
 // Other platforms (macOS, Windows, a Linux without /proc): no directory descriptor to hold, so the path approach stays (an lstat walk, an O_NOFOLLOW open
 // where the platform has it, the inode checks) with every folder verified just before anything is made in it, and a new file or folder looked for, by
@@ -94,8 +99,9 @@ export function assertRegularSingleLink(fd: number, label: string): void {
 
 // --- Test seam -------------------------------------------------------------------------------------------------------------------------------------------
 /** Where a save or read is when the test seam runs: 'boundary' just after the folder the walk starts at is opened (Linux) or before the folders are walked
- *  (elsewhere); 'parent' once the target's parent folder is held (Linux), or after the folder walk and before the file is opened (elsewhere). */
-export type FrameStage = 'boundary' | 'parent';
+ *  (elsewhere); 'parent' once the target's parent folder is held (Linux), or after the folder walk and before the file is opened (elsewhere); 'written'
+ *  (Linux, a save only) once the temp file is written and closed, before it is checked and renamed. */
+export type FrameStage = 'boundary' | 'parent' | 'written';
 let stageHook: ((stage: FrameStage, target: string) => void) | null = null;
 /** Test seam: `fn(stage, target)` runs at each stage of every save and read (a test swaps a folder for a link there, the race the design must survive).
  *  null restores. */
@@ -124,6 +130,7 @@ const at = (fd: number, name?: string): string => (name === undefined ? `/proc/s
 const codeOf = (e: unknown): string | undefined => (e as NodeJS.ErrnoException)?.code;
 const cannot = (): FrameRefused => new FrameRefused(400, 'The frame path cannot be checked');
 const moved = (): FrameRefused => new FrameRefused(400, 'A folder on the frame path changed while it was being used; nothing was written');
+const changed = (during: 'save' | 'read'): FrameRefused => new FrameRefused(400, `The frame path changed during the ${during}`);
 
 /** The folder names from `from` down to `to` (`to` at or below `from`). Never `.`, `..` or empty: those are refused, not walked. */
 function componentsBetween(from: string, to: string): string[] {
@@ -176,8 +183,12 @@ function openBoundary(boundary: string, opts: FrameIoOptions): { fd: number; bas
   } catch (e) { closeSync(fd); throw e; }
 }
 
+/** The folders a save made and the descriptors it keeps open for them: `dirs` is each folder made, with the held folder it was made in; `fds` the held folders
+ *  walked past (closed by the caller). A failed save removes `dirs`, deepest first, through these descriptors. */
+interface Trail { dirs: Array<{ parent: number; name: string }>; fds: number[] }
+
 /** The child folder `name` of the held folder `dirFd`, opened through it (never by path); made first when it is missing and `create` is set. */
-function openChildDir(dirFd: number, name: string, create: boolean, guard: ProtectedFrameSet | null): number {
+function openChildDir(dirFd: number, name: string, create: boolean, guard: ProtectedFrameSet | null, trail?: Trail): number {
   const refuseAsLink = (): never => {
     let link = false;
     try { link = lstatSync(at(dirFd, name)).isSymbolicLink(); } catch { /* gone again */ }
@@ -188,8 +199,13 @@ function openChildDir(dirFd: number, name: string, create: boolean, guard: Prote
   try { fd = open(); } catch (e) {
     const code = codeOf(e);
     if (code === 'ELOOP' || code === 'ENOTDIR') refuseAsLink();
-    if (code !== 'ENOENT' || !create) throw e;
-    try { mkdirSync(at(dirFd, name), 0o755); } catch (e2) { if (codeOf(e2) !== 'EEXIST') throw e2; } // (EEXIST: made meanwhile; the open below judges it)
+    if (code === 'ENOENT' && !create) throw changed('read'); // (a folder removed during the walk)
+    if (code !== 'ENOENT') throw e;
+    try { mkdirSync(at(dirFd, name), 0o755); trail?.dirs.push({ parent: dirFd, name }); } catch (e2) {
+      const c2 = codeOf(e2);
+      if (c2 === 'ENOENT') throw changed('save'); // (the held folder was removed meanwhile)
+      if (c2 !== 'EEXIST') throw e2; // (EEXIST: made meanwhile; the open below judges it)
+    }
     try { fd = open(); } catch (e3) { const c = codeOf(e3); if (c === 'ELOOP' || c === 'ENOTDIR') refuseAsLink(); throw c === 'ENOENT' ? moved() : e3; }
   }
   try { assertDirNotProtected(fd!, guard); } catch (e) { closeSync(fd!); throw e; }
@@ -198,26 +214,31 @@ function openChildDir(dirFd: number, name: string, create: boolean, guard: Prote
 
 /** Walk from the start folder to the target's parent, each folder through the one above. Returns the held parent and the path it must still be at. The
  *  caller closes `fd`. */
-function holdParent(target: string, opts: FrameIoOptions, create: boolean): { fd: number; expected: string } {
+function holdParent(target: string, opts: FrameIoOptions, create: boolean, trail?: Trail): { fd: number; expected: string } {
   const start = openBoundary(opts.boundary, opts);
   let cur = start.fd;
+  const release = (fd: number): void => { if (trail) trail.fds.push(fd); else closeSync(fd); }; // (a save keeps them to take away a folder it made)
   try {
     stageHook?.('boundary', target);
     let expected = start.real;
     for (const comp of componentsBetween(start.base, dirname(target))) {
-      const next = openChildDir(cur, comp, create, opts.guard);
-      const prev = cur; cur = next; closeSync(prev);
+      const next = openChildDir(cur, comp, create, opts.guard, trail);
+      const prev = cur; cur = next; release(prev);
       expected = join(expected, comp);
     }
     stageHook?.('parent', target);
     return { fd: cur, expected };
-  } catch (e) { closeSync(cur); throw e; }
+  } catch (e) { release(cur); throw e; }
 }
 
 function writeLinux(target: string, content: string, opts: FrameIoOptions): void {
   const name = basename(target);
-  const { fd: P, expected } = holdParent(target, opts, true);
+  const trail: Trail = { dirs: [], fds: [] };
+  let P = -1;
+  let landed = false;
   try {
+    let expected: string;
+    ({ fd: P, expected } = holdParent(target, opts, true, trail));
     // The name, judged inside the held parent (a folder swap can no longer redirect it; a swap of the entry itself only changes what the rename replaces).
     let existing: BigIntStats | null = null;
     try { existing = lstatSync(at(P, name), { bigint: true }); } catch (e) { if (codeOf(e) !== 'ENOENT') throw cannot(); }
@@ -231,13 +252,15 @@ function writeLinux(target: string, content: string, opts: FrameIoOptions): void
     // All or nothing: a temp file in the held parent (random name, made exclusively), written and synced, then renamed over the name.
     const tmp = `.${name}.tmp-${randomBytes(8).toString('hex')}`;
     let t = -1;
-    let made = false;
+    let mine: BigIntStats | null = null; // (the temp file as written: what the rename must still find at its name)
     try {
       try { t = openSync(at(P, tmp), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, mode); } catch (e) {
-        if (codeOf(e) === 'ENOENT') throw moved(); // (the held folder was removed meanwhile)
+        const code = codeOf(e);
+        if (code === 'ENOENT') throw moved(); // (the held folder was removed meanwhile)
+        if (code === 'EEXIST') throw changed('save'); // (the temp name is taken: not ours, so never removed)
         throw e;
       }
-      made = true;
+      mine = fstatSync(t, { bigint: true });
       if (existing) fchmodSync(t, mode); // (the existing file's mode exactly, whatever the umask)
       assertRegularSingleLink(t, 'The frame file');
       if (opts.guard) assertNotProtectedInode(t, opts.guard.files);
@@ -248,25 +271,44 @@ function writeLinux(target: string, content: string, opts: FrameIoOptions): void
         off += n;
       }
       fsyncSync(t);
-      closeSync(t); t = -1;
+      const done = t; t = -1; closeSync(done); // (closed once: a close that throws is not retried by the error path)
+      stageHook?.('written', target);
       // The parent must still be the folder the path names: a folder moved away meanwhile gets nothing (the save lands where the path says, or nowhere).
       let where = '';
       try { where = readlinkSync(at(P)); } catch { throw cannot(); }
       if (where !== expected) throw moved();
+      // And the temp name must still be the file just written: a link or a second name put there by someone else in the folder would be installed as the home copy.
+      let now: BigIntStats;
+      try { now = lstatSync(at(P, tmp), { bigint: true }); } catch { throw changed('save'); }
+      if (!now.isFile() || now.dev !== mine.dev || now.ino !== mine.ino || now.nlink !== 1n) throw changed('save');
       try { renameSync(at(P, tmp), at(P, name)); } catch (e) {
-        const code = codeOf(e); // (a folder put at the name meanwhile: the rename never replaces it)
-        if (code === 'EISDIR' || code === 'ENOTEMPTY' || code === 'EEXIST') throw new FrameRefused(400, 'The frame file is not a regular file; the frame is saved only to a plain file');
+        const code = codeOf(e);
+        if (code === 'ENOTDIR' || code === 'EISDIR') throw changed('save'); // (the temp or the name replaced by a folder; the rename never replaces one)
+        if (code === 'ENOTEMPTY' || code === 'EEXIST') throw new FrameRefused(400, 'The frame file is not a regular file; the frame is saved only to a plain file');
         if (code === 'ENOENT') throw moved();
         throw e;
       }
-      made = false;
+      landed = true;
+      mine = null;
     } catch (e) {
       if (t >= 0) { try { closeSync(t); } catch { /* closed */ } }
-      if (made) { try { unlinkSync(at(P, tmp)); } catch { /* gone */ } } // (through the held parent, by its random name: never another file)
+      if (mine) { // (through the held parent, by its random name, and only if it still is the file written: never another file)
+        try {
+          const st = lstatSync(at(P, tmp), { bigint: true });
+          if (st.isFile() && st.dev === mine.dev && st.ino === mine.ino) unlinkSync(at(P, tmp)); // (a regular file: a freed inode number is reused at once, by a link too)
+        } catch { /* gone */ }
+      }
       throw e;
     }
-    try { fsyncSync(P); } catch (e) { if (!['EINVAL', 'ENOTSUP', 'EOPNOTSUPP'].includes(codeOf(e) ?? '')) throw e; } // (the rename made durable)
-  } finally { closeSync(P); }
+    try { fsyncSync(P); } catch (e) { // (the rename made durable; it has landed either way)
+      if (!['EINVAL', 'ENOTSUP', 'EOPNOTSUPP'].includes(codeOf(e) ?? '')) console.warn(`Frame saved, but its folder could not be synced (${codeOf(e) ?? 'error'})`);
+    }
+  } finally {
+    // A save that failed takes away the folders it made, deepest first, through the folders it held (never by path); a folder with anything in it stays.
+    if (!landed) for (const d of trail.dirs.reverse()) { try { rmdirSync(at(d.parent, d.name)); } catch { /* not empty (ENOTEMPTY), or gone */ } }
+    if (P >= 0) closeSync(P);
+    for (const fd of trail.fds) { try { closeSync(fd); } catch { /* closed */ } }
+  }
 }
 
 function readLinux(path: string, opts: FrameIoOptions): string {
@@ -277,6 +319,7 @@ function readLinux(path: string, opts: FrameIoOptions): string {
     try { fd = openSync(at(P, name), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); } catch (e) {
       const code = codeOf(e);
       if (code === 'ELOOP') throw new FrameRefused(400, 'The frame file is a link; the editor does not read through a link');
+      if (code === 'ENOENT') throw changed('read'); // (the file or a folder above it removed since the path was judged)
       throw e;
     }
     try { return readFromFd(fd, opts.guard); } finally { closeSync(fd); }
