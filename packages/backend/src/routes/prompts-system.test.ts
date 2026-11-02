@@ -2,14 +2,27 @@
 // configured file) and saves to the home copy, or to a custom frame inside the write roots. It never writes into the app's prompts/ folder.
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import express from 'express';
-import { closeSync, existsSync, linkSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, existsSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 
 const h = vi.hoisted(() => ({ top: '', home: '', cwd: '', outside: '', configured: '', writeRoots: [] as string[], extra: [] as string[] }));
+// A save's writes can be made to fail part-way (ENOSPC): the first write puts half its bytes, the next one throws. Off unless a test sets it.
+const failWrites = vi.hoisted(() => ({ on: false, calls: 0 }));
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
+  const writeSync = ((fd: number, buf: any, ...rest: any[]) => {
+    if (!failWrites.on || typeof buf === 'string') return (actual.writeSync as any)(fd, buf, ...rest);
+    failWrites.calls++;
+    if (failWrites.calls === 1) { const [off = 0, len = buf.length - off] = rest; return actual.writeSync(fd, buf, off, Math.max(1, Math.floor(len / 2))); }
+    throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC', errno: -28, syscall: 'write' });
+  }) as typeof actual.writeSync;
+  return { ...actual, default: { ...actual, writeSync }, writeSync };
+});
 vi.mock('../config.js', async () => {
   const actual = await vi.importActual<typeof import('../config.js')>('../config.js');
   const fs = await import('node:fs');
@@ -35,7 +48,7 @@ vi.mock('../middleware/auth.js', async () => {
 
 import router from './api.js';
 import { PROJECT_ROOT } from '../config.js';
-import { FrameRefused, assertNotProtectedInode, protectedFrameFiles, samePath, setBeforeFrameOpenForTest, underFolder } from '../services/frame-guard.js';
+import { FrameRefused, assertNotProtectedInode, procFdUsable, protectedFrameFiles, protectedFrameSet, samePath, setFrameStageHookForTest, underFolder, type FrameStage } from '../services/frame-guard.js';
 
 let server: Server;
 let base = '';
@@ -66,7 +79,8 @@ beforeEach(() => {
 });
 afterEach(() => {
   delete process.env.AGENT_PROVIDER;
-  setBeforeFrameOpenForTest(null);
+  setFrameStageHookForTest(null);
+  failWrites.on = false; failWrites.calls = 0;
   h.cwd = '';
   // The app's own file is never touched by any case here.
   expect(readFileSync(appFrame(), 'utf8')).toBe(shipped);
@@ -310,6 +324,8 @@ describe('PUT /api/prompts/system', () => {
 });
 
 const posix = process.platform !== 'win32';
+/** The points of a save or read where a test swaps a folder (services/frame-guard.ts, setFrameStageHookForTest). */
+const stages: FrameStage[] = ['boundary', 'parent'];
 const withPlatform = async (platform: NodeJS.Platform, fn: () => unknown | Promise<unknown>) => {
   const was = Object.getOwnPropertyDescriptor(process, 'platform')!;
   Object.defineProperty(process, 'platform', { ...was, value: platform });
@@ -322,6 +338,27 @@ const sameApp = (before: Map<string, Buffer>) => {
   expect(now.sort()).toEqual([...before.keys()].sort()); // (no file added to, or removed from, the app's folders)
   for (const [f, bytes] of before) expect(readFileSync(f).equals(bytes), f).toBe(true);
 };
+/** Every entry under the app's prompts/ and companion-home/, recursively (lstat): its kind, inode, size and modification time (a folder's changes when a
+ *  name is made in it or taken from it, even when it is gone again; its change time too), and a hash of a file's bytes. Equal before and after: nothing was made, removed or written there. */
+const appTree = (): Map<string, string> => {
+  const m = new Map<string, string>();
+  const walk = (p: string) => {
+    const st = lstatSync(p, { bigint: true });
+    const kind = st.isDirectory() ? 'd' : st.isSymbolicLink() ? 'l' : st.isFile() ? 'f' : 'o';
+    m.set(p, `${kind}:${st.ino}:${st.size}:${st.mtimeNs}${kind === 'd' ? ':' + st.ctimeNs : ''}${kind === 'f' ? ':' + createHash('sha256').update(readFileSync(p)).digest('hex') : ''}`);
+    if (kind === 'd') for (const n of readdirSync(p)) walk(join(p, n));
+  };
+  walk(join(PROJECT_ROOT, 'prompts')); walk(join(PROJECT_ROOT, 'companion-home'));
+  return m;
+};
+const sameTree = (before: Map<string, string>) => {
+  const now = appTree();
+  expect([...now.keys()].sort()).toEqual([...before.keys()].sort());
+  for (const [p, v] of before) expect(now.get(p), p).toBe(v);
+};
+/** Swap `dir` (a real folder) for a link to `to`, keeping the real one at `${dir}-real`; and back. */
+const swapForLink = (dir: string, to: string) => { renameSync(dir, `${dir}-real`); symlinkSync(to, dir); };
+const swapBack = (dir: string) => { rmSync(dir, { force: true }); if (existsSync(`${dir}-real`)) renameSync(`${dir}-real`, dir); };
 
 describe('an exact-file write root: the target itself is always checked', () => {
   it('a hard link at the home copy, named exactly by a write root: refused, the tracked file byte-identical', async () => {
@@ -472,69 +509,172 @@ describe('the open handle is verified by inode, whatever the path checks saw', (
     rmSync(lnk);
   });
 
-  it('RACE: config/ is a real folder at the path checks, and is swapped for a link to the app prompts/ before the open: 403, the tracked file byte-identical', async () => {
+  it('protectedFrameSet walks both trees: every folder and file under prompts/ and companion-home/ (companion-home/AGENTS.md and the folders too)', () => {
+    const set = protectedFrameSet(PROJECT_ROOT);
+    const key = (p: string) => { const st = statSync(p, { bigint: true }); return `${st.dev}:${st.ino}`; };
+    for (const f of [appFrame(), join(PROJECT_ROOT, 'companion-home', 'AGENTS.md'), join(PROJECT_ROOT, 'companion-home', 'identity', 'profile.md')]) expect(set.files.has(key(f)), f).toBe(true);
+    for (const d of ['prompts', 'companion-home', join('companion-home', 'config'), join('companion-home', 'identity')]) expect(set.dirs.has(key(join(PROJECT_ROOT, d))), d).toBe(true);
+    expect(set.files.has(key(h.home))).toBe(false);
+    expect(set.dirs.has(key(h.home))).toBe(false);
+  });
+
+  // A folder on the way swapped for a link into the app's folders, at each point of the save: after the folder the walk starts at is held ('boundary'),
+  // and once the target's parent folder is held ('parent'). Refused every time, and nothing is made in, removed from or written to the app's trees.
+  // Linux: the walk holds each folder by descriptor, so the swapped link is refused as a link (boundary), or the held folder is found moved (parent).
+  // Elsewhere the path walk sees the link (boundary), or the open handle is a tracked file by inode (parent, an existing name: 403).
+  const linkInto = (name: string) => join(PROJECT_ROOT, ...name.split('/'));
+  for (const stage of stages) {
+    for (const into of ['prompts', 'companion-home/config']) {
+      it(`RACE at '${stage}': <home>/config is a real folder at every path check, then swapped for a link to <root>/${into}: refused, the app's trees unchanged`, async () => {
+        mkdirSync(join(h.home, 'config'));
+        writeFileSync(homeCopy(), 'REAL HOME COPY');
+        const tree = appTree();
+        let swapped = 0;
+        setFrameStageHookForTest((at) => { if (at === stage && !swapped++) swapForLink(join(h.home, 'config'), linkInto(into)); });
+        try {
+          const r = await put('OVERWRITTEN THROUGH THE SWAPPED FOLDER');
+          expect(swapped).toBe(1); // (the path checks all passed: the hook ran after them)
+          if (procFdUsable()) {
+            expect(r.status).toBe(400);
+            expect(r.json.error).toContain(stage === 'boundary' ? 'config is a link' : 'changed while it was being used');
+          } else expect(r.status).toBe(stage === 'boundary' ? 400 : 403);
+          sameTree(tree);
+        } finally { setFrameStageHookForTest(null); swapBack(join(h.home, 'config')); }
+        expect(readFileSync(homeCopy(), 'utf8')).toBe('REAL HOME COPY'); // (the real folder got nothing either: no save lands in a folder that moved)
+        expect(readdirSync(join(h.home, 'config'))).toEqual(['companion-claude.md']); // (no temp file left)
+      });
+
+      it.runIf(procFdUsable())(`RACE at '${stage}': a NEW name (a custom frame not there yet) through a folder swapped for a link to <root>/${into}: refused, nothing made there`, async () => {
+        mkdirSync(join(h.home, 'sub'));
+        h.configured = join(h.home, 'sub', 'frame-not-there-yet.md');
+        const tree = appTree();
+        setFrameStageHookForTest((at) => { if (at === stage) swapForLink(join(h.home, 'sub'), linkInto(into)); });
+        try { expect((await put('X')).status).toBe(400); sameTree(tree); }
+        finally { setFrameStageHookForTest(null); swapBack(join(h.home, 'sub')); }
+        expect(readdirSync(join(h.home, 'sub'))).toEqual([]);
+        rmSync(join(h.home, 'sub'), { recursive: true });
+      });
+    }
+  }
+
+  it.runIf(procFdUsable())('RACE: missing folders (a/b) are made through the held folder above: a swapped for a link to prompts/ makes no prompts/b', async () => {
+    mkdirSync(join(h.home, 'a'));
+    h.configured = join(h.home, 'a', 'b', 'frame.md');
+    const tree = appTree();
+    setFrameStageHookForTest((at) => { if (at === 'boundary') swapForLink(join(h.home, 'a'), join(PROJECT_ROOT, 'prompts')); });
+    try { expect((await put('X')).status).toBe(400); sameTree(tree); expect(existsSync(join(PROJECT_ROOT, 'prompts', 'b'))).toBe(false); }
+    finally { setFrameStageHookForTest(null); swapBack(join(h.home, 'a')); rmSync(join(h.home, 'a'), { recursive: true, force: true }); }
+    // (the control: with no swap the folders are made and the frame saved)
+    h.configured = join(h.home, 'a', 'b', 'frame.md');
+    expect((await put('MADE')).status).toBe(200);
+    expect(readFileSync(join(h.home, 'a', 'b', 'frame.md'), 'utf8')).toBe('MADE');
+    rmSync(join(h.home, 'a'), { recursive: true, force: true });
+  });
+
+  it('RACE: a hard link to the tracked file appears at the target once its folder is held: 400, the app trees unchanged', async () => {
+    const tree = appTree();
+    setFrameStageHookForTest((at) => { if (at === 'parent') { mkdirSync(join(h.home, 'config'), { recursive: true }); linkSync(appFrame(), homeCopy()); } });
+    const r = await put('X');
+    expect(r.status).toBe(400);
+    expect(r.json.error).toContain('hard-linked');
+    setFrameStageHookForTest(null);
+    rmSync(homeCopy());
+    sameTree(tree);
+  });
+
+  it('RACE: a symlink to the tracked file appears at the target once its folder is held: refused (no link is followed), the app trees unchanged', async () => {
+    const tree = appTree();
+    setFrameStageHookForTest((at) => { if (at === 'parent') { mkdirSync(join(h.home, 'config'), { recursive: true }); symlinkSync(appFrame(), homeCopy()); } });
+    const r = await put('X');
+    expect(r.status).toBe(400);
+    expect(r.json.error).toContain('link');
+    setFrameStageHookForTest(null);
+    rmSync(homeCopy());
+    sameTree(tree);
+  });
+
+  it('off Linux (darwin): an existing name through a folder swapped for a link into companion-home/ is a tracked file by inode (AGENTS.md too): 403, unchanged', async () => {
+    mkdirSync(join(h.home, 'sub'));
+    writeFileSync(join(h.home, 'sub', 'AGENTS.md'), 'MINE');
+    h.configured = join(h.home, 'sub', 'AGENTS.md');
+    const tree = appTree();
+    setFrameStageHookForTest((at) => { if (at === 'parent') swapForLink(join(h.home, 'sub'), join(PROJECT_ROOT, 'companion-home')); });
+    try { await withPlatform('darwin', async () => { expect((await put('PWNED')).status).toBe(403); }); sameTree(tree); }
+    finally { setFrameStageHookForTest(null); swapBack(join(h.home, 'sub')); }
+    expect(readFileSync(join(h.home, 'sub', 'AGENTS.md'), 'utf8')).toBe('MINE');
+    rmSync(join(h.home, 'sub'), { recursive: true });
+  });
+
+  it('off Linux (darwin): a folder swapped for a link before the walk is refused by the walk (400), the app trees unchanged', async () => {
     mkdirSync(join(h.home, 'config'));
     writeFileSync(homeCopy(), 'REAL HOME COPY');
-    const app = snapshotApp();
-    let swapped = 0;
-    setBeforeFrameOpenForTest(() => {
-      swapped++;
-      renameSync(join(h.home, 'config'), join(h.home, 'config-real'));
-      symlinkSync(join(PROJECT_ROOT, 'prompts'), join(h.home, 'config'));
-    });
-    try {
-      const r = await put('OVERWRITTEN THROUGH THE SWAPPED FOLDER');
-      expect(swapped).toBe(1); // (the path checks all passed: the hook ran after them)
-      expect(r.status).toBe(403);
-      sameApp(app);
-    } finally {
-      setBeforeFrameOpenForTest(null);
-      rmSync(join(h.home, 'config'), { force: true });
-      renameSync(join(h.home, 'config-real'), join(h.home, 'config'));
-    }
+    const tree = appTree();
+    setFrameStageHookForTest((at) => { if (at === 'boundary') swapForLink(join(h.home, 'config'), join(PROJECT_ROOT, 'prompts')); });
+    try { await withPlatform('darwin', async () => { expect((await put('X')).status).toBe(400); }); sameTree(tree); }
+    finally { setFrameStageHookForTest(null); swapBack(join(h.home, 'config')); }
     expect(readFileSync(homeCopy(), 'utf8')).toBe('REAL HOME COPY');
   });
+});
 
-  it('RACE: the same swap onto the starter home\'s config/ folder: 403', async () => {
+describe('the save is all or nothing (Linux: a temp file in the held folder, renamed over the name)', () => {
+  it.skipIf(!procFdUsable())('rename, unlink and mkdir through /proc/self/fd/<fd>/<name> work on this kernel, and land in the HELD folder after it moved (skipped where /proc/self/fd is not readable)', () => {
+    const real = join(h.outside, 'held');
+    mkdirSync(real);
+    writeFileSync(join(real, 'f.md'), 'OLD');
+    const P = openSync(real, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    try {
+      expect(readlinkSync(`/proc/self/fd/${P}`)).toBe(real);
+      renameSync(real, `${real}-moved`); mkdirSync(join(h.outside, 'decoy')); symlinkSync(join(h.outside, 'decoy'), real); // (the path now names another folder)
+      expect(readlinkSync(`/proc/self/fd/${P}`)).toBe(`${real}-moved`);
+      const t = openSync(`/proc/self/fd/${P}/.f.md.tmp`, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
+      writeSync(t, 'NEW'); closeSync(t);
+      renameSync(`/proc/self/fd/${P}/.f.md.tmp`, `/proc/self/fd/${P}/f.md`);
+      mkdirSync(`/proc/self/fd/${P}/made`);
+      writeFileSync(join(`${real}-moved`, 'gone.md'), 'x');
+      unlinkSync(`/proc/self/fd/${P}/gone.md`);
+      expect(readFileSync(join(`${real}-moved`, 'f.md'), 'utf8')).toBe('NEW');
+      expect(readdirSync(`${real}-moved`).sort()).toEqual(['f.md', 'made']);
+      expect(readdirSync(join(h.outside, 'decoy'))).toEqual([]);
+      symlinkSync(join(h.outside, 'decoy'), join(`${real}-moved`, 'lnk'));
+      expect(() => openSync(`/proc/self/fd/${P}/lnk`, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW)).toThrow(/ENOTDIR|ELOOP/);
+    } finally { closeSync(P); }
+  });
+
+  it('a write that fails part-way (ENOSPC) leaves the existing frame byte-identical, the same file, and no temp file behind', async () => {
     mkdirSync(join(h.home, 'config'));
-    writeFileSync(homeCopy(), 'REAL HOME COPY');
-    const app = snapshotApp();
-    setBeforeFrameOpenForTest(() => {
-      renameSync(join(h.home, 'config'), join(h.home, 'config-real'));
-      symlinkSync(join(PROJECT_ROOT, 'companion-home', 'config'), join(h.home, 'config'));
-    });
-    try { expect((await put('X')).status).toBe(403); sameApp(app); }
-    finally { setBeforeFrameOpenForTest(null); rmSync(join(h.home, 'config'), { force: true }); renameSync(join(h.home, 'config-real'), join(h.home, 'config')); }
+    writeFileSync(homeCopy(), 'THE FRAME AS IT WAS\n');
+    const ino = statSync(homeCopy()).ino;
+    const tree = appTree();
+    failWrites.on = true;
+    const r = await put('A NEW FRAME, '.repeat(6000)); // (78 KB: under the JSON body limit, several writes' worth)
+    failWrites.on = false;
+    expect(failWrites.calls).toBe(2); // (half the bytes went out, then the disk was full)
+    expect(r.status).toBe(500);
+    expect(readFileSync(homeCopy(), 'utf8')).toBe('THE FRAME AS IT WAS\n');
+    if (procFdUsable()) {
+      expect(statSync(homeCopy()).ino).toBe(ino);
+      expect(readdirSync(join(h.home, 'config'))).toEqual(['companion-claude.md']);
+    }
+    sameTree(tree);
   });
 
-  it('RACE: a NEW name (a custom frame that is not there yet) through a folder swapped for a link into prompts/: refused, and nothing is left behind in prompts/', async () => {
-    if (process.platform !== 'linux') return; // (the real-location check reads /proc/self/fd)
-    mkdirSync(join(h.home, 'sub'));
-    const custom = join(h.home, 'sub', 'frame-not-there-yet.md');
-    h.configured = custom;
-    const app = snapshotApp();
-    setBeforeFrameOpenForTest(() => {
-      renameSync(join(h.home, 'sub'), join(h.home, 'sub-real'));
-      symlinkSync(join(PROJECT_ROOT, 'prompts'), join(h.home, 'sub'));
-    });
-    try { expect((await put('X')).status).toBe(403); sameApp(app); }
-    finally { setBeforeFrameOpenForTest(null); rmSync(join(h.home, 'sub'), { force: true }); rmSync(join(h.home, 'sub-real'), { recursive: true, force: true }); }
-  });
-
-  it('RACE: a hard link to the tracked file appears at the target after the checks: 400, the tracked file byte-identical', async () => {
-    const app = snapshotApp();
-    setBeforeFrameOpenForTest(() => { mkdirSync(join(h.home, 'config'), { recursive: true }); linkSync(appFrame(), homeCopy()); });
-    const r = await put('X');
-    expect(r.status).toBe(400);
-    sameApp(app);
-  });
-
-  it('RACE: a symlink to the tracked file appears at the target after the checks: refused by the open (no O_NOFOLLOW follow), byte-identical', async () => {
-    const app = snapshotApp();
-    setBeforeFrameOpenForTest(() => { mkdirSync(join(h.home, 'config'), { recursive: true }); symlinkSync(appFrame(), homeCopy()); });
-    const r = await put('X');
-    expect(r.status).toBe(400);
-    sameApp(app);
+  it.runIf(procFdUsable())('a save replaces the file whole (a new inode), keeps its mode, and leaves no temp file; a reader never sees it empty', async () => {
+    mkdirSync(join(h.home, 'config'));
+    writeFileSync(homeCopy(), 'OLD', { mode: 0o600 });
+    const ino = statSync(homeCopy()).ino;
+    expect((await put('NEW')).status).toBe(200);
+    expect(readFileSync(homeCopy(), 'utf8')).toBe('NEW');
+    expect(statSync(homeCopy()).ino).not.toBe(ino);
+    expect(statSync(homeCopy()).mode & 0o777).toBe(0o600);
+    expect(readdirSync(join(h.home, 'config'))).toEqual(['companion-claude.md']);
+    let empty = 0;
+    for (let i = 0; i < 30; i++) {
+      const saving = put(`SAVE ${i} ` + 'x'.repeat(50000));
+      if (readFileSync(homeCopy()).length === 0) empty++;
+      expect((await saving).status).toBe(200);
+      if (readFileSync(homeCopy()).length === 0) empty++;
+    }
+    expect(empty).toBe(0);
   });
 });
 
@@ -573,6 +713,71 @@ describe('GET never reads through a link or opens a pipe (single-tenant)', () =>
       expect((await r.json() as any).error).toContain('not a regular file');
     } finally { rmSync(homeCopy(), { force: true }); }
   }, 8000);
+
+  it.runIf(posix)('a home copy hard-linked to a file elsewhere: 400, and that file\'s bytes are nowhere in the response', async () => {
+    const secret = join(h.outside, 'secret-hl.md');
+    writeFileSync(secret, 'SECRET-BYTES-OF-THE-HARD-LINK');
+    mkdirSync(join(h.home, 'config'));
+    linkSync(secret, homeCopy());
+    const r = await fetch(`${base}/prompts/system`);
+    const text = await r.text();
+    expect(r.status).toBe(400);
+    expect(text).not.toContain('SECRET-BYTES');
+    expect(text).toContain('more than one hard link');
+    rmSync(secret);
+  });
+
+  it('<home>/config is a link to a folder elsewhere holding a companion-claude.md: 400, none of its bytes', async () => {
+    mkdirSync(join(h.outside, 'cfg'));
+    writeFileSync(join(h.outside, 'cfg', 'companion-claude.md'), 'SECRET-BYTES-BEHIND-THE-FOLDER-LINK');
+    symlinkSync(join(h.outside, 'cfg'), join(h.home, 'config'));
+    const r = await fetch(`${base}/prompts/system`);
+    const text = await r.text();
+    expect(r.status).toBe(400);
+    expect(text).not.toContain('SECRET-BYTES');
+    expect(text).toContain('config is a link');
+    rmSync(join(h.home, 'config'));
+    rmSync(join(h.outside, 'cfg'), { recursive: true });
+  });
+
+  it('a configured frame behind a folder link inside the write roots: 400, no bytes', async () => {
+    writeFileSync(join(h.outside, 'secret3.md'), 'SECRET-BYTES-BEHIND-A-LINK');
+    symlinkSync(h.outside, join(h.home, 'd'));
+    h.configured = join(h.home, 'd', 'secret3.md');
+    const r = await fetch(`${base}/prompts/system`);
+    expect(r.status).toBe(400);
+    expect(await r.text()).not.toContain('SECRET-BYTES');
+    rmSync(join(h.home, 'd'));
+  });
+
+  it.runIf(posix)('a FIFO as the configured frame (no home copy): 400 promptly', async () => {
+    const fifo = join(h.home, 'frame.fifo');
+    execFileSync('mkfifo', [fifo]);
+    h.configured = fifo;
+    try {
+      const r = await fetch(`${base}/prompts/system`, { signal: AbortSignal.timeout(3000) });
+      expect(r.status).toBe(400);
+      expect((await r.json() as any).error).toContain('not a regular file');
+    } finally { rmSync(fifo, { force: true }); }
+  }, 8000);
+
+  it.runIf(procFdUsable())('a GET while <home>/config is swapped for a link to an outside folder once the walk has started: 400 or the real copy, never the outside bytes', async () => {
+    mkdirSync(join(h.home, 'config'));
+    writeFileSync(homeCopy(), 'REAL HOME COPY');
+    mkdirSync(join(h.outside, 'cfg2'));
+    writeFileSync(join(h.outside, 'cfg2', 'companion-claude.md'), 'SECRET-BYTES-SWAPPED-IN');
+    for (const stage of stages) {
+      setFrameStageHookForTest((at) => { if (at === stage) swapForLink(join(h.home, 'config'), join(h.outside, 'cfg2')); });
+      const r = await fetch(`${base}/prompts/system`);
+      const text = await r.text();
+      setFrameStageHookForTest(null);
+      swapBack(join(h.home, 'config'));
+      expect(text).not.toContain('SECRET-BYTES');
+      if (stage === 'boundary') expect(r.status).toBe(400);
+      else expect(JSON.parse(text).content).toBe('REAL HOME COPY'); // (the held folder is the real one, wherever it was moved to)
+    }
+    rmSync(join(h.outside, 'cfg2'), { recursive: true });
+  });
 
   it('a plain home copy is still read (the control)', async () => {
     mkdirSync(join(h.home, 'config'));
