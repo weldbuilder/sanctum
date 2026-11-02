@@ -24,6 +24,7 @@ const h = vi.hoisted(() => ({
   events: null as null | any[],
   gate: null as null | Promise<void>,
   frameFile: '',
+  model: 'claude-echo-test-9',
 }));
 
 vi.mock('./providers/index.js', () => ({
@@ -70,7 +71,7 @@ vi.mock('./hooks.js', () => ({
 vi.mock('../config.js', () => ({
   getSanctumConfig: () => ({
     identity: { companion_name: 'Echo', user_name: 'Pat', timezone: 'UTC', profile_path: '', companion_md_path: '', ledger_dir: h.ledgerDir },
-    agent: { cwd: h.home, model: 'm', model_autonomous: 'm', claude_md_path: '', mcp_json_path: '/nonexistent/.mcp.json', system_prompt_file: h.frameFile, app_write: false, auto_compact: false, harness_memory: false },
+    agent: { cwd: h.home, model: h.model, model_autonomous: h.model, claude_md_path: '', mcp_json_path: '/nonexistent/.mcp.json', system_prompt_file: h.frameFile, app_write: false, auto_compact: false, harness_memory: false },
     command_center: { enabled: false },
     server: { host: '127.0.0.1', port: 1 },
     hooks: {},
@@ -95,6 +96,7 @@ beforeEach(() => {
   h.ledgerDir = join(mkdtempSync(join(tmpdir(), 'sanctum-agent-ledger-')), 'identity');
   h.created = []; h.options = null; h.broadcasts = [];
   h.frameFile = '';
+  h.provider = 'claude';
 });
 
 describe('the Claude harness identity', () => {
@@ -132,7 +134,8 @@ describe('the Claude harness identity', () => {
   });
 });
 
-// The agent reads agent.system_prompt_file once at first use (per-process state), so each case below loads a fresh copy of the module.
+// The agent reads the home and the configured path once at first use (per-process state), so each case below loads a fresh copy of the module;
+// the frame file itself is resolved and read on every turn.
 describe('the Claude harness frame (agent.system_prompt_file)', () => {
   const freshTurn = async () => {
     vi.resetModules();
@@ -150,10 +153,16 @@ describe('the Claude harness frame (agent.system_prompt_file)', () => {
     const sp = h.options.systemPrompt;
     expect(typeof sp).toBe('string');
     expect(sp.startsWith(frame)).toBe(true);
+    // The frame and the identity are joined by exactly one blank line (the frame's trailing newline is trimmed, nothing else is added).
+    expect(sp.slice(frame.length, frame.length + 2)).toBe('\n\n');
+    expect(sp.slice(frame.length + 2).startsWith('# Companion Identity')).toBe(true);
     const at = sp.indexOf('Echo lives with Sam in the garden.');
     expect(at).toBeGreaterThan(frame.length);
     const last = sp.split('\n').pop() as string;
     expect(last.startsWith('[Runtime] Model serving this turn:')).toBe(true);
+    // The [Runtime] line names the model the test configured, and is set off from what precedes it by a blank line.
+    expect(last.startsWith(`[Runtime] Model serving this turn: ${h.model}. `)).toBe(true);
+    expect(sp.slice(0, sp.length - last.length).endsWith('\n\n')).toBe(true);
     expect(sp.indexOf('[Runtime] Model serving this turn:')).toBeGreaterThan(at);
   });
 
@@ -173,5 +182,79 @@ describe('the Claude harness frame (agent.system_prompt_file)', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+  const frameDir = () => mkdtempSync(join(tmpdir(), 'sanctum-agent-frame-'));
+  const homeCopy = (text: string) => { mkdirSync(join(h.home, 'config'), { recursive: true }); writeFileSync(join(h.home, 'config', 'companion-claude.md'), text); };
+
+  it('the home copy (<home>/config/companion-claude.md) wins over the configured file', async () => {
+    h.frameFile = join(frameDir(), 'frame.md');
+    writeFileSync(h.frameFile, 'CONFIGURED FRAME');
+    homeCopy('HOME FRAME\n');
+    await freshTurn();
+    const sp = h.options.systemPrompt;
+    expect(typeof sp).toBe('string');
+    expect(sp.startsWith('HOME FRAME')).toBe(true);
+    expect(sp).not.toContain('CONFIGURED FRAME');
+  });
+
+  it('the home copy is used with no key at all, and an edit to it applies on the next turn', async () => {
+    h.frameFile = '';
+    homeCopy('FIRST HOME FRAME');
+    vi.resetModules();
+    const { AgentService: Fresh } = await import('./agent.js');
+    const again = () => new Fresh().processMessage('t1', 'hello', { name: 'T', type: 'named' }, { platform: 'web' });
+    await again();
+    expect(h.options.systemPrompt.startsWith('FIRST HOME FRAME')).toBe(true);
+    homeCopy('SECOND HOME FRAME');
+    await again();
+    expect(h.options.systemPrompt.startsWith('SECOND HOME FRAME')).toBe(true);
+  });
+
+  it('with no home copy the configured file is used', async () => {
+    h.frameFile = join(frameDir(), 'frame.md');
+    writeFileSync(h.frameFile, 'CONFIGURED FRAME');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await freshTurn();
+      expect(h.options.systemPrompt.startsWith('CONFIGURED FRAME')).toBe(true);
+      expect(warn).not.toHaveBeenCalled();
+    } finally { warn.mockRestore(); }
+  });
+
+  it('neither file present and a non-empty key: the preset, and one warning that names the home path', async () => {
+    h.frameFile = join(frameDir(), 'missing-frame.md');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await freshTurn();
+      expect(h.options.systemPrompt.type).toBe('preset');
+      const msgs = warn.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('frame file is missing'));
+      expect(msgs).toHaveLength(1);
+      expect(msgs[0]).toContain(join(h.home, 'config', 'companion-claude.md'));
+      expect(msgs[0]).not.toContain('prompts:build');
+    } finally { warn.mockRestore(); }
+  });
+
+  it('an empty key and no home copy: the preset, and no warning', async () => {
+    h.frameFile = '';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      await freshTurn();
+      expect(h.options.systemPrompt.type).toBe('preset');
+      expect(warn.mock.calls.filter((c) => String(c[0]).includes('frame'))).toHaveLength(0);
+    } finally { warn.mockRestore(); }
+  });
+
+  it('on Codex and dsh the missing-file warning and the "frame active" line are not printed', async () => {
+    h.provider = 'codex';
+    h.frameFile = join(frameDir(), 'missing-frame.md');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      await freshTurn();
+      expect(warn.mock.calls.filter((c) => String(c[0]).includes('frame file is missing'))).toHaveLength(0);
+      homeCopy('HOME FRAME');
+      await freshTurn();
+      expect(log.mock.calls.filter((c) => String(c[0]).includes('System-prompt frame active'))).toHaveLength(0);
+    } finally { warn.mockRestore(); log.mockRestore(); }
   });
 });

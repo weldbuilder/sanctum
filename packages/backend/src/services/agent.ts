@@ -25,7 +25,8 @@ import { companionPath } from '../tenancy/house.js';
 import { backgroundRunsOff, currentTenant, envFor, tenancyEnabled, tenantLocal } from '../tenancy/context.js';
 import crypto from 'crypto';
 import { existsSync } from 'fs';
-import { readOwnText, writeThreadFile } from '../tenancy/own-files.js';
+import { readOwnOrApp, readOwnText, writeThreadFile } from '../tenancy/own-files.js';
+import { homeFramePath, resolveFrameFile } from './frame-file.js';
 import { join, dirname } from 'path';
 
 /** A finished reply the caller has not let go of yet. Discord asks for this so a reply its gate
@@ -85,14 +86,18 @@ function ensureInit() {
 
   refreshCompanionIdentity();
 
-  // Optional lean operating frame. When set, frame + CLAUDE.md become the whole
-  // system prompt (the claude_code preset is dropped). Read fresh per query so
-  // Settings edits apply without a restart.
+  // Optional lean operating frame. When one resolves, frame + CLAUDE.md become the whole
+  // system prompt (the claude_code preset is dropped). The same rule Codex and dsh use for
+  // their base prompts: <home>/config/companion-claude.md wins, then agent.system_prompt_file.
+  // Resolved and read fresh per query so Settings edits apply on the next turn.
   st().systemPromptFile = config.agent.system_prompt_file || '';
-  if (st().systemPromptFile && existsSync(st().systemPromptFile)) {
-    console.log(`System-prompt frame active: ${st().systemPromptFile} (claude_code preset replaced)`);
-  } else if (st().systemPromptFile) {
-    console.warn(`[agent] System-prompt frame file is missing: ${st().systemPromptFile}. The claude_code preset will be used instead (no frame, no [Runtime] model line). Restore the file (npm run prompts:build) or set agent.system_prompt_file to "" to silence this.`);
+  if (activeProvider() === 'claude') {
+    const found = resolveFrameFile(config.agent.cwd, st().systemPromptFile);
+    if (found.path) {
+      console.log(`System-prompt frame active: ${found.path} (claude_code preset replaced)`);
+    } else if (st().systemPromptFile) {
+      console.warn(`[agent] System-prompt frame file is missing: ${st().systemPromptFile}, and there is no copy at ${homeFramePath(config.agent.cwd)}. The claude_code preset will be used instead (no frame, no [Runtime] model line). Put the harness at ${homeFramePath(config.agent.cwd)} or set agent.system_prompt_file to "" to silence this.`);
+    }
   }
 
   // Load .mcp.json
@@ -721,16 +726,18 @@ export class AgentService {
       (VALID_EFFORT as readonly string[]).includes(thread.effort))
       ? (thread.effort as EffortLevel)
       : undefined;
-    // System prompt. When a system_prompt_file is configured, the lean frame +
+    // System prompt. When a frame file resolves, the lean frame +
     // CLAUDE.md REPLACE the claude_code preset entirely (no generic harness on
-    // top — the real register fix). Read fresh so Settings edits apply live.
-    // Falls back to preset + CLAUDE.md append when no frame file is set.
+    // top — the real register fix). Read fresh so Settings edits apply on the next turn.
+    // Falls back to preset + CLAUDE.md append when no frame file resolves.
     // The identity half gets the same live-edit treatment: re-read when its
     // source files' mtimes changed (was memoized forever at first init).
     refreshCompanionIdentity();
-    const frame = st().systemPromptFile && existsSync(st().systemPromptFile)
-      ? readOwnText(st().systemPromptFile).trim()
-      : '';
+    // The path is the process's own (a home copy, or a configured file that may be the app's shipped one), so it is read with readOwnOrApp: guarded
+    // inside a tenant's folder, a plain read for the app's file (readOwnText would refuse that in tenant mode).
+    // Only the Claude harness sends it (Codex and dsh carry their own base prompts), so the other minds do not read it.
+    const frameFile = activeProvider() === 'claude' ? resolveFrameFile(st().agentCwd, st().systemPromptFile).path : '';
+    const frame = frameFile ? readOwnOrApp(frameFile).trim() : '';
     // Runtime self-knowledge: the claude_code preset normally tells the model
     // which model it is. Replacing the preset (the register fix) dropped that, so
     // the companion could only guess its version. Re-inject the RESOLVED model (per-thread

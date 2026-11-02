@@ -67,10 +67,12 @@ agent:
   cwd: "."                        # the agent's home dir (env: AGENT_CWD)
   claude_md_path: "./CLAUDE.md"   # the primary identity/system file
   system_prompt_file: "./prompts/companion-claude.md"          # Claude: the shipped default is ./prompts/companion-claude.md, the harness frame that replaces the coding preset
-                                  # (frame + identity + a [Runtime] line). "" = the claude_code preset with identity appended. A set but
-                                  # missing file warns and falls back to the preset.
-                                  # Read fresh each turn; the path is read at startup (restart after changing it).
-                                  # Built from prompts/companion-base.md + tail-claude.md: edit those, run npm run prompts:build.
+                                  # (frame + identity + a [Runtime] line). Same rule as Codex and dsh: <agent.cwd>/config/companion-claude.md
+                                  # wins if it exists (the starter home ships one; Settings saves it), else this file. "" = the claude_code
+                                  # preset with identity appended (when the home has no copy). With neither file present, a set key warns
+                                  # and falls back to the preset. In tenant mode the default is home/config/companion-claude.md.
+                                  # The file is read fresh each turn; the path is read at the first use of the agent (restart after changing it).
+                                  # The shipped file is built from prompts/companion-base.md + tail-claude.md: edit those, run npm run prompts:build.
   mcp_json_path: "./.mcp.json"    # MCP servers the agent may call
   model: "claude-sonnet-5-5"          # interactive turns (env: AGENT_MODEL)
   model_autonomous: ""            # background/wake turns. "" = same as model. If you set a different one,
