@@ -9,7 +9,7 @@ import express from 'express';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { bootTenants } from './boot.js';
@@ -20,6 +20,8 @@ import { loginHandler } from '../middleware/auth.js';
 import { createThread } from '../services/db.js';
 import { createHooks } from '../services/hooks.js';
 import apiRoutes from '../routes/api.js';
+import { PROJECT_ROOT } from '../config.js';
+import { setBeforeFrameOpenForTest } from '../services/frame-guard.js';
 import { globalErrorHandler } from '../middleware/error-handler.js';
 
 const posix = process.platform !== 'win32';
@@ -285,5 +287,56 @@ describe('item 8: the shared-folder auto-share judges the real path, not the tex
     expect(await post(intoTenant, thread)).toBe(0);
     expect(await post(toApp, thread)).toBe(0);
     expect(filesOf()).toBe(saved);
+  });
+});
+
+describe('item 9: PUT /api/prompts/system in a tenant saves through the open handle, and a folder swapped for a link after the checks never lands in the app', () => {
+  const tracked = () => join(PROJECT_ROOT, 'prompts', 'companion-claude.md');
+  const cfg = () => join(home('ada'), 'config');
+  const copy = () => join(cfg(), 'companion-claude.md');
+  const put = (content: string) => call('PUT', '/api/prompts/system', 'ada', { json: { content } });
+  it('control: a tenant save is written in place through the handle (the configured frame when there is no home copy; the home copy once there is one), no temp file left', async () => {
+    rmSync(cfg(), { recursive: true, force: true });
+    rmSync(join(home('ada'), 'frame.md'), { force: true });
+    const first = await put('FIRST');
+    expect(first.status).toBe(200);
+    expect(readFileSync(join(home('ada'), 'frame.md'), 'utf8')).toBe('FIRST'); // (the tenant's key names home/frame.md)
+    mkdirSync(cfg(), { recursive: true });
+    writeFileSync(copy(), 'OLD COPY, LONGER THAN WHAT REPLACES IT', { mode: 0o640 });
+    const second = await put('NEW COPY');
+    expect(second.status).toBe(200);
+    expect(readFileSync(copy(), 'utf8')).toBe('NEW COPY');
+    expect(readdirSync(cfg())).toEqual(['companion-claude.md']);
+    if (posix) expect(statSync(copy()).mode & 0o777).toBe(0o640); // (the existing file's mode carries over, as the temp-and-rename helper kept it)
+    rmSync(cfg(), { recursive: true, force: true });
+    rmSync(join(home('ada'), 'frame.md'), { force: true });
+  });
+  it('a tenant copy that is a link into the app prompts/ folder is refused by the tenant check, nothing written there', async () => {
+    const before = readFileSync(tracked());
+    rmSync(copy(), { force: true });
+    try { symlinkSync(tracked(), copy(), 'file'); } catch { return; }
+    const r = await put('X');
+    expect(r.status).toBe(400);
+    expect(readFileSync(tracked()).equals(before)).toBe(true);
+    rmSync(copy(), { force: true });
+  });
+  it.runIf(posix)('RACE: config/ is a real folder at every path check (the tenant ones too) and is swapped for a link into <ROOT>/prompts before the write: refused, the tracked file byte-identical', async () => {
+    mkdirSync(cfg(), { recursive: true });
+    writeFileSync(copy(), 'TENANT COPY');
+    const before = readFileSync(tracked());
+    let swapped = 0;
+    setBeforeFrameOpenForTest(() => { swapped++; renameSync(cfg(), `${cfg()}-real`); symlinkSync(join(PROJECT_ROOT, 'prompts'), cfg()); });
+    try {
+      const r = await put('OVERWRITTEN THROUGH THE SWAPPED FOLDER');
+      expect(swapped).toBe(1);
+      expect(r.status).toBe(403);
+      expect(readFileSync(tracked()).equals(before)).toBe(true);
+    } finally {
+      setBeforeFrameOpenForTest(null);
+      rmSync(cfg(), { force: true });
+      renameSync(`${cfg()}-real`, cfg());
+    }
+    expect(readFileSync(copy(), 'utf8')).toBe('TENANT COPY');
+    rmSync(cfg(), { recursive: true, force: true });
   });
 });

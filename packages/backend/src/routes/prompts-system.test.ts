@@ -2,13 +2,14 @@
 // configured file) and saves to the home copy, or to a custom frame inside the write roots. It never writes into the app's prompts/ folder.
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import express from 'express';
-import { existsSync, linkSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, linkSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 
-const h = vi.hoisted(() => ({ top: '', home: '', cwd: '', outside: '', configured: '', writeRoots: [] as string[] }));
+const h = vi.hoisted(() => ({ top: '', home: '', cwd: '', outside: '', configured: '', writeRoots: [] as string[], extra: [] as string[] }));
 vi.mock('../config.js', async () => {
   const actual = await vi.importActual<typeof import('../config.js')>('../config.js');
   const fs = await import('node:fs');
@@ -22,7 +23,7 @@ vi.mock('../config.js', async () => {
     getSanctumConfig: () => ({
       identity: { companion_name: 'Echo', user_name: 'Sam', timezone: 'UTC' },
       agent: { cwd: h.cwd || h.home, system_prompt_file: h.configured },
-      hooks: { safe_write_prefixes: h.writeRoots, workspace_root: '', vault_path: '', extra_write_paths: [] },
+      hooks: { safe_write_prefixes: h.writeRoots, workspace_root: '', vault_path: '', extra_write_paths: h.extra },
       integrations: {}, server: {},
     }),
   };
@@ -34,6 +35,7 @@ vi.mock('../middleware/auth.js', async () => {
 
 import router from './api.js';
 import { PROJECT_ROOT } from '../config.js';
+import { FrameRefused, assertNotProtectedInode, protectedFrameFiles, samePath, setBeforeFrameOpenForTest, underFolder } from '../services/frame-guard.js';
 
 let server: Server;
 let base = '';
@@ -59,10 +61,12 @@ beforeEach(() => {
   rmSync(join(h.home, 'config'), { recursive: true, force: true });
   h.configured = appFrame(); // the default of a single-tenant install: ./prompts/companion-claude.md
   h.writeRoots = [];
+  h.extra = [];
   shipped = readFileSync(appFrame(), 'utf8');
 });
 afterEach(() => {
   delete process.env.AGENT_PROVIDER;
+  setBeforeFrameOpenForTest(null);
   h.cwd = '';
   // The app's own file is never touched by any case here.
   expect(readFileSync(appFrame(), 'utf8')).toBe(shipped);
@@ -302,5 +306,277 @@ describe('PUT /api/prompts/system', () => {
   it('refuses a body without a string content', async () => {
     expect((await put(5)).status).toBe(400);
     expect(existsSync(homeCopy())).toBe(false);
+  });
+});
+
+const posix = process.platform !== 'win32';
+const withPlatform = async (platform: NodeJS.Platform, fn: () => unknown | Promise<unknown>) => {
+  const was = Object.getOwnPropertyDescriptor(process, 'platform')!;
+  Object.defineProperty(process, 'platform', { ...was, value: platform });
+  try { await fn(); } finally { Object.defineProperty(process, 'platform', was); }
+};
+const appFolderFiles = () => [join(PROJECT_ROOT, 'prompts'), join(PROJECT_ROOT, 'companion-home', 'config')].flatMap((d) => readdirSync(d).map((n) => join(d, n)));
+const snapshotApp = () => new Map(appFolderFiles().map((f) => [f, readFileSync(f)]));
+const sameApp = (before: Map<string, Buffer>) => {
+  const now = appFolderFiles();
+  expect(now.sort()).toEqual([...before.keys()].sort()); // (no file added to, or removed from, the app's folders)
+  for (const [f, bytes] of before) expect(readFileSync(f).equals(bytes), f).toBe(true);
+};
+
+describe('an exact-file write root: the target itself is always checked', () => {
+  it('a hard link at the home copy, named exactly by a write root: refused, the tracked file byte-identical', async () => {
+    mkdirSync(join(h.home, 'config'));
+    linkSync(appFrame(), homeCopy());
+    h.extra = [homeCopy()];
+    const app = snapshotApp();
+    const r = await put('OVERWRITTEN THROUGH THE HARD LINK');
+    expect(r.status).toBe(400);
+    expect(r.json.error).toContain('hard-linked');
+    sameApp(app);
+  });
+
+  it('a symlink at the home copy, named exactly by a write root: refused, the target byte-identical', async () => {
+    mkdirSync(join(h.home, 'config'));
+    symlinkSync(appFrame(), homeCopy());
+    h.extra = [homeCopy()];
+    const app = snapshotApp();
+    const r = await put('OVERWRITTEN THROUGH THE LINK');
+    expect(r.status).toBe(400);
+    expect(r.json.error).toContain('link');
+    sameApp(app);
+  });
+
+  it('a symlink at the configured frame, named exactly by a write root: refused, the target untouched', async () => {
+    const custom = join(h.outside, 'exact.md');
+    const target = join(h.outside, 'exact-target.md');
+    writeFileSync(target, 'TARGET');
+    symlinkSync(target, custom);
+    h.configured = custom;
+    h.extra = [custom];
+    expect((await put('X')).status).toBe(400);
+    expect(readFileSync(target, 'utf8')).toBe('TARGET');
+    rmSync(custom);
+  });
+
+  it.runIf(posix)('a FIFO at an exact-file write root: 400 promptly, nothing hangs', async () => {
+    const fifo = join(h.outside, 'exact.fifo');
+    execFileSync('mkfifo', [fifo]);
+    h.configured = fifo;
+    h.extra = [fifo];
+    try {
+      const r = await Promise.race([put('X'), new Promise<never>((_, no) => setTimeout(() => no(new Error('PUT hung on a FIFO')), 4000))]);
+      expect(r.status).toBe(400);
+    } finally { rmSync(fifo, { force: true }); }
+  }, 8000);
+
+  it('a folder at the target path: 400, not a 500', async () => {
+    const custom = join(h.outside, 'folder-frame');
+    mkdirSync(custom);
+    h.configured = custom;
+    h.extra = [custom];
+    expect((await put('X')).status).toBe(400);
+    rmSync(custom, { recursive: true });
+  });
+
+  it('an exact-file write root that is a plain file is written in place (the control)', async () => {
+    const custom = join(h.outside, 'plain.md');
+    writeFileSync(custom, 'OLD');
+    h.configured = custom;
+    h.extra = [custom];
+    expect((await put('NEW')).status).toBe(200);
+    expect(readFileSync(custom, 'utf8')).toBe('NEW');
+    rmSync(custom);
+  });
+});
+
+describe('a home that is not made yet', () => {
+  it('agent.cwd naming a folder that does not exist yet: 200, the folders and the copy are created', async () => {
+    h.cwd = join(h.top, 'fresh', 'deeper-home');
+    expect(existsSync(h.top + '/fresh')).toBe(false);
+    const r = await put('FIRST SAVE');
+    expect(r.status).toBe(200);
+    expect(r.json).toMatchObject({ success: true, source: 'home', path: join(h.cwd, 'config', 'companion-claude.md') });
+    expect(readFileSync(join(h.cwd, 'config', 'companion-claude.md'), 'utf8')).toBe('FIRST SAVE');
+    rmSync(join(h.top, 'fresh'), { recursive: true });
+  });
+
+  it('a not-yet-made home under a link into the app prompts/ folder is still refused (by the deepest existing part)', async () => {
+    const viaLink = join(h.top, 'via-link2');
+    symlinkSync(join(PROJECT_ROOT, 'prompts'), viaLink);
+    h.cwd = join(viaLink, 'not-made');
+    const app = snapshotApp();
+    expect((await put('X')).status).toBe(403);
+    sameApp(app);
+    rmSync(viaLink);
+  });
+});
+
+describe('case-insensitive file systems (macOS, Windows)', () => {
+  it('underFolder and samePath fold case on darwin and win32, and only there', async () => {
+    const dir = join(PROJECT_ROOT, 'prompts');
+    const odd = join(PROJECT_ROOT, 'Prompts', 'x.md');
+    await withPlatform('linux', () => {
+      expect(underFolder(odd, dir)).toBe(false);
+      expect(samePath('/A/b', '/a/B')).toBe(false);
+    });
+    for (const platform of ['darwin', 'win32'] as const) {
+      await withPlatform(platform, () => {
+        expect(underFolder(odd, dir)).toBe(true);
+        expect(underFolder(join(PROJECT_ROOT, 'PROMPTS'), dir)).toBe(true);
+        expect(underFolder(`${dir}-other`, dir)).toBe(false); // (a sibling that merely starts with the name)
+        expect(underFolder(join(PROJECT_ROOT, 'Promptsx', 'a'), dir)).toBe(false);
+        expect(samePath('/A/b', '/a/B')).toBe(true);
+      });
+    }
+  });
+
+  it('on darwin a configured <root>/PROMPTS/... is "under prompts/": not the save target, the home copy is', async () => {
+    h.writeRoots = [PROJECT_ROOT];
+    h.configured = join(PROJECT_ROOT, 'PROMPTS', 'companion-claude.md');
+    await withPlatform('darwin', async () => {
+      const r = await get();
+      expect(r.json.path).toBe(homeCopy());
+    });
+  });
+
+  it('on darwin agent.cwd spelled <root>/Companion-Home/...: 403, nothing made', async () => {
+    h.cwd = join(PROJECT_ROOT, 'Companion-Home', 'not-made-yet');
+    await withPlatform('darwin', async () => { expect((await put('X')).status).toBe(403); });
+    expect(existsSync(h.cwd)).toBe(false);
+  });
+});
+
+describe('the open handle is verified by inode, whatever the path checks saw', () => {
+  it('assertNotProtectedInode: a descriptor on a protected file is refused (403), any other file passes', () => {
+    const other = join(h.outside, 'other.md');
+    writeFileSync(other, 'OTHER');
+    const protectedSet = protectedFrameFiles(PROJECT_ROOT);
+    expect(protectedSet.size).toBeGreaterThanOrEqual(3);
+    const tracked = openSync(appFrame(), 'r');
+    const starter = openSync(join(PROJECT_ROOT, 'companion-home', 'config', 'companion-claude.md'), 'r');
+    const plain = openSync(other, 'r');
+    try {
+      expect(() => assertNotProtectedInode(tracked, protectedSet)).toThrow(FrameRefused);
+      try { assertNotProtectedInode(tracked, protectedSet); } catch (e) { expect((e as FrameRefused).status).toBe(403); }
+      expect(() => assertNotProtectedInode(starter, protectedSet)).toThrow(FrameRefused);
+      expect(() => assertNotProtectedInode(plain, protectedSet)).not.toThrow();
+    } finally { closeSync(tracked); closeSync(starter); closeSync(plain); }
+    rmSync(other);
+  });
+
+  it('protectedFrameFiles follows a link: a link to a tracked file is that file', () => {
+    const lnk = join(h.outside, 'lnk.md');
+    symlinkSync(appFrame(), lnk);
+    const viaLink = openSync(lnk, 'r');
+    try { expect(() => assertNotProtectedInode(viaLink, protectedFrameFiles(PROJECT_ROOT))).toThrow(FrameRefused); } finally { closeSync(viaLink); }
+    rmSync(lnk);
+  });
+
+  it('RACE: config/ is a real folder at the path checks, and is swapped for a link to the app prompts/ before the open: 403, the tracked file byte-identical', async () => {
+    mkdirSync(join(h.home, 'config'));
+    writeFileSync(homeCopy(), 'REAL HOME COPY');
+    const app = snapshotApp();
+    let swapped = 0;
+    setBeforeFrameOpenForTest(() => {
+      swapped++;
+      renameSync(join(h.home, 'config'), join(h.home, 'config-real'));
+      symlinkSync(join(PROJECT_ROOT, 'prompts'), join(h.home, 'config'));
+    });
+    try {
+      const r = await put('OVERWRITTEN THROUGH THE SWAPPED FOLDER');
+      expect(swapped).toBe(1); // (the path checks all passed: the hook ran after them)
+      expect(r.status).toBe(403);
+      sameApp(app);
+    } finally {
+      setBeforeFrameOpenForTest(null);
+      rmSync(join(h.home, 'config'), { force: true });
+      renameSync(join(h.home, 'config-real'), join(h.home, 'config'));
+    }
+    expect(readFileSync(homeCopy(), 'utf8')).toBe('REAL HOME COPY');
+  });
+
+  it('RACE: the same swap onto the starter home\'s config/ folder: 403', async () => {
+    mkdirSync(join(h.home, 'config'));
+    writeFileSync(homeCopy(), 'REAL HOME COPY');
+    const app = snapshotApp();
+    setBeforeFrameOpenForTest(() => {
+      renameSync(join(h.home, 'config'), join(h.home, 'config-real'));
+      symlinkSync(join(PROJECT_ROOT, 'companion-home', 'config'), join(h.home, 'config'));
+    });
+    try { expect((await put('X')).status).toBe(403); sameApp(app); }
+    finally { setBeforeFrameOpenForTest(null); rmSync(join(h.home, 'config'), { force: true }); renameSync(join(h.home, 'config-real'), join(h.home, 'config')); }
+  });
+
+  it('RACE: a NEW name (a custom frame that is not there yet) through a folder swapped for a link into prompts/: refused, and nothing is left behind in prompts/', async () => {
+    if (process.platform !== 'linux') return; // (the real-location check reads /proc/self/fd)
+    mkdirSync(join(h.home, 'sub'));
+    const custom = join(h.home, 'sub', 'frame-not-there-yet.md');
+    h.configured = custom;
+    const app = snapshotApp();
+    setBeforeFrameOpenForTest(() => {
+      renameSync(join(h.home, 'sub'), join(h.home, 'sub-real'));
+      symlinkSync(join(PROJECT_ROOT, 'prompts'), join(h.home, 'sub'));
+    });
+    try { expect((await put('X')).status).toBe(403); sameApp(app); }
+    finally { setBeforeFrameOpenForTest(null); rmSync(join(h.home, 'sub'), { force: true }); rmSync(join(h.home, 'sub-real'), { recursive: true, force: true }); }
+  });
+
+  it('RACE: a hard link to the tracked file appears at the target after the checks: 400, the tracked file byte-identical', async () => {
+    const app = snapshotApp();
+    setBeforeFrameOpenForTest(() => { mkdirSync(join(h.home, 'config'), { recursive: true }); linkSync(appFrame(), homeCopy()); });
+    const r = await put('X');
+    expect(r.status).toBe(400);
+    sameApp(app);
+  });
+
+  it('RACE: a symlink to the tracked file appears at the target after the checks: refused by the open (no O_NOFOLLOW follow), byte-identical', async () => {
+    const app = snapshotApp();
+    setBeforeFrameOpenForTest(() => { mkdirSync(join(h.home, 'config'), { recursive: true }); symlinkSync(appFrame(), homeCopy()); });
+    const r = await put('X');
+    expect(r.status).toBe(400);
+    sameApp(app);
+  });
+});
+
+describe('GET never reads through a link or opens a pipe (single-tenant)', () => {
+  it('a home copy that is a link to a file elsewhere: 400, and the link target\'s bytes are nowhere in the response', async () => {
+    const secret = join(h.outside, 'secret.md');
+    writeFileSync(secret, 'SECRET-BYTES-OF-THE-LINK-TARGET');
+    mkdirSync(join(h.home, 'config'));
+    symlinkSync(secret, homeCopy());
+    const r = await fetch(`${base}/prompts/system`);
+    const text = await r.text();
+    expect(r.status).toBe(400);
+    expect(text).not.toContain('SECRET-BYTES');
+    expect(text).toContain('link');
+    rmSync(secret);
+  });
+
+  it('a configured frame that is a link: 400, no bytes', async () => {
+    const secret = join(h.outside, 'secret2.md');
+    const custom = join(h.home, 'frame.md');
+    writeFileSync(secret, 'SECRET-BYTES-OF-THE-LINK-TARGET');
+    symlinkSync(secret, custom);
+    h.configured = custom;
+    const r = await fetch(`${base}/prompts/system`);
+    expect(r.status).toBe(400);
+    expect(await r.text()).not.toContain('SECRET-BYTES');
+    rmSync(custom);
+  });
+
+  it.runIf(posix)('a FIFO at the home copy: 400 promptly (the server is not left waiting for a writer)', async () => {
+    mkdirSync(join(h.home, 'config'));
+    execFileSync('mkfifo', [homeCopy()]);
+    try {
+      const r = await fetch(`${base}/prompts/system`, { signal: AbortSignal.timeout(3000) });
+      expect(r.status).toBe(400);
+      expect((await r.json() as any).error).toContain('not a regular file');
+    } finally { rmSync(homeCopy(), { force: true }); }
+  }, 8000);
+
+  it('a plain home copy is still read (the control)', async () => {
+    mkdirSync(join(h.home, 'config'));
+    writeFileSync(homeCopy(), 'PLAIN HOME FRAME');
+    expect((await get()).json.content).toBe('PLAIN HOME FRAME');
   });
 });
