@@ -115,15 +115,16 @@ Think of `CLAUDE.md` as the soul.
 
 The frame (the config calls it `agent.system_prompt_file`) is a **thin** layer of
 operating instructions that sits *above* the identity: how the AI exists and works
-inside Sanctum, not who it is. It is the same on every mind. **A frame ships by
-default**: `./prompts/companion-claude.md`, about 1,250 words. It covers the
+inside Sanctum, not who it is. Every mind shares one base; each mind's file adds
+its own short tail. **A frame ships by default**: `./prompts/companion-claude.md`,
+a base of about 1,400 words plus the Claude tail. It covers the
 continuity layers (identity files, `AGENTS.md`, the chat thread and `archive/`,
 memory, the journal and `HANDOFF.md`, `config/`), learning from feedback, staying
 itself across models, provenance, and how to answer.
 
 Here's what it actually changes under the hood:
 
-- **When `system_prompt_file` points at a file (the default):** that frame **plus**
+- **When a frame file resolves (see "Which file is read" below):** that frame **plus**
   your identity **completely replace** the standard coding-agent foundation. The
   assembled prompt becomes `frame + identity + [Runtime] line`, with nothing
   generic underneath. This is the "register fix": it strips away the built-in
@@ -132,10 +133,23 @@ Here's what it actually changes under the hood:
 - **When `system_prompt_file` is `""`:** your AI runs on the standard Claude Code
   agent foundation (the `claude_code` preset), with your identity added on top.
   That is how Sanctum behaved before the frame shipped. Set it to `""` if you want
-  the coding preset back. This path has no `[Runtime]` line, because the preset
-  already tells the model which model it is.
-- **When the file is set but missing:** the app logs a warning and falls back to
-  the preset, as if the key were `""`.
+  the coding preset back, and make sure the home has no
+  `config/companion-claude.md` (a home copy is used whatever the key says). This
+  path has no `[Runtime]` line, because the preset already tells the model which
+  model it is.
+- **When neither file exists** (no home copy, and the file the key names is
+  missing): the app logs a warning and falls back to the preset, as if the key
+  were `""`. The warning names the home path and is printed only when Claude is
+  the active mind.
+
+**Which file is read.** The same rule Codex and DeepSeek Harness use for their
+base prompts: the home's own copy, `<agent.cwd>/config/companion-claude.md`, if it
+exists; else the file named by `agent.system_prompt_file`, if it is non-empty and
+exists; else the preset. **The home's copy wins over the shipped file.** The
+starter home ships one, so a new home gets it; an existing home keeps the frame it
+has (the shipped file) until you copy `prompts/companion-claude.md` into its
+`config/` or save the frame once from Settings. In tenant mode the key defaults to
+the tenant's own `home/config/companion-claude.md`.
 
 Where the frame comes from, and how it is built:
 
@@ -144,10 +158,13 @@ Where the frame comes from, and how it is built:
   everywhere) and `prompts/tail-claude.md`, `prompts/tail-codex.md`,
   `prompts/tail-dsh.md` (a few lines about what is different on that mind). They
   are joined into `prompts/companion-claude.md` (this frame),
-  `prompts/codex-base-prompt.md` and `prompts/dsh-base-prompt.md`.
+  `prompts/codex-base-prompt.md` and `prompts/dsh-base-prompt.md`. Only the base
+  is shared; each file carries its own tail.
 - **Edit the parts, then rebuild:** change `companion-base.md` or a tail, then run
   `npm run prompts:build` (`scripts/build-prompts.mjs`). It rewrites the three
-  built files. Edits made straight to a built file are lost at the next build.
+  built files and the three copies in `companion-home/config/`. Edits made straight
+  to a built file are lost at the next build. A home that already has its own copy
+  keeps it: the build never touches a home.
   `prompts/README.md` has the full map.
 - Codex and DeepSeek Harness use the same base through their own files; see
   "The other minds" below.
@@ -155,18 +172,19 @@ Where the frame comes from, and how it is built:
 Three more things worth knowing about the frame:
 
 - **It's editable from inside the app.** Settings has a system-prompt editor
-  (`GET`/`PUT /api/prompts/system`) that reads and writes exactly the file you
-  configured, **but it can only save if that file lives inside a folder the agent
-  is allowed to write to** (see the write-gate roots in §5). The shipped file sits
-  in the app's own `prompts/` folder, which is usually outside those roots when
-  the home is a separate folder. To edit your frame from Settings, copy it into the
-  agent's home folder (for example `<home>/config/companion-claude.md`) and point
-  `agent.system_prompt_file` at the copy. Note that a copy no longer follows
+  (`GET`/`PUT /api/prompts/system`). It shows the frame the agent would actually
+  use, and **saves the home copy**, `<home>/config/companion-claude.md`, which
+  wins over the shipped file. It never writes into the app's own `prompts/`
+  folder, which is a tracked build output: if the file the key names lives there,
+  its text is the starting point and the first save creates the home copy. A
+  custom frame you pointed the key at, inside the agent's write roots (§5), is
+  saved in place, until a home copy exists. A saved home copy no longer follows
   `npm run prompts:build`.
-- **It's read fresh every single turn**, so edits to the file apply immediately,
-  no restart. The *path* is different: `agent.system_prompt_file` is read once at
-  startup, so **restart after changing the path** (including switching it to or
-  from `""`).
+- **It's read fresh every single turn**, so an edit to the file, or a saved home
+  copy, applies on the next turn, no restart. The *path* is different:
+  `agent.system_prompt_file` is read at the first use of the agent, not on every
+  turn, so **restart after changing the path** (including switching it to or from
+  `""`).
 - On this path the app also appends a small `[Runtime] Model serving this turn:
   <model>` line, so your AI can truthfully state which model it's running
   as instead of guessing.
@@ -174,23 +192,24 @@ Three more things worth knowing about the frame:
 #### The other minds
 
 Codex and DeepSeek Harness have no `system_prompt_file`; they load the same
-harness from a base-prompt file. Resolution on each is: the home's own copy
+harness from a base-prompt file. Claude's frame now resolves the same way.
+Resolution on each is: the home's own copy
 (`<agent.cwd>/config/codex-base-prompt.md`, or `config/dsh-base-prompt.md`) if it
 exists, else the file named by `agent.codex.base_instructions_file` or
 `agent.dsh.base_instructions_file`, else the mind's stock prompt. **The home's copy
 always wins over the shipped fallback**, so an existing home keeps the prompt it
 has until you copy the new one into its `config/`. The starter home
-(`companion-home/config/`) ships both files. On Codex the base rides every message
-(about 1,700 tokens per turn). Details are in `docs/DSH.md` and `FORK_NOTES.md`.
+(`companion-home/config/`) ships all three files. On Codex the built base rides
+every message (roughly 2,000 tokens per turn). Details are in `docs/DSH.md` and `FORK_NOTES.md`.
 
 ### Which one do I edit?
 
 | I want to change… | Edit |
 |---|---|
 | My AI's name, personality, voice, our relationship, their values | **CLAUDE.md** |
-| The thin operating rules / register above the personality | **The frame**: edit `prompts/companion-base.md` or `prompts/tail-claude.md` and run `npm run prompts:build` (or your own copy, if you pointed `agent.system_prompt_file` at one) |
+| The thin operating rules / register above the personality | **The frame**: edit it in Settings (it saves `<home>/config/companion-claude.md`, which wins), or edit `prompts/companion-base.md` or `prompts/tail-claude.md` and run `npm run prompts:build` for the shipped copy |
 | Nothing about the frame: I'm happy with the shipped harness | Leave `system_prompt_file` at its default; just edit CLAUDE.md or `identity/` |
-| The old coding-assistant foundation back | Set `system_prompt_file: ""` and restart |
+| The old coding-assistant foundation back | Set `system_prompt_file: ""`, delete `<home>/config/companion-claude.md`, and restart |
 
 Rule of thumb: **CLAUDE.md is who they are. The frame is how they operate.** Start
 with just CLAUDE.md. Change the frame only when you specifically want to change how
@@ -366,7 +385,7 @@ The server never makes a password up for the setup screen (it could not hand one
 |---|---|---|
 | `cwd` | `.` | The agent's home directory. **Point this outside the app** (§3). Env: `AGENT_CWD`. |
 | `claude_md_path` | `./CLAUDE.md` | The identity file (§2). |
-| `system_prompt_file` | `./prompts/companion-claude.md` | The operating frame on Claude (§2): frame + identity + a `[Runtime]` line replace the coding preset. File read fresh every turn; the path is read at startup (restart after changing it). `""` = the standard `claude_code` preset with the identity appended. A set but missing file logs a warning and falls back to the preset. |
+| `system_prompt_file` | `./prompts/companion-claude.md` | The operating frame on Claude (§2): frame + identity + a `[Runtime]` line replace the coding preset. Same rule as Codex and dsh: `<agent.cwd>/config/companion-claude.md` wins if it exists, else this file. The file is read fresh every turn; the path is read at the first use of the agent (restart after changing it). In tenant mode it defaults to `home/config/companion-claude.md`. `""` = the standard `claude_code` preset with the identity appended (when the home has no copy). With neither file present, a set key logs a warning and falls back to the preset. |
 | `mcp_json_path` | `./.mcp.json` | File listing external tool servers the agent may use (§8). |
 | `model` | `claude-sonnet-5-5` | Model for live, interactive replies. Env: `AGENT_MODEL`. |
 | `model_autonomous` | `""` | Model for background/scheduled activity and the built-in helper subagents (Scribe aside, which runs on Haiku). Empty = the same as `model`. |

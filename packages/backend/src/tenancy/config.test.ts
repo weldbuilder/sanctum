@@ -143,6 +143,22 @@ describe('loadTenantConfig', () => {
     expect(config.agent.claude_md_path).toBe(join(resolve(root, 'ada', 'home'), 'CLAUDE.md'));
   });
 
+  it("defaults the Claude frame to the tenant's own home copy; an explicit \"\" stays the preset; a path of its own is kept", () => {
+    const root = makeTenantsDir({
+      ada: {},
+      bea: { yaml: 'agent:\n  system_prompt_file: ""\n' },
+      cy: { yaml: 'agent:\n  system_prompt_file: home/frame.md\n' },
+      dee: { yaml: 'agent:\n  system_prompt_file:\n' },
+      eli: { yaml: 'agent:\n  cwd: elsewhere\n' },
+    });
+    const frame = (id: string) => loadTenantConfig(proc(), join(root, id), id).config.agent.system_prompt_file;
+    expect(frame('ada')).toBe(join(resolve(root, 'ada', 'home'), 'config', 'companion-claude.md'));
+    expect(frame('bea')).toBe('');
+    expect(frame('cy')).toBe(join(resolve(root, 'cy', 'home'), 'frame.md'));
+    expect(frame('dee')).toBe(join(resolve(root, 'dee', 'home'), 'config', 'companion-claude.md')); // (a bare key is "not set")
+    expect(frame('eli')).toBe(join(resolve(root, 'eli', 'elsewhere'), 'config', 'companion-claude.md')); // follows the tenant's own cwd
+  });
+
   it('two tenants never share a config object (writes into one are not seen by the other, or by a third)', () => {
     const root = makeTenantsDir({ ada: { env: 'APP_PASSWORD=pw-ada\n', yaml: 'agent:\n  model: m-ada\n' }, bea: { env: 'APP_PASSWORD=pw-bea\n' }, cy: {} });
     const p = proc();

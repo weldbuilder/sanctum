@@ -97,7 +97,8 @@ import { currentTenant } from '../tenancy/context.js';
 import { companionPath, householdMode } from '../tenancy/house.js';
 import { duplicateTokenOwners, markCurrentChannel, refreshChannelAfterTokenChange } from '../tenancy/channels.js';
 import { tenantEditRefusal, tenantWriteRefusal, writeOwnFile } from '../tenancy/edit.js';
-import { ownMkdir, ownReadDir, ownReadable, ownRename, ownRm, ownStat, ownUnlink, ownWriteFile, readOwn, readOwnText, sendOwnFile } from '../tenancy/own-files.js';
+import { ownMkdir, ownReadDir, ownReadable, ownRename, ownRm, ownStat, ownUnlink, ownWriteFile, readOwn, readOwnOrApp, readOwnText, sendOwnFile } from '../tenancy/own-files.js';
+import { homeFramePath, resolveFrameFile } from '../services/frame-file.js';
 import { IMAGE_TYPES, freeName, realInside, recentFiles, safeName, sameEntry, sharedRoot, taken } from '../services/shared-files.js';
 import { OwnFileRefused } from '../../../../scripts/own-files-lib.mjs';
 import { loginRateLimiter } from '../middleware/security.js';
@@ -4020,21 +4021,40 @@ router.get('/skills', (req, res) => {
 });
 
 // --- System prompt frame (the lean operating frame, prepended before CLAUDE.md) ---
-// Edits apply live: the agent reads this file fresh on every turn. Only the file
-// configured as agent.system_prompt_file is touched, and only if it sits inside an
-// allowed write root.
+// The agent reads the frame fresh on every turn, so a saved copy applies on the next turn. Which file it reads is
+// services/frame-file.ts: <home>/config/companion-claude.md if it exists, else agent.system_prompt_file. The editor never writes into the
+// app's own prompts/ folder (a tracked build output): when the configured file is there, or outside the write roots, it is shown as the
+// starting text and a save creates the home copy, which then wins.
+const underAppPrompts = (p: string): boolean => {
+  const dir = resolve(PROJECT_ROOT, 'prompts');
+  return p === dir || p.startsWith(dir + sep);
+};
+const insideWriteRoots = (p: string): boolean =>
+  getSafeWritePrefixes().some(root => p === resolve(root) || p.startsWith(resolve(root) + sep));
+/** The file a save writes: the home copy when there is one (it is the one the agent reads); else the configured file when it is inside the write
+ *  roots and not under the app's prompts/ folder; else the home copy, created on the save. '' when there is nothing to save to (no key, no home copy). */
+function frameWritePath(): string {
+  const cfg = getSanctumConfig().agent;
+  const home = homeFramePath(cfg.cwd);
+  const configured = cfg.system_prompt_file ? resolve(cfg.system_prompt_file) : '';
+  if (existsSync(home)) return home;
+  if (!configured) return '';
+  return insideWriteRoots(configured) && !underAppPrompts(configured) ? configured : home;
+}
+
 router.get('/prompts/system', (req, res) => {
   try {
     const agentCfg = getSanctumConfig().agent;
-    // On Codex the frame is never sent: identity is the files in <cwd>/identity.
+    // On Codex and dsh the frame is never sent: identity is the files in <cwd>/identity.
     // Tell the UI so it points there instead of offering an editor that does nothing.
     const provider = activeProvider();
     const agents_md = provider !== 'claude' ? join(agentCfg.cwd, 'identity') : '';
-    const path = agentCfg.system_prompt_file || '';
-    if (path && !insideCurrentTenant(path)) { res.status(403).json({ error: 'outside the tenant folder' }); return; }
-    if (!path) { res.json({ configured: false, content: '', path: '', provider, agents_md }); return; }
-    const content = existsSync(path) ? readOwnText(path) : '';
-    res.json({ configured: true, content, path, provider, agents_md });
+    const configured = agentCfg.system_prompt_file || '';
+    if (configured && !insideCurrentTenant(configured)) { res.status(403).json({ error: 'outside the tenant folder' }); return; }
+    const found = resolveFrameFile(agentCfg.cwd, configured);
+    if (!configured && found.source !== 'home') { res.json({ configured: false, content: '', path: '', source: 'none', read_path: '', provider, agents_md }); return; }
+    const content = found.path ? readOwnOrApp(found.path) : '';
+    res.json({ configured: true, content, path: frameWritePath(), source: found.source, read_path: found.path, provider, agents_md });
   } catch (error) {
     if (handleUnavailable(error, res)) return;
     console.error('Error reading system prompt:', error);
@@ -4044,20 +4064,18 @@ router.get('/prompts/system', (req, res) => {
 
 router.put('/prompts/system', (req, res) => {
   try {
-    const path = getSanctumConfig().agent.system_prompt_file || '';
+    const path = frameWritePath();
     if (!path) { res.status(400).json({ error: 'No system_prompt_file configured' }); return; }
     const { content } = req.body;
     if (typeof content !== 'string') { res.status(400).json({ error: 'content (string) required' }); return; }
     const resolved = resolve(path);
     if (!insideCurrentTenant(resolved)) { res.status(403).json({ error: 'System prompt path is outside the tenant folder' }); return; }
-    const allowed = getSafeWritePrefixes().some(
-      p => resolved === resolve(p) || resolved.startsWith(resolve(p) + sep),
-    );
-    if (!allowed) { res.status(403).json({ error: 'System prompt path is outside the write roots' }); return; }
+    if (!insideWriteRoots(resolved)) { res.status(403).json({ error: 'System prompt path is outside the write roots' }); return; }
     const own = tenantWriteRefusal(resolved);
     if (own) { res.status(400).json({ error: own }); return; }
+    if (!existsSync(dirname(resolved))) ownMkdir(dirname(resolved), { recursive: true });
     writeOwnFile(resolved, content);
-    res.json({ success: true, bytes: content.length });
+    res.json({ success: true, bytes: content.length, path: resolved, source: resolved === homeFramePath(getSanctumConfig().agent.cwd) ? 'home' : 'configured' });
   } catch (error) {
     console.error('Error writing system prompt:', error);
     res.status(500).json({ error: 'Failed to write system prompt' });

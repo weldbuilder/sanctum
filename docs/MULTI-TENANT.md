@@ -56,12 +56,18 @@ only when the filesystem separates them. The recipe:
 
    ```text
    /srv/sanctum/ada/app            owned by user `ada`: git clone, `npm install`, `npm run build`
-   /srv/sanctum/ada/home           agent.cwd (identity/, CLAUDE.md, system.md)
+   /srv/sanctum/ada/home           agent.cwd (identity/, CLAUDE.md, config/companion-claude.md)
    /srv/sanctum/ada/private        discord.private_dir
    /srv/sanctum/bea/app
    /srv/sanctum/bea/home
    /srv/sanctum/bea/private
    ```
+
+   A tenant's Claude frame is `home/config/companion-claude.md`. A home made from the
+   starter ships it, and the tenant can edit it from Settings (which saves that file and
+   never writes the app's `prompts/` folder). An older tenant home has none: copy
+   `prompts/companion-claude.md` from the app into its `config/`, or the tenant runs on the
+   preset until it is there (`agent.system_prompt_file` defaults to that path in tenant mode).
 
 2. **Run the setup wizard in each clone** (`npm run setup`, or the first-run page). It
    writes that clone's `sanctum.yaml` and `.env`, so each tenant gets their own password
@@ -317,7 +323,7 @@ A tenant's own files are its own, and the rule lives where the write happens, no
    `Last-Modified`, `HEAD`, `If-None-Match` and `If-Modified-Since` as 304 (before any `Range`, as express answers), `Range` as 206 or 416, a file gone before the open as 404)
    and never hands the path to express, so a link swapped in after the check is never served. The rolling-context sidecars, the Google key file, a tenant's
    `plugins.dir` manifests and `help.md`, and the identity files are read the same way. The server also **reads** some files deeper in `home/`, which the scan does not cover: the
-   companion's avatar, its `SKILL.md` and command files, the system-prompt frame, and the files the companion writes into `shared/`. Those reads go through the read
+   companion's avatar, its `SKILL.md` and command files, the system-prompt frame (`home/config/companion-claude.md`: shipped with new homes, editable from Settings, and an older tenant home can copy it from the app's `prompts/` folder), and the files the companion writes into `shared/`. Those reads go through the read
    guard, so a link planted there is refused (the avatar and the skill answer 404 or are left out), never served. A refused read is a `400` (or `404`/`403` where the
    route already says so), never a `500`.
 
