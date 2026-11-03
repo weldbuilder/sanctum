@@ -8,8 +8,8 @@ companion keeps slipping into a coding-assistant voice.
 To move over, inside your existing home folder:
 
 1. Make two folders: `identity` and `config`.
-2. Copy `identity/profile.md`, `identity/companion.md`, `config/codex-base-prompt.md`
-   and `start.sh` from this starter's `companion-home` into them. `start.sh` goes in
+2. Copy `identity/profile.md`, `identity/companion.md`, `config/codex-base-prompt.md`,
+   `config/dsh-base-prompt.md` and `start.sh` from this starter's `companion-home` into them. `start.sh` goes in
    the top of the home folder.
 3. Move your words across:
    - From `IDENTITY.md`: "Who I am", "What I care about", the drift signals and "What
@@ -141,3 +141,46 @@ tap **Ratify what is here now**. Until then your companion runs on the files as 
 that, a change made any other way (a text editor, your companion, anything on disk) waits for
 you there, and every run uses the version you ratified. Back up `data/identity/` with the rest
 of `data/`.
+
+---
+
+# The companion harness is now Claude's default frame
+
+One harness prompt now serves all three minds: a shared base plus a short tail for each
+(`prompts/README.md` has the map). Three things differ from before.
+
+**1. Claude's default frame changed.** `agent.system_prompt_file` used to be `""` (the
+standard coding-assistant preset with your identity appended). It now defaults to
+`./prompts/companion-claude.md`, so the system prompt is the harness, then your identity,
+then a `[Runtime] Model serving this turn: ...` line. To keep the old behaviour, set it
+back and restart (and make sure the home has no `config/companion-claude.md`, which wins
+over the key whenever it exists):
+
+```yaml
+agent:
+  system_prompt_file: ""
+```
+
+Claude now finds its frame the way Codex and dsh find theirs: `<home>/config/companion-claude.md`
+if it exists, else the file `system_prompt_file` names, else the preset. The file is read fresh
+every turn, but the path is read at the first use of the agent, so restart after changing
+the path. With neither file present, a set key logs a warning and falls back to the preset.
+
+**Existing homes, single-tenant and tenant: copy the frame in.** The starter home now ships
+`config/companion-claude.md`, but an existing home does not have one. Copy
+`prompts/companion-claude.md` from this app into `<home>/config/` (or open Settings, system
+prompt: the editor opens with the shipped harness, and Save installs it as that copy). A single-tenant home without it
+still works, on the shipped file. A tenant home without it has no frame: a tenant's
+`agent.system_prompt_file` now defaults to `home/config/companion-claude.md`, so until the
+file is there that tenant runs on the preset and the log warns. A saved or copied home frame
+no longer follows `npm run prompts:build`.
+
+**2. dsh has a base prompt.** `prompts/dsh-base-prompt.md` is new. Before, a home without
+its own `config/dsh-base-prompt.md` ran on dsh's stock persona; now it runs on the harness.
+
+**3. Existing homes keep what they have.** A home's own `config/codex-base-prompt.md` or
+`config/dsh-base-prompt.md` beats the shipped fallback, so nothing changes in your home
+until you want it to. To take the new harness there, copy the files from this starter's
+`companion-home/config/` into your home's `config/` (replacing the Codex one), or delete
+your home's copy to use the shipped fallback. Check any edits you made first: the new file
+replaces them. The Codex base now rides every message at roughly 2,000 tokens a turn.

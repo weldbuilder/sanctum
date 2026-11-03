@@ -9,7 +9,7 @@ import express from 'express';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { bootTenants } from './boot.js';
@@ -20,6 +20,8 @@ import { loginHandler } from '../middleware/auth.js';
 import { createThread } from '../services/db.js';
 import { createHooks } from '../services/hooks.js';
 import apiRoutes from '../routes/api.js';
+import { PROJECT_ROOT } from '../config.js';
+import { procFdUsable, setFrameStageHookForTest, type FrameStage } from '../services/frame-guard.js';
 import { globalErrorHandler } from '../middleware/error-handler.js';
 
 const posix = process.platform !== 'win32';
@@ -286,4 +288,79 @@ describe('item 8: the shared-folder auto-share judges the real path, not the tex
     expect(await post(toApp, thread)).toBe(0);
     expect(filesOf()).toBe(saved);
   });
+});
+
+describe('item 9: PUT /api/prompts/system in a tenant saves through held folder descriptors, and a folder swapped for a link after the checks never lands in the app', () => {
+  const tracked = () => join(PROJECT_ROOT, 'prompts', 'companion-claude.md');
+  const cfg = () => join(home('ada'), 'config');
+  const copy = () => join(cfg(), 'companion-claude.md');
+  const put = (content: string) => call('PUT', '/api/prompts/system', 'ada', { json: { content } });
+  it('control: a tenant save is written through the held folder, a temp file renamed over the name (the configured frame when there is no home copy; the home copy once there is one), no temp file left', async () => {
+    rmSync(cfg(), { recursive: true, force: true });
+    rmSync(join(home('ada'), 'frame.md'), { force: true });
+    const first = await put('FIRST');
+    expect(first.status).toBe(200);
+    expect(readFileSync(join(home('ada'), 'frame.md'), 'utf8')).toBe('FIRST'); // (the tenant's key names home/frame.md)
+    mkdirSync(cfg(), { recursive: true });
+    writeFileSync(copy(), 'OLD COPY, LONGER THAN WHAT REPLACES IT', { mode: 0o640 });
+    const second = await put('NEW COPY');
+    expect(second.status).toBe(200);
+    expect(readFileSync(copy(), 'utf8')).toBe('NEW COPY');
+    expect(readdirSync(cfg())).toEqual(['companion-claude.md']);
+    if (posix) expect(statSync(copy()).mode & 0o777).toBe(0o640); // (the existing file's mode carries over, as the temp-and-rename helper kept it)
+    rmSync(cfg(), { recursive: true, force: true });
+    rmSync(join(home('ada'), 'frame.md'), { force: true });
+  });
+  it('a tenant copy that is a link into the app prompts/ folder is refused by the tenant check, nothing written there', async () => {
+    const before = readFileSync(tracked());
+    rmSync(copy(), { force: true });
+    try { symlinkSync(tracked(), copy(), 'file'); } catch { return; }
+    const r = await put('X');
+    expect(r.status).toBe(400);
+    expect(readFileSync(tracked()).equals(before)).toBe(true);
+    rmSync(copy(), { force: true });
+  });
+  /** Every entry under the app's prompts/ and companion-home/ (lstat, recursive): kind, inode, size, modification time, and a file's bytes. */
+  const appTree = (): Map<string, string> => {
+    const m = new Map<string, string>();
+    const walk = (p: string) => {
+      const st = lstatSync(p, { bigint: true });
+      m.set(p, `${st.isDirectory() ? 'd' : st.isSymbolicLink() ? 'l' : 'f'}:${st.ino}:${st.size}:${st.mtimeNs}${st.isFile() ? ':' + readFileSync(p).toString('base64') : ''}`);
+      if (st.isDirectory()) for (const n of readdirSync(p)) walk(join(p, n));
+    };
+    walk(join(PROJECT_ROOT, 'prompts')); walk(join(PROJECT_ROOT, 'companion-home'));
+    return m;
+  };
+  const stages: FrameStage[] = ['boundary', 'parent'];
+  for (const stage of stages) {
+    for (const into of ['prompts', 'companion-home']) {
+      it.runIf(posix)(`RACE at '${stage}': config/ is a real folder at every path check (the tenant ones too) and is swapped for a link into <ROOT>/${into}: refused, the app's trees unchanged`, async () => {
+        mkdirSync(cfg(), { recursive: true });
+        writeFileSync(copy(), 'TENANT COPY');
+        const before = readFileSync(tracked());
+        const tree = appTree();
+        let swapped = 0;
+        setFrameStageHookForTest((at) => { if (at === stage && !swapped++) { renameSync(cfg(), `${cfg()}-real`); symlinkSync(join(PROJECT_ROOT, into), cfg()); } });
+        try {
+          const r = await put('OVERWRITTEN THROUGH THE SWAPPED FOLDER');
+          expect(swapped).toBe(1);
+          if (procFdUsable()) {
+            expect(r.status).toBe(400);
+            expect(r.json.error).toContain(stage === 'boundary' ? 'config is a link' : 'changed while it was being used');
+          } else expect([400, 403]).toContain(r.status);
+          expect(readFileSync(tracked()).equals(before)).toBe(true);
+          const now = appTree();
+          expect([...now.keys()].sort()).toEqual([...tree.keys()].sort());
+          for (const [p, v] of tree) expect(now.get(p), p).toBe(v);
+        } finally {
+          setFrameStageHookForTest(null);
+          rmSync(cfg(), { force: true });
+          renameSync(`${cfg()}-real`, cfg());
+        }
+        expect(readFileSync(copy(), 'utf8')).toBe('TENANT COPY');
+        expect(readdirSync(cfg())).toEqual(['companion-claude.md']);
+        rmSync(cfg(), { recursive: true, force: true });
+      });
+    }
+  }
 });

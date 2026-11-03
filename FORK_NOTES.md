@@ -8,21 +8,22 @@ in [README.md](README.md). This file is the technical record.
 
 | Layer | File, inside the companion's home folder (`agent.cwd`) | How it reaches the model |
 |---|---|---|
-| Harness | `config/codex-base-prompt.md` | Passed to Codex per run as `model_instructions_file`. Replaces Codex's stock "You are Codex" prompt. `~/.codex/config.toml` is not touched. |
+| Harness | `config/codex-base-prompt.md` (dsh: `config/dsh-base-prompt.md`) | Codex: passed per run as `model_instructions_file`, replacing Codex's stock "You are Codex" prompt; `~/.codex/config.toml` is not touched. dsh: set as the persona in the run's overlay. Both are the shared harness: one base plus a short tail per mind (`prompts/README.md`). |
 | Self | `identity/profile.md` and `identity/companion.md` | Joined ahead of each message as "Companion Identity" and "Companion Narrative", then "[Current message]". |
 | Law | `AGENTS.md` | Codex discovers and injects it by itself. |
 
 Resonant's own `CLAUDE.md` and system-prompt frame are not used on the Codex path.
 Flip back with `provider: "claude"` and they are used again, and none of the
-three-layer files are.
+three-layer files are. (Claude gets the same harness text as its frame,
+`agent.system_prompt_file`, which now defaults to `prompts/companion-claude.md`.)
 
 ## What changed from upstream
 - `services/providers/index.ts` — provider switch; all `query()` callers import from here
 - `services/providers/codex.ts` — Codex events → Claude-SDK-shaped messages, and the three-layer join
 - `services/providers/codex.test.ts` — adapter tests (mocked Codex)
 - `config.ts`, `sanctum.example.yaml` — `agent.provider` + `agent.codex.*`
-- `prompts/codex-base-prompt.md` — fallback base prompt, used when the home has none of its own
-- `routes/api.ts`, `settings/PreferencesSection.tsx` — on Codex, Settings shows where the identity files live instead of a frame editor
+- `prompts/companion-base.md` + `prompts/tail-{claude,codex,dsh}.md` — the shared harness prompt: one base, one short tail per mind. `npm run prompts:build` (`scripts/build-prompts.mjs`) joins them into `prompts/companion-claude.md` (Claude's default `agent.system_prompt_file`), `prompts/codex-base-prompt.md` and `prompts/dsh-base-prompt.md`, the fallbacks used when the home has none of its own; it also writes the three copies in `companion-home/config/`. Edit the parts, not the built files. The base is about 1,400 words; the built Codex prompt is roughly 2,000 tokens on every Codex message. All three minds resolve the same way: the home's `config/<mind>` copy (`companion-claude.md` for Claude) wins, then the configured file (`agent.system_prompt_file`, `agent.codex.base_instructions_file`, `agent.dsh.base_instructions_file`), then the mind's stock prompt (Claude: the `claude_code` preset); `services/frame-file.ts` is Claude's half of that rule.
+- `routes/api.ts`, `settings/PreferencesSection.tsx` — on Codex and dsh, Settings shows where the identity files live instead of a frame editor; on Claude the editor saves the home copy `config/companion-claude.md` and never writes the app's `prompts/` folder
 - `frontend/src/theme-hedgewitch.css` — the witchy theme (imported in `main.tsx`)
 - `services/providers/codex-exec.ts` — the unlogged Codex runner; `services/rolling-context.ts` + `services/rolling/` — rolling context; `services/revien.ts` — the Revien plug-in
 - `server.ts` — loads `.env` from the repo root as well as the working directory (upstream only read the latter, so a root `.env` was silently ignored under `npm start`)
@@ -148,7 +149,7 @@ On the Claude path with rolling on: no session is ever resumed, the prompt is co
 | `model` | `""` | Chat model id. Empty uses whatever `~/.codex/config.toml` sets. |
 | `model_provider` | `""` | A `[model_providers.*]` key from `~/.codex/config.toml`. Empty = Codex's default provider. |
 | `identity_every_turn` | `true` | Send the identity files with every message, so edits apply at once. `false` sends them on a thread's first message only: fewer tokens, edits reach new threads. |
-| `base_instructions_file` | `./prompts/codex-base-prompt.md` | Used only when the home has no `config/codex-base-prompt.md`. `""` gives stock Codex back. |
+| `base_instructions_file` | `./prompts/codex-base-prompt.md` | The shared harness. Used only when the home has no `config/codex-base-prompt.md` (the home's copy wins). `""` gives stock Codex back. |
 | `sandbox_mode` | `workspace-write` | The write boundary: the home folder plus `additional_directories`. |
 | `network_access` | `true` | Must stay `true`. The `res` CLI calls the local backend. |
 | `rolling.tail_chars` / `fold_chars` / `keep_chars` | `14000` / `6000` / `6000` | Fold once the un-summarized tail passes `tail_chars`; one fold covers about `fold_chars` of the oldest tail; the newest `keep_chars` are never folded. |
@@ -156,6 +157,8 @@ On the Claude path with rolling on: no session is ever resumed, the prompt is co
 | `rolling.max_segments` / `segment_cap` | `5` / `2000` | Merge the two oldest past this many segments; max characters per summary. |
 | `rolling.history_max_chars` / `history_max_turns` | `24000` / `30` | How much recent verbatim history goes with each message. The newest turn is always sent. |
 | `rolling.summarizer_instructions_file` | `./prompts/codex-summarizer-prompt.md` | Base prompt for the summarizer run. |
+
+`agent.dsh.base_instructions_file` (default `./prompts/dsh-base-prompt.md`) follows the same rule for dsh: used only when the home has no `config/dsh-base-prompt.md`, and now ships. `""` or a missing file gives dsh's stock persona back. See [docs/DSH.md](docs/DSH.md).
 
 ## Settings under `revien`
 | Key | Default | Meaning |

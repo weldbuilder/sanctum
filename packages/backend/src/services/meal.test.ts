@@ -72,7 +72,9 @@ describe('log and undo', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].value).toBe('15:32');
     expect(rows[0].note).toBe('13:36 carrots and greek yogurt; 15:32 hamburger');
-    expect(rows[0].created_at.endsWith('19:32:00')).toBe(true); // EDT → UTC
+    // The care row is stamped at the meal's UTC instant; derive it so the test holds in EDT and EST alike.
+    const lunchUtc = zonedToUtc(a.date, '15:32', 'America/New_York');
+    expect(rows[0].created_at.endsWith(lunchUtc.toISOString().slice(11, 19))).toBe(true);
     expect(JSON.parse(getConfig('her.state.latest')!).lastMealAt).toBe(b.at);
     // A second lunch logged without a note keeps the earlier note and the row count.
     logMeal({ at: '15:40' });

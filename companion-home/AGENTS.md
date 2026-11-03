@@ -9,7 +9,9 @@ Who the companion is lives in `identity/`, and is sent with each conversation.
 | `identity/profile.md` | Names, relationship, voice, how the human likes to be spoken to | The human. The companion may propose an edit and waits for a yes. |
 | `identity/companion.md` | The companion's own spine, in first person | Same: propose, then wait for a yes. |
 | `identity/avatar.png` | The companion's picture in the app (optional) | The human. |
-| `config/codex-base-prompt.md` | How the harness works | The human. Leave it alone unless asked. |
+| `config/companion-claude.md` | The harness for the Claude mind: how it works here | The human. Leave it alone unless asked. |
+| `config/codex-base-prompt.md` | The harness for the Codex mind: how it works here | The human. Leave it alone unless asked. |
+| `config/dsh-base-prompt.md` | The harness for the dsh mind: how it works here | The human. Leave it alone unless asked. |
 | `HANDOFF.md` | Open threads from the last session | The companion rewrites it before a session ends. |
 | `journal/` | The companion's own writing | The companion, freely. |
 | `archive/` | Old chat exports | Read only. |
@@ -42,9 +44,9 @@ When earlier turns or a summary are already shown, the conversation is under way
 answer from what is there, and use the tools only for something specific.
 
 ## Meals
-When she tells you she ate, log it, in the same breath: `res meal 10:30` (or `res meal
+When they tell you they ate, log it, in the same breath: `res meal 10:30` (or `res meal
 now`, or `res meal 2pm pasta`), then say "logged." "Scratch that" → `res meal undo`.
-No form, no "would you like me to log that?": her sentence is the consent. If the
+No form, no "would you like me to log that?": their sentence is the consent. If the
 context line says no meal is logged, you may ask once in a day, lightly, and then not
 again; it tells you when it has already been raised.
 
