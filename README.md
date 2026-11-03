@@ -48,7 +48,7 @@ npm start
 ```
 
 Leave that window open: it is the running app. Ctrl+C stops it, and `npm start` starts it
-again. (`npm start` runs `node packages/backend/dist/boot.js`; if you start the app any other way,
+again. (`npm start` runs `node packages/backend/boot.mjs`; if you start the app any other way,
 with pm2, systemd or Docker, that file is the one to run, not `dist/server.js`: it first puts back
 the previous version if an update was cut short.)
 

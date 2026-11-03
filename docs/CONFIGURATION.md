@@ -591,11 +591,11 @@ in `/proc/<pid>/stat` still match, so a pid reused after a reboot is never kille
 "The update did not finish; nothing was changed." A `.update-stage` that is a symbolic link is never followed, read or deleted through: the update refuses it.
 
 **If the app dies during the swap, the previous version is put back before anything of the app loads, and the app starts over.** A swap cut short leaves the folder
-part new and part old, so the booting code could be the new backend on whatever `node_modules` came with it. The app's entry point is therefore **`packages/backend/dist/boot.js`**
+part new and part old, so the booting code could be the new backend on whatever `node_modules` came with it. The app's entry point is therefore **`packages/backend/boot.mjs`**
 (`npm start`, pm2, systemd and Docker all run it, and so does the updater's own respawn; `dist/server.js` still imports on its own but recovers nothing). Node links a program's whole
 import graph before it evaluates any of it, so a recovery that was merely the first import of `server.js` could not run first: with `node_modules` moved aside, `import 'dotenv'` failed
-before it. `boot.js` imports nothing but node's own modules and carries its **own, vendored copy of the recovery** (`packages/backend/src/boot-recover.ts`; it never imports
-`scripts/updater-core.mjs`, so a new version's code can never run an old version's recovery). It recovers, and only then loads the app with a dynamic `import('./server.js')`.
+before it. `boot.mjs` imports nothing but node's own modules and carries its **own, vendored copy of the recovery** (`scripts/boot-recover.mjs`, generated from `packages/backend/src/boot-recover.ts`; it never imports
+`scripts/updater-core.mjs`, so a new version's code can never run an old version's recovery). It recovers, and only then loads the app with a dynamic import of `dist/server.js`.
 `npm start` also runs the same recovery first from `scripts/boot-recover.mjs` (a generated copy of that file; `scripts/update.mjs --recover --boot`), which still works when `dist` is missing
 (killed between moving it aside and moving the new one in), and `npm run update` runs it before anything else.
 
@@ -639,7 +639,7 @@ by it. `npm run update -- --rollback` does the same from a terminal and needs no
 **Two restart modes.**
 
 - *Supervised*: when `pm_id` (pm2) or `SANCTUM_SUPERVISED=1` is in the environment, the app writes the job file (synchronously, so the swap and restart lines are kept), stops gracefully and exits 0, and the supervisor starts it again. The supervisor must restart on exit 0 (pm2 does; systemd needs `Restart=always`, Docker `restart: always`). Set `SANCTUM_SUPERVISED=1` for anything that is not pm2.
-- *Respawn* (the default): the app closes its listener, starts a detached replacement (`node packages/backend/dist/boot.js`, same folder and environment, output in `<data dir>/update-restart.log`), waits up to 60 seconds for it to answer `/api/health` on the same port, then stops. From the moment the replacement is started this process writes nothing more to `update-job.json`, so its last words cannot land on top of the `done` the replacement writes at its boot (it writes again only if the replacement fails). If it never answers it is stopped (SIGTERM, SIGKILL after five seconds, and awaited) before anything else happens, then the app listens again, the previous files are put back, and the job is `failed`. For those seconds the replacement and the old process both run (a Discord or Telegram connection may complain once).
+- *Respawn* (the default): the app closes its listener, starts a detached replacement (`node packages/backend/boot.mjs`, same folder and environment, output in `<data dir>/update-restart.log`), waits up to 60 seconds for it to answer `/api/health` on the same port, then stops. From the moment the replacement is started this process writes nothing more to `update-job.json`, so its last words cannot land on top of the `done` the replacement writes at its boot (it writes again only if the replacement fails). If it never answers it is stopped (SIGTERM, SIGKILL after five seconds, and awaited) before anything else happens, then the app listens again, the previous files are put back, and the job is `failed`. For those seconds the replacement and the old process both run (a Discord or Telegram connection may complain once).
 
 The page reconnects until `/api/version` reports a new build, then reloads.
 

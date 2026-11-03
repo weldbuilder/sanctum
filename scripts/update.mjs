@@ -48,7 +48,7 @@ function mindLine() {
 readEnvFile(root);
 // First of all: a swap or a roll back that an earlier run was cut short in (kill, power cut) is finished from its manifest, so this run starts from a whole folder.
 // `--recover` does only that. `npm start` runs it as `--recover --boot` before the app (it works when packages/backend/dist is missing, which a swap cut short can cause, and it
-// never fails the start: dist/boot.js runs the same recovery and the app's update job says what was found). A plain `--recover` also retries a recovery an earlier attempt could not
+// never fails the start: packages/backend/boot.mjs runs the same recovery and the app's update job says what was found). A plain `--recover` also retries a recovery an earlier attempt could not
 // finish (git missing, a lock file) and exits 1 when it still cannot; `--boot` does not retry.
 const recoverOnly = process.argv.includes('--recover');
 const booting = process.argv.includes('--boot');

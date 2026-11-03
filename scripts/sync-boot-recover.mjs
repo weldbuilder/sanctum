@@ -1,5 +1,5 @@
 // sync-boot-recover.mjs — scripts/boot-recover.mjs is the dependency-free pre-boot recovery for `npm start` (scripts/update.mjs --recover), which must work when dist is
-// missing. Its source is packages/backend/src/boot-recover.ts (what dist/boot.js runs); this writes the plain-JavaScript copy:
+// missing. Its source is packages/backend/src/boot-recover.ts (what packages/backend/boot.mjs runs); this writes the plain-JavaScript copy:
 //
 //   node scripts/sync-boot-recover.mjs          write scripts/boot-recover.mjs
 //   node scripts/sync-boot-recover.mjs --check  exit 1 when it is stale (a test runs this)

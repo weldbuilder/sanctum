@@ -12,7 +12,7 @@
 //
 // Restart, two modes (docs/CONFIGURATION.md, "Updating"):
 //   supervised   `pm_id` (pm2) or SANCTUM_SUPERVISED=1 is in the environment: the app stops gracefully and exits 0; the supervisor starts it again.
-//   respawn      anything else: close the listener, start a detached replacement (`node dist/boot.js`, same cwd and environment, output in
+//   respawn      anything else: close the listener, start a detached replacement (`node packages/backend/boot.mjs`, same cwd and environment, output in
 //                <data dir>/update-restart.log), wait for it to answer /api/health on the same port, then stop and exit. If it never answers,
 //                the replacement is stopped (SIGTERM, then SIGKILL after five seconds, and awaited), this process listens again and the job
 //                is `failed` (the previous version's files are put back).
@@ -110,7 +110,7 @@ let abort: AbortController | null = null;
 /** Set once a replacement process (or the supervisor's) has been handed the job file: from then on this process writes nothing more to it, so its last
  *  words ("the replacement answered") cannot land on top of what the new process wrote (`done`). Cleared again if the hand-over fails. */
 let handedOver = false;
-/** What boot cleanup found (initUpdater): a stage left behind (`link`: it is a symbolic link, which is never followed), and what the recovery did (dist/boot.js ran it before the app
+/** What boot cleanup found (initUpdater): a stage left behind (`link`: it is a symbolic link, which is never followed), and what the recovery did (packages/backend/boot.mjs ran it before the app
  *  loaded, or initUpdater's own call did): its result file is read once. */
 let bootFinding: { stage: boolean; link: boolean; recovery: RecoveryResult | null } | null = null;
 const jobFile = () => join(env.dataDir(), 'update-job.json');
@@ -202,12 +202,12 @@ function load(): void {
   } catch { /* no job yet */ }
 }
 
-/** At boot, before the listener opens: put a cut-short swap back (if dist/boot.js did not already), delete a stage a crash left (and any build it left running), and settle the
+/** At boot, before the listener opens: put a cut-short swap back (if packages/backend/boot.mjs did not already), delete a stage a crash left (and any build it left running), and settle the
  *  job file from what was found (settleActive: `done` when the new version is what runs, `rolled_back` for a roll back that was finished, `failed` otherwise). */
 export async function initUpdater(): Promise<void> {
   loaded = false; job = null;
   const finding: NonNullable<typeof bootFinding> = { stage: false, link: false, recovery: null };
-  // (The pre-boot recovery, dist/boot.js, has normally put a cut-short swap back already, before this process loaded the app, and left its result in .update-recovery.json; the
+  // (The pre-boot recovery, packages/backend/boot.mjs, has normally put a cut-short swap back already, before this process loaded the app, and left its result in .update-recovery.json; the
   // call here is for a swap that was cut short in this very process's life, whose result is written the same way.)
   try { await recoverInterruptedSwap(env.root, console.log); } catch (err) { console.warn('[updater] could not check for a cut-short swap:', (err as Error).message); }
   try { finding.recovery = takeRecoveryResult(env.root); } catch { /* none */ }
@@ -319,7 +319,8 @@ async function waitHealthy(url: string, ms: number, childExited: () => boolean):
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 function spawnReplacement(): ReplacementChild {
   const dist = join(PROJECT_ROOT, 'packages', 'backend', 'dist');
-  const entry = existsSync(join(dist, 'boot.js')) ? join(dist, 'boot.js') : join(dist, 'server.js');
+  const boot = join(PROJECT_ROOT, 'packages', 'backend', 'boot.mjs'); // (tracked, outside every swapped directory: see that file)
+  const entry = existsSync(boot) ? boot : existsSync(join(dist, 'boot.js')) ? join(dist, 'boot.js') : join(dist, 'server.js');
   const script = existsSync(entry) ? entry : process.argv[1];
   mkdirSync(env.dataDir(), { recursive: true });
   const fd = openSync(join(env.dataDir(), 'update-restart.log'), 'a');

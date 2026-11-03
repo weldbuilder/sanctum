@@ -406,25 +406,28 @@ describe('starting over (bootRecover)', () => {
 });
 
 describe('the module is dependency-free, and its plain-JavaScript copy is current', () => {
-  it('boot.ts and boot-recover.ts import only node built-ins (and each other)', () => {
-    for (const f of ['boot.ts', 'boot-recover.ts']) {
-      const src = readFileSync(join(here, f), 'utf-8');
-      const specs = [...src.matchAll(/^\s*import\s[^;]*?from\s+'([^']+)'/gm)].map((m) => m[1]);
-      expect(specs.length).toBeGreaterThan(0);
-      for (const s of specs) expect(s.startsWith('node:') || s === './boot-recover.js', `${f} imports ${s}`).toBe(true);
-      expect(src).not.toMatch(/import\(['"][^.n]/);
-      expect(src.replace(/\/\/.*$/gm, '')).not.toMatch(/updater-core/);
-    }
-    expect(readFileSync(join(here, 'boot.ts'), 'utf-8')).toMatch(/await import\('\.\/server\.js'\)/);
+  it('boot-recover.ts and the tracked entry packages/backend/boot.mjs import only node built-ins (and the vendored recovery); dist/boot.js is a thin hand-over to it', () => {
+    const backend = join(here, '..');
+    const src = readFileSync(join(here, 'boot-recover.ts'), 'utf-8');
+    const specsOf = (text: string) => [...text.matchAll(/^\s*import\s[^;]*?from\s+'([^']+)'/gm)].map((m) => m[1]);
+    expect(specsOf(src).length).toBeGreaterThan(0);
+    for (const s of specsOf(src)) expect(s.startsWith('node:'), `boot-recover.ts imports ${s}`).toBe(true);
+    expect(src.replace(/\/\/.*$/gm, '')).not.toMatch(/updater-core/);
+    const entry = readFileSync(join(backend, 'boot.mjs'), 'utf-8');
+    expect(specsOf(entry).length).toBeGreaterThan(0);
+    for (const s of specsOf(entry)) expect(s.startsWith('node:') || s === '../../scripts/boot-recover.mjs', `boot.mjs imports ${s}`).toBe(true);
+    expect(entry).toMatch(/await import\('\.\/dist\/server\.js'\)/);
+    expect(entry.replace(/\/\/.*$/gm, '')).not.toMatch(/updater-core/);
+    expect(readFileSync(join(here, 'boot.ts'), 'utf-8')).toMatch(/'\.\.\/boot\.mjs'/); // (src/boot.ts becomes dist/boot.js, one level below boot.mjs)
   });
   it('scripts/boot-recover.mjs is what `node scripts/sync-boot-recover.mjs` writes', () => {
     const r = spawnSync(process.execPath, [join(here, '..', '..', '..', 'scripts', 'sync-boot-recover.mjs'), '--check'], { encoding: 'utf-8' });
     expect(r.stderr).toBe('');
     expect(r.status).toBe(0);
   });
-  it('server.ts no longer imports a recovery (dist/server.js stays importable; dist/boot.js is the entry)', () => {
+  it('server.ts no longer imports a recovery (dist/server.js stays importable; packages/backend/boot.mjs is the entry)', () => {
     const server = readFileSync(join(here, 'server.ts'), 'utf-8');
     expect(server).not.toMatch(/^import\s+'\.\/update-recover/m);
-    expect(JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf-8')).scripts.start).toBe('node dist/boot.js');
+    expect(JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf-8')).scripts.start).toBe('node boot.mjs');
   });
 });

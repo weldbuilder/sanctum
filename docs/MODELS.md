@@ -122,7 +122,7 @@ npm start
   start it again — and note two hard-won cautions:
   - **Prefer delete-and-start over restart.** `pm2 delete sanctum && pm2 start
     <your ecosystem file>` (or `pm2 start "npm start" --name sanctum`, or `pm2 start
-    packages/backend/dist/boot.js --name sanctum`; the entry is `dist/boot.js`, which puts back the
+    packages/backend/boot.mjs --name sanctum`; the entry is `packages/backend/boot.mjs`, which puts back the
     previous version after a cut-short update and exits 75 so pm2 starts it again) reliably
     picks up the new build and a fresh environment. A bare `pm2 restart` can
     leave stale state behind.

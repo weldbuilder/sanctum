@@ -1,4 +1,4 @@
-// (A swap that was cut short is put back by dist/boot.js, the entry point, before this module is loaded: src/boot.ts. This file does no recovery.)
+// (A swap that was cut short is put back by packages/backend/boot.mjs, the entry point, before this module is loaded. This file does no recovery.)
 // Node version guard — must run before any other imports that load native addons
 const _nodeVersion = process.versions.node;
 const _nodeMajor = parseInt(_nodeVersion.split('.')[0], 10);

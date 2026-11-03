@@ -19,16 +19,16 @@
 //
 // A crash, a kill or a failed install or build before the swap leaves the running folder exactly as it was (the stage is
 // deleted at the next start). A failure during the swap puts everything back, and a swap cut short is put back by recoverInterruptedSwap before the app
-// loads (dist/boot.js, whose vendored recovery is scripts/boot-recover.mjs, which this file builds its restore on; also `npm start` and `npm run update`). A rollback moves the previous copies back
+// loads (packages/backend/boot.mjs, whose vendored recovery is scripts/boot-recover.mjs, which this file builds its restore on; also `npm start` and `npm run update`). A rollback moves the previous copies back
 // (and `git reset --hard <sha>` on a git checkout), so node_modules comes back with the code.
-import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync, lstatSync } from 'node:fs';
+import { execFile, spawn, spawnSync } from 'node:child_process';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync, lstatSync } from 'node:fs';
 import { cp, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-// The restore, the manifest and the recovery after a crash are the vendored, dependency-free module (the same rules the app's own dist/boot.js follows).
-import { MANIFEST_FORMAT, ensureExcluded, recover, restoreCopy, restoreFiles, takeRecoveryResult, unsettled, verifyRestored, writeManifest } from './boot-recover.mjs';
+// The restore, the manifest and the recovery after a crash are the vendored, dependency-free module (the same rules the app's own packages/backend/boot.mjs follows).
+import { MACHINE, MANIFEST_FORMAT, ensureExcluded, readManifest, recover, restoreCopy, restoreFiles, takeRecoveryResult, unsettled, verifyRestored, writeManifest } from './boot-recover.mjs';
 export { restoreFiles, takeRecoveryResult, recover as recoverDetailed };
 
 const noop = () => {};
@@ -179,6 +179,9 @@ export function childEnv(base = process.env) {
   for (const k of Object.keys(env)) {
     if (/^npm_(lifecycle|package|command|node|execpath)/i.test(k) || /^npm_config_(local_prefix|workspace|workspaces|include_workspace_root|prefix|global)/i.test(k) || k === 'INIT_CWD') delete env[k];
   }
+  // npm's update notifier starts a detached node process (stdio ignored, cwd = the folder npm ran in) that outlives npm: inside .update-stage it would still hold the
+  // folder when the swap is done, and on Windows a folder that is some process's working directory cannot be removed. Nothing here needs the notifier, fund or audit.
+  env.NPM_CONFIG_UPDATE_NOTIFIER = 'false'; env.NPM_CONFIG_FUND = 'false'; env.NPM_CONFIG_AUDIT = 'false';
   return env;
 }
 
@@ -204,7 +207,7 @@ export function killAllChildren(signal = 'SIGTERM', kill = process.kill.bind(pro
 export function run(cmd, args, { cwd, log = noop, env = childEnv(), signal, onSpawn } = {}) {
   return new Promise((res) => {
     let child;
-    try { child = spawn(cmd, args, { cwd, env, shell: process.platform === 'win32', detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] }); }
+    try { child = spawn(cmd, args, { cwd, env, shell: process.platform === 'win32', detached: process.platform !== 'win32', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] }); }
     catch (err) { log(`${cmd}: ${err.message}`); res(127); return; }
     const pid = child.pid;
     if (pid) { liveGroups.add(pid); try { onSpawn?.(pid); } catch { /* best effort */ } }
@@ -288,19 +291,30 @@ async function swapDirNames(root, stage) {
 }
 
 
-/** The latest rollback copy, or null: { dir, manifest }. */
-export function readRollback(root) {
+/** The latest rollback copy this version can act on, or null: { dir, manifest }. Read with the same validated reader boot recovery uses: a manifest in a newer format, one that cannot be
+ *  parsed or is not shaped like a manifest, or one in a state this code does not know is NOT a rollback copy here (see rollbackProblem for why). */
+export function readRollback(root) { return scanRollback(root).found; }
+/** Why a rollback copy exists but is not offered ('' when there is none, or it is fine): a sentence naming the folder and the reason. */
+export function rollbackProblem(root) { return scanRollback(root).problem; }
+function scanRollback(root) {
   const base = rollbackRoot(root);
-  if (!existsSync(base)) return null;
-  for (const d of readdirSync(base, { withFileTypes: true })) {
+  let problem = '';
+  let list = [];
+  try { list = readdirSync(base, { withFileTypes: true }); } catch { return { found: null, problem }; }
+  for (const d of list) {
     if (!d.isDirectory() || d.name.startsWith('.')) continue;
-    try {
-      const manifest = JSON.parse(readFileSync(join(base, d.name, 'manifest.json'), 'utf-8'));
-      if (manifest && Array.isArray(manifest.entries)) return { dir: join(base, d.name), manifest };
-    } catch { /* not a copy */ }
+    const dir = join(base, d.name);
+    const r = readManifest(dir);
+    if (r.kind === 'none') continue;
+    if (r.kind !== 'ok') { problem ||= `the rollback copy in ${dir} cannot be used by this version (${r.reason})`; continue; }
+    if (!Object.hasOwn(r.manifest.machine ?? MACHINE, r.manifest.phase)) { problem ||= `the rollback copy in ${dir} is in a state this version does not know (${r.manifest.phase})`; continue; }
+    return { found: { dir, manifest: r.manifest }, problem: '' };
   }
-  return null;
+  return { found: null, problem };
 }
+/** The copy a swap must not overwrite: an unsettled or unreadable one in .update-rollback.next OR in .update-rollback (a recovery_failed copy, or one this version cannot read, is the only
+ *  record of the previous files). '' when none. */
+export function heldCopy(root) { return unsettled(rollbackNextRoot(root)) || unsettled(rollbackRoot(root)); }
 export function updateRollbackManifest(root, patch) {
   const rb = readRollback(root);
   if (!rb) return;
@@ -445,9 +459,16 @@ function looksLikeBuildChild(line) {
   try { return /npm|node|tsc|vite/i.test(readFileSync(`/proc/${pid}/cmdline`, 'utf-8')) ? pid : 0; } catch { return 0; }
 }
 const isLink = (p) => { try { return lstatSync(p).isSymbolicLink(); } catch { return false; } };
-/** Delete the stage (stopping build children a killed run left behind) and forget its worktree. Returns true when there was one.
+/** Where a removal that did not finish says so: written inside the stage, so it is gone with it. */
+export const STAGE_LEFT_MARKER = '.stage-left-behind';
+const gitAsync = (root, args) => new Promise((res) => { execFile('git', args, { cwd: root, windowsHide: true }, (err) => res(!err)); });
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Delete the stage (stopping build children a killed run left behind) and forget its worktree. Returns true when there was one. NEVER throws for a stage that cannot be removed:
+ *  a leftover stage must not fail a swap that completed (or the clean-up of one that failed). Order: stop leftover build children; `git worktree remove --force` (releases git's own
+ *  locks; run from the app root, never from inside the stage, and awaited); then the removal with a bounded retry (`budgetMs`, `retryDelayMs`; `rmFn` is injectable). When it still
+ *  fails the reason is logged, a marker is left inside the stage and the stage is removed at the next boot (initUpdater calls this again, with the longer default budget).
  *  A stage that is a symbolic link is never followed, read or deleted through: it is left alone (stageUpdate refuses it). */
-export async function discardStage(root, log = noop) {
+export async function discardStage(root, log = noop, { rmFn = rm, budgetMs = process.platform === 'win32' ? 5000 : 0, retryDelayMs = process.platform === 'win32' ? 250 : 100 } = {}) {
   const stage = stageDir(root);
   if (isLink(stage)) { log('.update-stage is a symbolic link; it is not followed and was left alone'); return false; }
   const had = exists(stage);
@@ -458,16 +479,26 @@ export async function discardStage(root, log = noop) {
         if (pid) { log(`stopping a build left over from an update that did not finish (${pid})`); killProcessGroup(pid, 'SIGKILL'); }
       }
     } catch { /* no pid list */ }
+    if (installMode(root) === 'git') await gitAsync(root, ['worktree', 'remove', '--force', stage]); // (best effort: not a registered worktree, or already gone, is fine)
   }
-  // (async rm: a stage holds a whole node_modules, and a synchronous removal would stall the running app. `git worktree prune` forgets it.)
-  // On Windows the worktree's files may still be held for a moment (git, an indexer, antivirus): prune first, then retry the removal with a backoff (about five seconds).
-  if (had && installMode(root) === 'git' && process.platform === 'win32') spawnSync('git', ['worktree', 'prune'], { cwd: root, stdio: 'ignore' });
-  await rm(stage, { recursive: true, force: true, maxRetries: process.platform === 'win32' ? 20 : 3, retryDelay: process.platform === 'win32' ? 250 : 100 });
-  if (installMode(root) === 'git') spawnSync('git', ['worktree', 'prune'], { cwd: root, stdio: 'ignore' });
+  // (async rm: a stage holds a whole node_modules, and a synchronous removal would stall the running app.) On Windows files may be held for a moment (git, an indexer, antivirus).
+  let failure = null;
+  const t0 = Date.now();
+  for (let attempt = 0; ; attempt++) {
+    try { await rmFn(stage, { recursive: true, force: true }); failure = null; break; } catch (err) { failure = err; }
+    const more = budgetMs > 0 ? Date.now() - t0 + retryDelayMs <= budgetMs : attempt < 3;
+    if (!more) break;
+    await sleep(retryDelayMs);
+  }
+  if (installMode(root) === 'git') spawnSync('git', ['worktree', 'prune'], { cwd: root, stdio: 'ignore', windowsHide: true }); // (cwd is the app root, never the stage)
+  if (failure && exists(stage)) {
+    log(`stage left behind; it is removed at the next boot (${failure.code ?? failure.message})`);
+    try { mkdirSync(stage, { recursive: true }); writeFileSync(join(stage, STAGE_LEFT_MARKER), `${new Date().toISOString()} ${failure.code ?? failure.message}\n`); } catch { /* the marker is a courtesy */ }
+  }
   return had;
 }
 
-/** The pre-boot recovery (dist/boot.js runs the same code, vendored in scripts/boot-recover.mjs / packages/backend/src/boot-recover.ts, before anything of the app loads; `npm start`
+/** The pre-boot recovery (packages/backend/boot.mjs runs the same code, vendored in scripts/boot-recover.mjs / packages/backend/src/boot-recover.ts, before anything of the app loads; `npm start`
  *  and `npm run update` run it first too). A swap or a roll back that was cut short is finished from its manifest, by the rules in that file's header: swapping / rolling_back
  *  are put back (git reset --hard and checkout always, the directories renamed back, the copy removed), a swap that had finished in .update-rollback.next is adopted, a manifest
  *  that cannot be read is never acted on. Returns true when the code or the files on disk changed (the caller must then start over, so what runs is what was restored).
@@ -508,6 +539,8 @@ export async function stageUpdate(opts) {
 
   const support = selfUpdateSupport(root);
   if (!support.ok) throw new UpdateError(support.reason);
+  const held = heldCopy(root); // (refuse before building anything: the swap would delete the held copy)
+  if (held) throw new UpdateError(`${held}, so nothing was changed. Run: npm run update -- --recover`);
   const mode = support.mode;
   const stage = stageDir(root);
   let tmp = null;
@@ -520,6 +553,7 @@ export async function stageUpdate(opts) {
 
   try {
     await discardStage(root, log); // (left by a run that did not finish)
+    if (exists(stageDir(root))) throw new UpdateError('A leftover .update-stage from an earlier update could not be removed yet (something still holds it). It is removed at the next start; or delete the .update-stage folder, then try again. Nothing was changed.');
     if (mode === 'git') {
       const dirty = gitDirty(root);
       if (dirty.length) {
@@ -575,13 +609,15 @@ export async function stageUpdate(opts) {
   return plan;
 }
 
+/** After a swap the stage is removed within this budget; what is still held is left for the next boot (a test or the update would otherwise wait on antivirus). */
+const LEFTOVER_BUDGET_MS = process.platform === 'win32' ? 1500 : 0;
 // ---- the swap ---------------------------------------------------------------------------
 /**
  * Put a staged build in place. Quick: a git fast-forward, then renames. The previous node_modules, dist and build directories are moved into
  * <app>/.update-rollback/<version>/ (a downloaded folder's replaced files are copied there). Throws UpdateError after putting everything back.
  * opts: { root, plan, log? }. Returns { upToDate:false, from, to, mode, sha, toSha }.
  */
-export async function applyStaged({ root, plan, log = noop }) {
+export async function applyStaged({ root, plan, log = noop, stageRemoval = {} }) {
   const { mode, from, sha, branch } = plan;
   const stage = stageDir(root);
   if (!exists(stage)) throw new UpdateError('the staged update is gone; nothing was changed');
@@ -591,13 +627,13 @@ export async function applyStaged({ root, plan, log = noop }) {
     if (gitHead(root) !== sha) throw new UpdateError('This checkout moved on while the update was built (new commits), so it was not updated. Nothing was changed.');
   }
   if (mode === 'git' && plan.toSha === sha && !isNewer(plan.to, from)) { // nothing to swap: same commit, version not newer
-    await discardStage(root, log).catch(() => {});
+    await discardStage(root, log, { budgetMs: LEFTOVER_BUDGET_MS, ...stageRemoval }).catch(() => {});
     log(`already on ${from}`);
     return { upToDate: true, current: from, latest: plan.to, already: true };
   }
   // The new copy is written beside the previous one (.update-rollback.next); the previous one is deleted only once the swap has fully succeeded.
   const base = rollbackNextRoot(root);
-  const held = unsettled(base); // (never delete the only copy of the directories an earlier cut-short update moved aside)
+  const held = heldCopy(root); // (never delete the only copy of the directories an earlier cut-short update moved aside)
   if (held) throw new UpdateError(`${held}, so nothing was changed. Run: npm run update -- --recover`);
   await rm(base, { recursive: true, force: true });
   const dir = join(base, safeName(from));
@@ -658,10 +694,10 @@ export async function applyStaged({ root, plan, log = noop }) {
         if (!restored) log(`the previous version was put back, but this is inconsistent: ${problems.join('; ')}`);
       } else log(`could not put the previous version back: ${r.detail}. The copy was kept in .update-rollback.next; run: npm run update -- --recover`);
     } catch (e2) { log(`could not put the previous version back: ${e2.message}`); }
-    await discardStage(root, log).catch(() => {});
+    await discardStage(root, log, { budgetMs: LEFTOVER_BUDGET_MS, ...stageRemoval }).catch(() => {});
     throw new UpdateError(err.message, { restored, dirty: err.dirty });
   }
-  await discardStage(root, log).catch(() => {});
+  await discardStage(root, log, { budgetMs: LEFTOVER_BUDGET_MS, ...stageRemoval }).catch(() => {});
   log(`swapped in ${readVersion(root)}; the previous version is kept in .update-rollback`);
   return { upToDate: false, from, to: readVersion(root), mode, sha, toSha: plan.toSha };
 }
@@ -671,7 +707,7 @@ export async function applyStaged({ root, plan, log = noop }) {
  *  files, then, only if node_modules did not come back with them, an install to match the restored lockfile. */
 export async function rollbackNow({ root, log = noop, force = false }) {
   const rb = readRollback(root);
-  if (!rb) throw new UpdateError('there is no rollback copy');
+  if (!rb) throw new UpdateError(rollbackProblem(root) ? `${rollbackProblem(root)}, so it was not touched. Run: npm run update -- --recover` : 'there is no rollback copy');
   const { manifest } = rb;
   const lockBefore = sha256(join(root, 'package-lock.json')); // (before the reset: that is the lockfile the current node_modules was installed from)
   if (manifest.mode === 'git' && manifest.sha) {

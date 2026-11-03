@@ -2,12 +2,13 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync, spawn } from 'node:child_process';
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   UpdateError, applyStaged, archivePlan, clearRollback, discardStage, killAllChildren, killProcessGroup, makeRollbackCopy, miniYaml, protectedPaths, readRollback,
-  recoverInterruptedSwap, rollbackNow, errorTail, procStartTime, rollbackNextRoot, takeRecoveryResult, resolveRepo, rollbackInfo, run, runRollback, runUpdate, selfUpdateSupport, stageDir, stageUpdate,
+  recoverInterruptedSwap, rollbackNow, STAGE_LEFT_MARKER, errorTail, procStartTime, rollbackNextRoot, takeRecoveryResult, resolveRepo, rollbackInfo, run, runRollback, runUpdate, selfUpdateSupport, stageDir, stageUpdate,
 } from './updater-core.mjs';
 
 const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 'Sam', GIT_AUTHOR_EMAIL: 'sam@example.test', GIT_COMMITTER_NAME: 'Sam', GIT_COMMITTER_EMAIL: 'sam@example.test', GIT_CONFIG_GLOBAL: '/dev/null' };
@@ -33,6 +34,9 @@ const fakeFetch = (version, tarball) => async (url) => {
   return { ok: false, status: 404 };
 };
 
+/** A real swap on Windows can wait on git, antivirus and indexers for a while: 20 s there; Linux keeps vitest's defaults. */
+const SLOW_MS = process.platform === 'win32' ? 20_000 : undefined;
+const SLOW = { timeout: SLOW_MS };
 let tmp;
 const settings = { repo: 'echo/sanctum', branch: 'main', cwd: '.', dbPath: './data/sanctum.db' };
 beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), 'updater-core-')); });
@@ -61,7 +65,7 @@ describe('git checkout', () => {
     execFileSync('node', ['build.js'], { cwd: app }); // the installed build
   });
 
-  it('a clean tree updates through the stage, records the previous sha, builds, and keeps the previous node_modules and builds in .update-rollback', async () => {
+  it('a clean tree updates through the stage, records the previous sha, builds, and keeps the previous node_modules and builds in .update-rollback', SLOW, async () => {
     const before = git(app, 'rev-parse', 'HEAD');
     release('1.1.0');
     const states = [], lines = [];
@@ -83,7 +87,7 @@ describe('git checkout', () => {
     expect(read(rb.dir, 'files/packages/backend/dist/server.js')).toContain('1.0.0');
   });
 
-  it('nothing in the running folder changes until the swap: not HEAD, node_modules, dist, build, the lockfile, or git status', async () => {
+  it('nothing in the running folder changes until the swap: not HEAD, node_modules, dist, build, the lockfile, or git status', SLOW, async () => {
     release('1.1.0');
     const before = live();
     const plan = await stageUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
@@ -98,7 +102,7 @@ describe('git checkout', () => {
     expect(existsSync(stageDir(app))).toBe(false);
   });
 
-  it('the swap checks the tree again: a file edited while the build ran refuses it, with the list, and nothing moves', async () => {
+  it('the swap checks the tree again: a file edited while the build ran refuses it, with the list, and nothing moves', SLOW, async () => {
     release('1.1.0');
     const plan = await stageUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
     write(app, 'notes.txt', 'mine');
@@ -110,7 +114,7 @@ describe('git checkout', () => {
     expect(existsSync(join(app, '.update-rollback'))).toBe(false);
   });
 
-  it('the swap refuses a checkout that moved on while the build ran', async () => {
+  it('the swap refuses a checkout that moved on while the build ran', SLOW, async () => {
     release('1.1.0');
     const plan = await stageUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
     write(app, 'mine.txt', 'x'); git(app, 'add', 'mine.txt'); git(app, '-c', 'commit.gpgsign=false', 'commit', '-qm', 'my own commit');
@@ -119,7 +123,7 @@ describe('git checkout', () => {
     expect(read(app, 'node_modules/built.txt')).toBe('1.0.0');
   });
 
-  it('says so when the release has no lockfile and falls back to npm install', async () => {
+  it('says so when the release has no lockfile and falls back to npm install', SLOW, async () => {
     release('1.1.0');
     git(origin, 'rm', '-q', 'package-lock.json'); git(origin, '-c', 'commit.gpgsign=false', 'commit', '-qm', 'drop the lockfile');
     const lines = [];
@@ -127,7 +131,7 @@ describe('git checkout', () => {
     expect(lines.some((l) => /no package-lock\.json: falling back to npm install/.test(l))).toBe(true);
   });
 
-  it('a dirty tree is refused with the list, and nothing changes', async () => {
+  it('a dirty tree is refused with the list, and nothing changes', SLOW, async () => {
     release('1.1.0');
     write(app, 'notes.txt', 'mine'); write(app, 'build.js', BUILD_JS + '\n// edited');
     const before = git(app, 'rev-parse', 'HEAD');
@@ -141,7 +145,7 @@ describe('git checkout', () => {
     expect(existsSync(stageDir(app))).toBe(false);
   });
 
-  it('a failed build leaves the running folder exactly as it was (nothing to restore), deletes the stage, and says why', async () => {
+  it('a failed build leaves the running folder exactly as it was (nothing to restore), deletes the stage, and says why', SLOW, async () => {
     release('1.1.0', { FAIL_BUILD: 'x' });
     const before = live();
     const lines = [];
@@ -157,7 +161,7 @@ describe('git checkout', () => {
     expect(existsSync(join(app, '.update-rollback'))).toBe(false);
   });
 
-  it('a stage a killed run left behind is deleted by the next run (and by discardStage at boot), worktree entry included', async () => {
+  it('a stage a killed run left behind is deleted by the next run (and by discardStage at boot), worktree entry included', SLOW, async () => {
     release('1.1.0');
     git(app, 'fetch', '-q', 'origin', 'main');
     git(app, 'worktree', 'add', '--detach', stageDir(app), 'origin/main');
@@ -173,17 +177,17 @@ describe('git checkout', () => {
     expect(r.to).toBe('1.1.0');
   });
 
-  it('a branch other than updates.branch is refused', async () => {
+  it('a branch other than updates.branch is refused', SLOW, async () => {
     git(app, 'checkout', '-q', '-b', 'mine');
     const err = await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') }).catch((e) => e);
     expect(err.message).toMatch(/on "mine" but the update branch is "main"/);
   });
 
-  it('nothing to do when already newest', async () => {
+  it('nothing to do when already newest', SLOW, async () => {
     expect(await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.0.0') })).toMatchObject({ upToDate: true });
   });
 
-  it('roll back resets to the recorded sha, moves node_modules, dist and build back, and forgets the copy; a dirty tree refuses', async () => {
+  it('roll back resets to the recorded sha, moves node_modules, dist and build back, and forgets the copy; a dirty tree refuses', SLOW, async () => {
     const before = git(app, 'rev-parse', 'HEAD');
     release('1.1.0');
     await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
@@ -200,7 +204,7 @@ describe('git checkout', () => {
     expect(rollbackInfo(app).available).toBe(false);
   });
 
-  it('roll back reinstalls when the previous node_modules is not in the copy and the lockfile changed (the lockfile is read before the reset)', async () => {
+  it('roll back reinstalls when the previous node_modules is not in the copy and the lockfile changed (the lockfile is read before the reset)', SLOW, async () => {
     release('1.1.0');
     await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
     const rb = readRollback(app);
@@ -213,7 +217,7 @@ describe('git checkout', () => {
     expect(lines.some((l) => l.includes('npm ci'))).toBe(true);
   });
 
-  it('a failed restart puts the previous version back (rollbackNow with force), node_modules included', async () => {
+  it('a failed restart puts the previous version back (rollbackNow with force), node_modules included', SLOW, async () => {
     release('1.1.0');
     await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
     write(app, 'during.txt', 'x'); // (a force rollback does not mind: the restart failed, put it back)
@@ -222,7 +226,7 @@ describe('git checkout', () => {
     expect(read(app, 'node_modules/built.txt')).toBe('1.0.0');
   });
 
-  it('a swap that fails keeps the previous rollback copy whole (the new copy is written to .update-rollback.next and dropped)', async () => {
+  it('a swap that fails keeps the previous rollback copy whole (the new copy is written to .update-rollback.next and dropped)', SLOW, async () => {
     release('1.1.0');
     await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
     const kept = readRollback(app);
@@ -240,7 +244,7 @@ describe('git checkout', () => {
     expect(read(app, 'node_modules/built.txt')).toBe('1.1.0'); // the running folder is as it was
   });
 
-  it('a swap that succeeds replaces the previous copy only at the end, and leaves no .update-rollback.next', async () => {
+  it('a swap that succeeds replaces the previous copy only at the end, and leaves no .update-rollback.next', SLOW, async () => {
     release('1.1.0');
     await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
     release('1.2.0');
@@ -249,7 +253,92 @@ describe('git checkout', () => {
     expect(readRollback(app).manifest).toMatchObject({ version: '1.1.0', toVersion: '1.2.0', phase: 'swapped' });
   });
 
-  it('already on the target commit with a version that is not newer: no build, no swap, no rollback copy ("already on 1.0.0")', async () => {
+  describe('a stage that cannot be removed', () => {
+    const ebusy = () => Object.assign(new Error("EBUSY: resource busy or locked, rmdir '.update-stage'"), { code: 'EBUSY' });
+    /** An rm that fails `times` times (then removes for real); times = Infinity: it always fails, and the stage is still there afterwards (as if something held it). */
+    const flaky = (times) => { let n = 0; const calls = () => n; const fn = async (p, o) => { n++; if (n <= times) { mkdirSync(p, { recursive: true }); write(p, 'held.txt', 'x'); throw ebusy(); } await rm(p, o); }; fn.calls = calls; return fn; };
+    const staged = async (v) => { release(v); return stageUpdate({ root: app, settings, fetchFn: fakeFetch(v) }); };
+
+    it('EBUSY twice then success: the swap succeeds, the stage is gone, no marker', SLOW, async () => {
+      const plan = await staged('1.1.0');
+      const rmFn = flaky(2), lines = [];
+      const r = await applyStaged({ root: app, plan, log: (l) => lines.push(l), stageRemoval: { rmFn, retryDelayMs: 1 } });
+      expect(r).toMatchObject({ upToDate: false, to: '1.1.0' });
+      expect(rmFn.calls()).toBe(3);
+      expect(existsSync(stageDir(app))).toBe(false);
+      expect(lines.some((l) => l.includes('stage left behind'))).toBe(false);
+      expect(read(app, 'node_modules/built.txt')).toBe('1.1.0');
+    });
+
+    it('EBUSY always: the swap still succeeds, says so, leaves the marker, and the next boot (discardStage) removes it; the next update starts clean', SLOW, async () => {
+      const plan = await staged('1.1.0');
+      const lines = [];
+      const r = await applyStaged({ root: app, plan, log: (l) => lines.push(l), stageRemoval: { rmFn: flaky(Infinity), retryDelayMs: 1 } });
+      expect(r).toMatchObject({ upToDate: false, from: '1.0.0', to: '1.1.0' });
+      expect(read(app, 'node_modules/built.txt')).toBe('1.1.0');
+      expect(readRollback(app).manifest).toMatchObject({ phase: 'swapped', toVersion: '1.1.0' });
+      expect(lines.some((l) => l.includes('stage left behind; it is removed at the next boot'))).toBe(true);
+      expect(existsSync(join(stageDir(app), STAGE_LEFT_MARKER))).toBe(true);
+      expect(git(app, 'status', '--porcelain')).toBe(''); // (a leftover stage never makes the tree look dirty)
+      expect(await discardStage(app)).toBe(true); // boot cleanup
+      expect(existsSync(stageDir(app))).toBe(false);
+      // and a leftover does not block the next update: stageUpdate removes it first
+      mkdirSync(stageDir(app), { recursive: true }); write(stageDir(app), STAGE_LEFT_MARKER, 'x');
+      const next = await staged('1.2.0');
+      expect(next.to).toBe('1.2.0');
+    });
+
+    it('a failed swap whose stage cannot be removed still reports the swap failure (restored), not the removal', SLOW, async () => {
+      const plan = await staged('1.1.0');
+      const err = await applyStaged({ root: app, plan: { ...plan, toSha: '0000000000000000000000000000000000000000' }, stageRemoval: { rmFn: flaky(Infinity), retryDelayMs: 1 } }).catch((e) => e);
+      expect(err).toBeInstanceOf(UpdateError);
+      expect(err.restored).toBe(true);
+      expect(err.message).not.toMatch(/EBUSY/);
+      expect(existsSync(join(stageDir(app), STAGE_LEFT_MARKER))).toBe(true);
+    });
+  });
+
+  describe('a rollback copy this version cannot act on', () => {
+    const rbManifest = () => join(readRollback(app).dir, 'manifest.json');
+    const doUpdate = async (v) => { release(v); await runUpdate({ root: app, settings, fetchFn: fakeFetch(v) }); };
+
+    it('a format-2 manifest is not offered as a rollback, rollbackNow refuses it with a reason, and the file is not rewritten', SLOW, async () => {
+      await doUpdate('1.1.0');
+      const file = rbManifest();
+      writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf-8')), format: 2 }));
+      const before = readFileSync(file, 'utf-8');
+      expect(readRollback(app)).toBe(null);
+      expect(rollbackInfo(app).available).toBe(false);
+      const err = await rollbackNow({ root: app }).catch((e) => e);
+      expect(err).toBeInstanceOf(UpdateError);
+      expect(err.message).toMatch(/format 2/);
+      expect(readFileSync(file, 'utf-8')).toBe(before);
+    });
+
+    it('an update over a recovery_failed main copy is refused (at stageUpdate and at the swap), and the copy is byte-identical afterwards', SLOW, async () => {
+      await doUpdate('1.1.0');
+      const file = rbManifest();
+      writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf-8')), phase: 'recovery_failed' }));
+      const before = readFileSync(file, 'utf-8');
+      const filesBefore = readdirSync(join(readRollback(app).dir, 'files')).sort();
+      release('1.2.0');
+      const err = await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.2.0') }).catch((e) => e);
+      expect(err).toBeInstanceOf(UpdateError);
+      expect(err.message).toMatch(/recovery_failed/);
+      expect(err.message).toMatch(/--recover/);
+      expect(existsSync(stageDir(app))).toBe(false);
+      expect(readFileSync(file, 'utf-8')).toBe(before);
+      expect(readdirSync(join(readRollback(app).dir, 'files')).sort()).toEqual(filesBefore);
+      // the swap itself refuses too (a plan staged before the copy went bad)
+      write(stageDir(app), 'package.json', pkg('1.2.0'));
+      const sha = git(app, 'rev-parse', 'HEAD');
+      const err2 = await applyStaged({ root: app, plan: { upToDate: false, staged: true, from: '1.1.0', to: '1.2.0', mode: 'git', sha, toSha: git(app, 'rev-parse', 'origin/main'), branch: 'main', files: [] } }).catch((e) => e);
+      expect(err2.message).toMatch(/recovery_failed/);
+      expect(readFileSync(file, 'utf-8')).toBe(before);
+    });
+  });
+
+  it('already on the target commit with a version that is not newer: no build, no swap, no rollback copy ("already on 1.0.0")', SLOW, async () => {
     const lines = [], states = [];
     const r = await runUpdate({ root: app, settings, force: true, fetchFn: fakeFetch('1.0.0'), log: (l) => lines.push(l), setState: (s) => states.push(s) });
     expect(r).toMatchObject({ upToDate: true, already: true, current: '1.0.0' });
@@ -314,7 +403,7 @@ describe('git checkout', () => {
       expect(await recoverInterruptedSwap(app)).toBe(false); // and a second run finds nothing
     });
 
-    it('a cut swap leaves the PREVIOUS rollback copy alone', async () => {
+    it('a cut swap leaves the PREVIOUS rollback copy alone', SLOW, async () => {
       release('1.1.0');
       await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
       const prev = JSON.stringify(readRollback(app).manifest);
@@ -325,7 +414,7 @@ describe('git checkout', () => {
       expect(JSON.stringify(readRollback(app).manifest)).toBe(prev);
     });
 
-    it('a complete swap whose copy was not yet moved over the previous one is finished (promoted)', async () => {
+    it('a complete swap whose copy was not yet moved over the previous one is finished (promoted)', SLOW, async () => {
       release('1.1.0');
       await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
       const rb = readRollback(app);
@@ -345,7 +434,7 @@ describe('git checkout', () => {
   });
 
   describe('a roll back is crash-safe', () => {
-    it('the current directories go aside first and are deleted only after the manifest says rolled_back', async () => {
+    it('the current directories go aside first and are deleted only after the manifest says rolled_back', SLOW, async () => {
       release('1.1.0');
       await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
       const rb = readRollback(app);
@@ -357,7 +446,7 @@ describe('git checkout', () => {
       expect(read(app, 'node_modules/built.txt')).toBe('1.0.0');
     });
 
-    it('a crash after the old node_modules is back but before the rest is finished by the recovery (HEAD reset, the other directories put back, copy consumed)', async () => {
+    it('a crash after the old node_modules is back but before the rest is finished by the recovery (HEAD reset, the other directories put back, copy consumed)', SLOW, async () => {
       const before = git(app, 'rev-parse', 'HEAD');
       release('1.1.0');
       await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
@@ -376,7 +465,7 @@ describe('git checkout', () => {
       expect(existsSync(join(app, '.update-rollback'))).toBe(false); // a roll back consumes its copy
     });
 
-    it('a crash after the manifest said rolled_back only has the set-aside copies left to delete', async () => {
+    it('a crash after the manifest said rolled_back only has the set-aside copies left to delete', SLOW, async () => {
       release('1.1.0');
       await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
       await rollbackNow({ root: app, force: false });
@@ -390,7 +479,7 @@ describe('git checkout', () => {
   });
 
   describe('which repository', () => {
-    it('follows origin when only package.json named the repository (a fork\'s clone updates from the fork); refuses when updates.repo disagrees', async () => {
+    it('follows origin when only package.json named the repository (a fork\'s clone updates from the fork); refuses when updates.repo disagrees', SLOW, async () => {
       git(app, 'config', 'url.' + origin + '.insteadOf', 'https://github.com/someone/fork.git');
       git(app, 'remote', 'set-url', 'origin', 'https://github.com/someone/fork.git');
       expect(resolveRepo(app, { repo: 'echo/sanctum', explicit: false })).toMatchObject({ repo: 'someone/fork', note: expect.stringContaining('someone/fork') });
@@ -410,7 +499,7 @@ describe('git checkout', () => {
     });
   });
 
-  it('the CLI roll back needs nothing from the app: it runs in a copy with no node_modules at all (no js-yaml), and puts the previous version back', async () => {
+  it('the CLI roll back needs nothing from the app: it runs in a copy with no node_modules at all (no js-yaml), and puts the previous version back', SLOW, async () => {
     release('1.1.0');
     await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
     write(app, 'sanctum.yaml', 'updates:\n  branch: main\nagent:\n  cwd: ./home\n');

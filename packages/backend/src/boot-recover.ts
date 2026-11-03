@@ -1,5 +1,5 @@
 // The pre-boot recovery, vendored: this file imports node's own modules and NOTHING else (no dotenv, no app code, not scripts/updater-core.mjs), so it can run when
-// node_modules is half moved, and the new version's copy of it can never be the old version's. dist/boot.js (src/boot.ts) runs it before it imports server.js.
+// node_modules is half moved, and the new version's copy of it can never be the old version's. packages/backend/boot.mjs runs it before it imports server.js.
 // scripts/boot-recover.mjs is a generated copy of this file (`node scripts/sync-boot-recover.mjs`; a test fails when it is stale); `npm start` runs that copy
 // (`scripts/update.mjs --recover`) because it works even when dist is missing, and scripts/updater-core.mjs builds its restore and its crash recovery on it, so the
 // swap, the roll back and the recovery after a crash all follow one set of rules.

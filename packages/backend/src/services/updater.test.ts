@@ -225,6 +225,15 @@ describe('an update job', () => {
     expect(getJob()!.state).toBe('done');
   });
 
+  it('boot: a leftover stage that carries the "left behind" marker with a job already `done` is removed and the job stays done', async () => {
+    mkdirSync(join(root, '.update-stage', 'node_modules'), { recursive: true });
+    put(join(root, '.update-stage'), '.stage-left-behind', '2026-11-03T12:00:00.000Z EBUSY\n');
+    put(data, 'update-job.json', JSON.stringify({ id: 'x', kind: 'update', state: 'done', from: '1.0.0', to: '1.1.0', started_at: 'z', finished_at: '2026-11-03T12:00:00.000Z', error: null, pid: 1, boot_at: 1, log: [] }));
+    await initUpdater();
+    expect(existsSync(join(root, '.update-stage'))).toBe(false);
+    expect(getJob()).toMatchObject({ state: 'done', error: null });
+  });
+
   it('boot: a stage present with a job already `done` does not mark it failed', async () => {
     mkdirSync(join(root, '.update-stage', 'node_modules'), { recursive: true });
     put(data, 'update-job.json', JSON.stringify({ id: 'x', kind: 'update', state: 'done', from: '1.0.0', to: '1.1.0', started_at: 'z', finished_at: '2026-11-03T12:00:00.000Z', error: null, pid: 1, boot_at: 1, log: [] }));

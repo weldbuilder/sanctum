@@ -1,5 +1,5 @@
-// dist/boot.js run for real (node, no tsx) in a scratch copy of the layout, over a folder a swap was cut short in. What it proves, which a static import of the recovery from server.ts never could:
-// with node_modules MOVED ASIDE (so `import 'fake-dep'` in the app cannot even be linked), `node dist/boot.js` puts the previous version back first, starts over, and serves the OLD version
+// packages/backend/boot.mjs run for real (node, no tsx) in a scratch copy of the layout, over a folder a swap was cut short in. What it proves, which a static import of the recovery from server.ts never could:
+// with node_modules MOVED ASIDE (so `import 'fake-dep'` in the app cannot even be linked), `node packages/backend/boot.mjs` puts the previous version back first, starts over, and serves the OLD version
 // (old HEAD, old build id, old node_modules, old dist); `node dist/server.js` on the same folder cannot start. Re-exec exit codes differ on Windows (a signalled child has no code), so the
 // processes are run only where that is the same as on Linux; the recovery itself is unit tested on every platform (boot-recover.test.ts).
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { writeManifest, type Manifest } from './boot-recover.js';
 
+
 const here = dirname(fileURLToPath(import.meta.url));
 const NULL_DEVICE = process.platform === 'win32' ? 'NUL' : '/dev/null';
 const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 'Sam', GIT_AUTHOR_EMAIL: 'sam@example.test', GIT_COMMITTER_NAME: 'Sam', GIT_COMMITTER_EMAIL: 'sam@example.test', GIT_CONFIG_GLOBAL: NULL_DEVICE };
@@ -19,8 +20,10 @@ const put = (root: string, rel: string, body: string) => { mkdirSync(dirname(joi
 const read = (root: string, rel: string) => readFileSync(join(root, rel), 'utf-8');
 /** What `tsc` makes of src/<name>.ts, so the files run here are the compiled ones. */
 const compiled = (name: string) => ts.transpileModule(readFileSync(join(here, name), 'utf-8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
-const BOOT = compiled('boot.ts');
-const BOOT_RECOVER = compiled('boot-recover.ts');
+const repoRoot = join(here, '..', '..', '..');
+/** The tracked entry and the vendored recovery it imports: the real files, copied into the scratch app at the same places (both outside every directory a swap moves). */
+const BOOT_MJS = readFileSync(join(repoRoot, 'packages', 'backend', 'boot.mjs'), 'utf-8');
+const BOOT_RECOVER_MJS = readFileSync(join(repoRoot, 'scripts', 'boot-recover.mjs'), 'utf-8');
 /** The stand-in app: it needs a package from node_modules to even link, then reports what it finds on disk. */
 const server = (which: string) => `
 import { marker } from 'fake-dep';
@@ -37,13 +40,14 @@ console.log('SERVING ' + JSON.stringify({
 process.exit(0);
 `;
 const fakeDep = (root: string, marker: string) => { put(root, 'node_modules/fake-dep/package.json', '{"name":"fake-dep","type":"module","exports":"./index.js"}'); put(root, 'node_modules/fake-dep/index.js', `export const marker = '${marker}';`); };
-const dist = (root: string, which: string) => { put(root, 'packages/backend/dist/boot.js', BOOT); put(root, 'packages/backend/dist/boot-recover.js', BOOT_RECOVER); put(root, 'packages/backend/dist/server.js', server(which)); };
+const dist = (root: string, which: string) => { put(root, 'packages/backend/dist/server.js', server(which)); };
 
 let app: string, oldSha: string, newSha: string;
 const next = () => join(app, '.update-rollback.next', '1.0.0');
 beforeEach(() => {
   app = mkdtempSync(join(tmpdir(), 'boot-'));
   put(app, 'packages/backend/package.json', '{"type":"module"}');
+  put(app, 'packages/backend/boot.mjs', BOOT_MJS); put(app, 'scripts/boot-recover.mjs', BOOT_RECOVER_MJS); // (tracked, like the real ones)
   git(app, 'init', '-q', '-b', 'main');
   writeFileSync(join(app, '.gitignore'), 'node_modules/\ndist/\nbuild/\n.update-stage/\n.update-rollback/\n.update-rollback.next/\n.update-recovery.json\n.update-recover.count\n');
   put(app, 'package.json', '{"name":"fake","version":"1.0.0"}');
@@ -80,13 +84,13 @@ function cutSwap(point: Point) {
   if (point === 'before-merge') git(app, 'reset', '-q', '--hard', oldSha);
   mkdirSync(join(app, '.update-stage'), { recursive: true });
 }
-const entry = (name: string) => join(app, 'packages', 'backend', 'dist', name);
+const entry = (name: string) => (name === 'boot.mjs' ? join(app, 'packages', 'backend', name) : join(app, 'packages', 'backend', 'dist', name));
 const run = (script: string, env: Record<string, string> = {}) => spawnSync(process.execPath, [script], { cwd: app, encoding: 'utf-8', env: { ...process.env, ...env }, timeout: 60_000 });
 const served = (out: string) => JSON.parse(/SERVING (.*)/.exec(out)![1]);
 const OLD = { server: 'OLD', version: '1.0.0', head: '', build: 'OLD-BUILD', modules: 'OLD-MODULES', reexeced: null };
 
-describe.skipIf(process.platform === 'win32')('node dist/boot.js after a swap was cut short', () => {
-  it('node_modules moved aside (the app cannot even link): dist/server.js alone cannot start, dist/boot.js recovers first and serves the old version', () => {
+describe.skipIf(process.platform === 'win32')('node packages/backend/boot.mjs after a swap was cut short', () => {
+  it('node_modules moved aside (the app cannot even link): dist/server.js alone cannot start, boot.mjs recovers first and serves the old version', () => {
     cutSwap('modules-aside');
     expect(existsSync(join(app, 'node_modules'))).toBe(false);
     const plain = run(entry('server.js')); // what a static import of the recovery from server.ts left: node links the graph first, so nothing recovers
@@ -94,7 +98,7 @@ describe.skipIf(process.platform === 'win32')('node dist/boot.js after a swap wa
     expect(plain.stderr).toMatch(/Cannot find package 'fake-dep'/);
     expect(existsSync(next())).toBe(true); // (and nothing was touched)
 
-    const r = run(entry('boot.js'));
+    const r = run(entry('boot.mjs'));
     expect(r.status).toBe(0);
     expect(r.stdout).toMatch(/\[update-recover\] a swap was cut short/);
     expect(r.stdout).toMatch(/starting the app again from them/);
@@ -102,9 +106,22 @@ describe.skipIf(process.platform === 'win32')('node dist/boot.js after a swap wa
     expect(r.stdout.match(/SERVING/g)).toHaveLength(1); // the first process never got as far as serving: only its re-exec did
     expect(existsSync(join(app, '.update-rollback.next'))).toBe(false);
     expect(JSON.parse(read(app, '.update-recovery.json'))).toMatchObject({ outcome: 'restored', phase: 'swapping' }); // for the updater service to word its job from
-    const again = run(entry('boot.js')); // the next start finds nothing to do and serves directly
+    const again = run(entry('boot.mjs')); // the next start finds nothing to do and serves directly
     expect(again.stdout).not.toMatch(/update-recover/);
     expect(served(again.stdout)).toMatchObject({ version: '1.0.0', head: oldSha, reexeced: null });
+  });
+
+  it('dist is gone entirely (the window between dist moved into the rollback copy and the staged one moved in): boot.mjs still exists, recovers from the swapping manifest and boots the old version', () => {
+    cutSwap('dist-and-build');
+    rmSync(join(app, 'packages', 'backend', 'dist'), { recursive: true, force: true }); // (the window itself: nothing under dist, boot.js included, exists)
+    expect(existsSync(join(app, 'packages', 'backend', 'dist'))).toBe(false);
+    expect(existsSync(entry('boot.mjs'))).toBe(true);
+    const r = run(entry('boot.mjs'));
+    expect(r.stderr).toBe('');
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/\[update-recover\] a swap was cut short/);
+    expect(served(r.stdout)).toEqual({ ...OLD, head: oldSha });
+    expect(existsSync(join(app, '.update-rollback.next'))).toBe(false);
   });
 
   it.each([
@@ -115,7 +132,7 @@ describe.skipIf(process.platform === 'win32')('node dist/boot.js after a swap wa
   ] as const)('killed %s: the process that serves is the old version (old HEAD, old build id, old node_modules, old dist)', (_n, point) => {
     cutSwap(point);
     if (point !== 'before-merge') expect(git(app, 'rev-parse', 'HEAD')).toBe(newSha);
-    const r = run(entry('boot.js'));
+    const r = run(entry('boot.mjs'));
     expect(r.stderr).toBe('');
     expect(r.status).toBe(0);
     expect(r.stdout).toMatch(/\[update-recover\] a swap was cut short/);
@@ -127,11 +144,11 @@ describe.skipIf(process.platform === 'win32')('node dist/boot.js after a swap wa
 
   it('under a supervisor it exits 75 after the restore (the supervisor starts it again) and serves nothing itself; the loop guard stops a fourth', () => {
     cutSwap('modules-aside');
-    const r = run(entry('boot.js'), { SANCTUM_SUPERVISED: '1' });
+    const r = run(entry('boot.mjs'), { SANCTUM_SUPERVISED: '1' });
     expect(r.status).toBe(75);
     expect(r.stdout).not.toMatch(/SERVING/);
     expect(JSON.parse(read(app, '.update-recover.count')).count).toBe(1);
-    const second = run(entry('boot.js'), { SANCTUM_SUPERVISED: '1' }); // the supervisor's second start
+    const second = run(entry('boot.mjs'), { SANCTUM_SUPERVISED: '1' }); // the supervisor's second start
     expect(second.status).toBe(0);
     expect(served(second.stdout)).toMatchObject({ ...OLD, head: oldSha });
     // three more cut swaps in a row: the first two exit 75, the next is refused and the app boots as it is
@@ -139,7 +156,7 @@ describe.skipIf(process.platform === 'win32')('node dist/boot.js after a swap wa
     for (let i = 0; i < 3; i++) {
       rmSync(join(app, 'node_modules'), { recursive: true, force: true }); rmSync(join(app, '.update-rollback.next'), { recursive: true, force: true });
       cutSwap('modules-aside');
-      const x = run(entry('boot.js'), { SANCTUM_SUPERVISED: '1' });
+      const x = run(entry('boot.mjs'), { SANCTUM_SUPERVISED: '1' });
       codes.push(x.status);
       if (x.status !== 75) { expect(x.stdout).toMatch(/recovery number 4 within 10 minutes/); expect(x.stdout).toMatch(/SERVING/); }
     }
@@ -149,7 +166,7 @@ describe.skipIf(process.platform === 'win32')('node dist/boot.js after a swap wa
   it('a corrupt manifest: the app still starts, nothing is removed, and it says where to look', () => {
     cutSwap('first-rename');
     writeFileSync(join(next(), 'manifest.json'), '{"phase": "swapp');
-    const r = run(entry('boot.js'));
+    const r = run(entry('boot.mjs'));
     expect(r.status).toBe(0);
     expect(r.stdout + r.stderr).toMatch(/could not read the update state; nothing was removed/);
     expect(r.stdout).toMatch(/npm run update -- --recover/);
@@ -161,7 +178,7 @@ describe.skipIf(process.platform === 'win32')('node dist/boot.js after a swap wa
   it('with nothing to recover it adds nothing: the app just starts', () => {
     fakeDep(app, 'OLD-MODULES'); dist(app, 'OLD'); put(app, 'packages/frontend/build/id.txt', 'OLD-BUILD');
     git(app, 'reset', '-q', '--hard', oldSha);
-    const r = run(entry('boot.js'));
+    const r = run(entry('boot.mjs'));
     expect(r.status).toBe(0);
     expect(r.stdout).not.toMatch(/update-recover/);
     expect(served(r.stdout)).toEqual({ ...OLD, head: oldSha });
