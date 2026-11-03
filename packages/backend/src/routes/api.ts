@@ -7,7 +7,7 @@ import { getTelegramConfig } from '../services/telegram/config.js';
 import { getDiscordConfig } from '../services/discord/config.js';
 import crypto from 'crypto';
 import multer from 'multer';
-import { readdirSync, readFileSync, existsSync, statSync } from 'fs';
+import { readdirSync, readFileSync, existsSync, statSync, lstatSync, realpathSync } from 'fs';
 import { join, basename, dirname, extname, resolve, sep, isAbsolute } from 'path';
 import { activeProvider } from '../services/providers/index.js';
 import { checkForUpdate } from '../services/update-check.js';
@@ -97,7 +97,8 @@ import { currentTenant } from '../tenancy/context.js';
 import { companionPath, householdMode } from '../tenancy/house.js';
 import { duplicateTokenOwners, markCurrentChannel, refreshChannelAfterTokenChange } from '../tenancy/channels.js';
 import { tenantEditRefusal, tenantWriteRefusal, writeOwnFile } from '../tenancy/edit.js';
-import { ownMkdir, ownReadDir, ownReadable, ownRename, ownRm, ownStat, ownUnlink, ownWriteFile, readOwn, readOwnText, sendOwnFile } from '../tenancy/own-files.js';
+import { ownMkdir, ownReadDir, ownReadable, ownRename, ownRm, ownStat, ownUnlink, ownWriteFile, readOwn, readOwnOrApp, readOwnText, sendOwnFile } from '../tenancy/own-files.js';
+import { FRAME_FILE_NAME, homeFramePath, resolveFrameFile } from '../services/frame-file.js';
 import { IMAGE_TYPES, freeName, realInside, recentFiles, safeName, sameEntry, sharedRoot, taken } from '../services/shared-files.js';
 import { OwnFileRefused } from '../../../../scripts/own-files-lib.mjs';
 import { loginRateLimiter } from '../middleware/security.js';
@@ -113,6 +114,7 @@ import { embed, vectorToBuffer } from '../services/embeddings.js';
 import { searchVectors, getCacheStats, type SearchFilter } from '../services/vector-cache.js';
 import { saveFile, saveFileInternal, getContentTypeFromMime, getFile, deleteFile, listFiles } from '../services/files.js';
 import { getSafeWritePrefixes } from '../services/hooks.js';
+import { FrameRefused, fsRootOf, protectedFrameSet, readFrame, samePath, underFolder, writeFrame, type ProtectedFrameSet } from '../services/frame-guard.js';
 import { registry } from '../services/ws.js';
 import { getSanctumConfig, PROJECT_ROOT, CONFIG_FILE_NAMES, browserFrameOrigin, checkBrowserUrl, resolveBrowserUrlUpdate } from '../config.js';
 import { browserToolsConfigured } from '../services/browser-gate.js';
@@ -4020,22 +4022,135 @@ router.get('/skills', (req, res) => {
 });
 
 // --- System prompt frame (the lean operating frame, prepended before CLAUDE.md) ---
-// Edits apply live: the agent reads this file fresh on every turn. Only the file
-// configured as agent.system_prompt_file is touched, and only if it sits inside an
-// allowed write root.
+// The agent reads the frame fresh on every turn, so a saved copy applies on the next turn. Which file it reads is
+// services/frame-file.ts: <home>/config/companion-claude.md if it exists, else agent.system_prompt_file. The editor never writes into the
+// app's own prompts/ folder (a tracked build output): when the configured file is there, or outside the write roots, it is shown as the
+// starting text and a save creates the home copy, which then wins.
+const underAppPrompts = (p: string): boolean => underFolder(p, resolve(PROJECT_ROOT, 'prompts'));
+/** The app's own tracked folders: the built frame (prompts/) and the starter home (companion-home/). The editor never writes into either, by the path
+ *  as written or by where it really lands. Both spellings of each folder (as written, and its real path) are listed. */
+const appFrameFolders = (): string[] => ['prompts', 'companion-home'].flatMap((name) => {
+  const dir = resolve(PROJECT_ROOT, name);
+  let real = dir;
+  try { real = realpathSync.native(dir); } catch { /* not there: only its own path counts */ }
+  return real === dir ? [dir] : [dir, real];
+});
+const FRAME_IN_APP = { status: 403, error: "The frame is never saved into the app's own prompts/ or companion-home/ folder" };
+/** The deepest of `p` and its ancestors that exists (lstat: a link counts as there), or '' when none does. */
+function deepestExisting(p: string): string {
+  for (let probe = p; ; probe = dirname(probe)) {
+    try { lstatSync(probe); return probe; } catch (e) { const code = (e as NodeJS.ErrnoException).code; if (code !== 'ENOENT' && code !== 'ENOTDIR') return probe; }
+    if (dirname(probe) === probe) return '';
+  }
+}
+/** Why a save to `target` (an absolute, resolved path) must be refused, or null. 403: it is, or really lands, under the app's prompts/ or companion-home/
+ *  (also when agent.cwd itself is there). 400: the file is a link, is hard-linked or is not a regular file (the target itself is judged ALWAYS, also when a
+ *  write root names it exactly), or a folder between it and the write root that holds it is a link or not a folder (a save would write through to whatever
+ *  the link names). Mirrors the tenant rule (scripts/own-files-lib.mjs) for the single-tenant case, where tenantWriteRefusal does nothing. A target or folder
+ *  that does not exist yet is fine: the save creates it. This is the PATH check, for a clear answer; the save then walks again by held descriptors (frame-guard.ts). */
+function frameWriteRefusal(target: string): { status: number; error: string } | null {
+  const folders = appFrameFolders();
+  if (folders.some((d) => underFolder(target, d))) return FRAME_IN_APP;
+  const cannot = { status: 400, error: 'The frame path cannot be checked' };
+  // The target itself, first, whatever write root names it.
+  let deepest = '';
+  try {
+    const st = lstatSync(target);
+    if (st.isSymbolicLink()) return { status: 400, error: `${basename(target)} is a link; the frame is not saved through a link` };
+    if (!st.isFile()) return { status: 400, error: `${basename(target)} is not a regular file; the frame is saved only to a plain file` };
+    if (st.nlink > 1) return { status: 400, error: `${basename(target)} is hard-linked; the frame is not saved through a second name for another file` };
+    deepest = target;
+  } catch (e) { const code = (e as NodeJS.ErrnoException).code; if (code !== 'ENOENT' && code !== 'ENOTDIR') return cannot; }
+  // The folder the path is judged from: the longest write root (agent.cwd is one) that holds it. Links above it are the operator's own layout.
+  const roots = [resolve(getSanctumConfig().agent.cwd), ...getSafeWritePrefixes().map((r) => resolve(r))].filter((r) => underFolder(target, r));
+  const boundary = roots.sort((a, b) => b.length - a.length)[0] ?? '';
+  // Every folder from the target's up to the boundary (not the boundary itself).
+  for (let probe = dirname(target); !(boundary && samePath(probe, boundary)); probe = dirname(probe)) {
+    try {
+      const st = lstatSync(probe);
+      if (st.isSymbolicLink()) return { status: 400, error: `${basename(probe)} is a link; the frame is not saved through a link` };
+      if (!st.isDirectory()) return { status: 400, error: `${basename(probe)} is not a folder; the frame cannot be saved inside it` };
+      if (!deepest) deepest = probe;
+    } catch (e) { const code = (e as NodeJS.ErrnoException).code; if (code !== 'ENOENT' && code !== 'ENOTDIR') return cannot; }
+    if (dirname(probe) === probe) break;
+  }
+  // The deepest part that exists, by its real path: a root that is itself a link into the app's folders lands there. A root that is not made yet
+  // (a new agent.cwd) is judged by its deepest existing ancestor: the save makes the rest.
+  if (!deepest) deepest = deepestExisting(boundary || dirname(target));
+  let real = '';
+  try { real = deepest ? realpathSync.native(deepest) : ''; } catch { return cannot; }
+  if (real && folders.some((d) => underFolder(real, d))) return FRAME_IN_APP;
+  return null;
+}
+/** The folder a save or read of `p` walks from (services/frame-guard.ts holds each folder below it by descriptor): the longest write root that is a FOLDER
+ *  above `p` (agent.cwd is one; links above it are the operator's own layout). A path held only by a write root that names it exactly is walked from the
+ *  root of the file system, every folder on the way judged, as frameWriteRefusal judges it; a read of a file no write root holds (a configured frame
+ *  elsewhere) is walked from its own folder. */
+function frameBoundary(p: string, fallback: 'fs-root' | 'own-folder'): string {
+  const roots = [resolve(getSanctumConfig().agent.cwd), ...getSafeWritePrefixes().map((r) => resolve(r))].filter((r) => !samePath(r, p) && underFolder(p, r));
+  const longest = roots.sort((a, b) => b.length - a.length)[0];
+  if (longest) return longest;
+  return fallback === 'fs-root' ? fsRootOf(p) : dirname(p);
+}
+/** The app folder (prompts/ or companion-home/, either spelling) that `p` is spelled under, or ''. */
+const appFolderOf = (p: string): string => appFrameFolders().find((d) => underFolder(p, d)) ?? '';
+/** The harness the app ships: the starting text when no frame resolves. */
+const shippedFramePath = (): string => join(PROJECT_ROOT, 'prompts', FRAME_FILE_NAME);
+/** The frame text for the editor, read through frame-guard's held-folder walk: no link on the way or at the name, a regular file with one name, no pipe (it
+ *  must not hang the server), so the editor never shows the bytes of whatever a planted link or hard link names. A file the path spells inside the app's
+ *  own folders (the shipped default, or a key naming one there) is the app's own: read from that folder, with the link checks and without the app-folder
+ *  refusal. Any other file is refused (403) when it really is one of the app's files or folders. A tenant's read passes the tenant layer's own guard
+ *  (readOwnOrApp, its checks and its sentences) first; the bytes shown are the held-walk read's. */
+function readFrameForEditor(file: string, guard: () => ProtectedFrameSet): string {
+  const path = resolve(file);
+  const tenant = !!currentTenant();
+  if (tenant) readOwnOrApp(path);
+  const app = appFolderOf(path);
+  if (app) return readFrame(path, { boundary: app, guard: null });
+  return readFrame(path, { boundary: frameBoundary(path, 'own-folder'), guard: guard(), allowedAt: tenant ? insideCurrentTenant : undefined });
+}
+const insideWriteRoots = (p: string): boolean =>
+  getSafeWritePrefixes().some(root => p === resolve(root) || p.startsWith(resolve(root) + sep));
+/** The file a save writes: the home copy when there is one (it is the one the agent reads); else the configured file when it is inside the write
+ *  roots and not under the app's prompts/ folder; else the home copy, created on the save. '' when there is nothing to save to (no key, no home copy). */
+function frameWritePath(): string {
+  const cfg = getSanctumConfig().agent;
+  const home = homeFramePath(cfg.cwd);
+  const configured = cfg.system_prompt_file ? resolve(cfg.system_prompt_file) : '';
+  if (existsSync(home)) return home;
+  if (!configured) return '';
+  return insideWriteRoots(configured) && !underAppPrompts(configured) ? configured : home;
+}
+
 router.get('/prompts/system', (req, res) => {
   try {
     const agentCfg = getSanctumConfig().agent;
-    // On Codex the frame is never sent: identity is the files in <cwd>/identity.
+    // On Codex and dsh the frame is never sent: identity is the files in <cwd>/identity.
     // Tell the UI so it points there instead of offering an editor that does nothing.
     const provider = activeProvider();
     const agents_md = provider !== 'claude' ? join(agentCfg.cwd, 'identity') : '';
-    const path = agentCfg.system_prompt_file || '';
-    if (path && !insideCurrentTenant(path)) { res.status(403).json({ error: 'outside the tenant folder' }); return; }
-    if (!path) { res.json({ configured: false, content: '', path: '', provider, agents_md }); return; }
-    const content = existsSync(path) ? readOwnText(path) : '';
-    res.json({ configured: true, content, path, provider, agents_md });
+    const configured = agentCfg.system_prompt_file || '';
+    if (configured && !insideCurrentTenant(configured)) { res.status(403).json({ error: 'outside the tenant folder' }); return; }
+    const found = resolveFrameFile(agentCfg.cwd, configured);
+    if (!configured && found.source !== 'home') { res.json({ configured: false, content: '', path: '', source: 'none', read_path: '', template: false, provider, agents_md }); return; }
+    const writePath = frameWritePath();
+    let readPath = found.path;
+    let content = '';
+    let template = false;
+    let guardSet: ProtectedFrameSet | null = null;
+    const guard = (): ProtectedFrameSet => (guardSet ??= protectedFrameSet(PROJECT_ROOT));
+    if (found.path) {
+      content = readFrameForEditor(found.path, guard);
+      // The text is the configured file's, and a save goes to the home copy instead: the save creates the copy.
+      template = found.source === 'configured' && !!writePath && writePath !== found.path;
+    } else {
+      // No frame resolves (the agent is on the preset): start from the shipped harness, so the editor opens with something to install.
+      const shipped = shippedFramePath();
+      try { content = readFrameForEditor(shipped, guard); readPath = shipped; template = true; } catch { content = ''; }
+    }
+    res.json({ configured: true, content, path: writePath, source: found.source, read_path: readPath, template, provider, agents_md });
   } catch (error) {
+    if (error instanceof FrameRefused) { res.status(error.status).json({ error: error.message }); return; }
     if (handleUnavailable(error, res)) return;
     console.error('Error reading system prompt:', error);
     res.status(500).json({ error: 'Failed to read system prompt' });
@@ -4044,21 +4159,31 @@ router.get('/prompts/system', (req, res) => {
 
 router.put('/prompts/system', (req, res) => {
   try {
-    const path = getSanctumConfig().agent.system_prompt_file || '';
+    const path = frameWritePath();
     if (!path) { res.status(400).json({ error: 'No system_prompt_file configured' }); return; }
     const { content } = req.body;
     if (typeof content !== 'string') { res.status(400).json({ error: 'content (string) required' }); return; }
     const resolved = resolve(path);
     if (!insideCurrentTenant(resolved)) { res.status(403).json({ error: 'System prompt path is outside the tenant folder' }); return; }
-    const allowed = getSafeWritePrefixes().some(
-      p => resolved === resolve(p) || resolved.startsWith(resolve(p) + sep),
-    );
-    if (!allowed) { res.status(403).json({ error: 'System prompt path is outside the write roots' }); return; }
+    if (!insideWriteRoots(resolved)) { res.status(403).json({ error: 'System prompt path is outside the write roots' }); return; }
+    const refused = frameWriteRefusal(resolved);
+    if (refused) { res.status(refused.status).json({ error: refused.error }); return; }
     const own = tenantWriteRefusal(resolved);
     if (own) { res.status(400).json({ error: own }); return; }
-    writeOwnFile(resolved, content);
-    res.json({ success: true, bytes: content.length });
+    // The checks above judged the PATH. The save itself (services/frame-guard.ts) trusts no path after the write root: on Linux every folder below it is
+    // opened, or made, through the held descriptor of the one above and checked by inode against the app's own folders and files (taken once, here), and
+    // the file is a temp file in the held parent renamed over the name (all or nothing). A folder swapped for a link at any moment only makes the save fail.
+    // In a tenant the write root's real place must be inside the tenant folder too; the tenant checks above all still run.
+    writeFrame(resolved, content, {
+      boundary: frameBoundary(resolved, 'fs-root'),
+      guard: protectedFrameSet(PROJECT_ROOT),
+      allowedAt: currentTenant() ? insideCurrentTenant : undefined,
+      mkdir: (dir) => { ownMkdir(dir); }, // (off Linux only: the folders are made by path there, each inside one just verified)
+    });
+    res.json({ success: true, bytes: content.length, path: resolved, source: resolved === homeFramePath(getSanctumConfig().agent.cwd) ? 'home' : 'configured' });
   } catch (error) {
+    if (error instanceof FrameRefused) { res.status(error.status).json({ error: error.message }); return; }
+    if (error instanceof OwnFileRefused) { res.status(400).json({ error: error.message }); return; }
     console.error('Error writing system prompt:', error);
     res.status(500).json({ error: 'Failed to write system prompt' });
   }

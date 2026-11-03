@@ -49,7 +49,9 @@ The overlay sets:
 - **Throwaway runs** (rolling, one-shot helpers): the session log and the storage directory (its projection cache holds the first prompt, which carries identity and memory) point into the temp root.
 - **Summarizer:** also turns `AGENTS.md` discovery off, as `noProjectDocs` does on Codex.
 
-Three layers, as on Codex: the base prompt (`<agent.cwd>/config/dsh-base-prompt.md`, else `agent.dsh.base_instructions_file`; if neither exists dsh's stock headless persona is used), the identity files prepended to the message, and `AGENTS.md`, which dsh loads itself.
+Three layers, as on Codex: the base prompt (`<agent.cwd>/config/dsh-base-prompt.md`, else `agent.dsh.base_instructions_file`, which ships as `prompts/dsh-base-prompt.md`; only if neither file exists is dsh's stock headless persona used), the identity files prepended to the message, and `AGENTS.md`, which dsh loads itself.
+
+The shipped base prompt is the same harness Claude and Codex get: one shared base plus a short dsh tail, joined by `npm run prompts:build` (see `prompts/README.md`). Before it shipped, a home without its own `config/dsh-base-prompt.md` ran on dsh's stock persona. The starter home ships a copy in `config/`; an existing home keeps whatever it has until you copy the file in, because the home's copy wins.
 
 ## What you get over Codex
 

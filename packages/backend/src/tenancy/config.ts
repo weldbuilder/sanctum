@@ -233,6 +233,10 @@ export function loadTenantConfig(processCfg: SanctumConfig, tenantDir: string, i
   // The app's own working files default beside the tenant's home, never to the process's.
   if (!has('agent', 'claude_md_path')) merged.agent.claude_md_path = join(merged.agent.cwd, 'CLAUDE.md');
   if (!has('agent', 'mcp_json_path')) merged.agent.mcp_json_path = join(tenantDir, '.mcp.json');
+  // The Claude frame is the tenant's own copy in its home (shipped with every new home, editable from Settings). A key the tenant never wrote gets that
+  // path; an explicit "" stays "" (the claude_code preset). A raw check, not has(): has() reads "" as unset.
+  const ownFrame = obj(own.agent).system_prompt_file;
+  if (ownFrame === undefined || ownFrame === null) merged.agent.system_prompt_file = join(merged.agent.cwd, 'config', 'companion-claude.md');
 
   // D4: one process, one timezone. A tenant that names a different one is refused until the local-time sites are audited.
   const processTz = processCfg.identity?.timezone;

@@ -531,7 +531,10 @@ describe('single-tenant config golden', () => {
   ].join('\n');
 
   const normalise = (value: unknown, root: string): unknown => {
-    if (typeof value === 'string') return value.split(root).join('<ROOT>').split(pathDirname(root)).join('<ROOT>/..').replace(/\\/g, '/');
+    // A folder is replaced only when it is followed by a path separator or the end of the string, so a checkout named `sanctum` does not rewrite
+    // its sibling `<ROOT>/../sanctum-private` into `<ROOT>-private`.
+    const folder = (dir: string) => new RegExp(`${dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=[\\\\/]|$)`, 'g');
+    if (typeof value === 'string') return value.replace(folder(root), '<ROOT>').replace(folder(pathDirname(root)), '<ROOT>/..').replace(/\\/g, '/');
     if (Array.isArray(value)) return value.map((v) => normalise(v, root));
     if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, normalise(v, root)]));
     return value;
