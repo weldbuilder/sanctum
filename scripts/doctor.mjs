@@ -1,17 +1,18 @@
 // doctor.mjs: the health checks the soak runbook (docs/MULTI-TENANT.md, "A chaos and soak run, locally") does by hand, in one command.
 //
-//   npm run doctor [-- --tenant <id>] [--json]
+//   npm run doctor [-- --tenant <id>] [--json] [--root <dir>]
 //
 // Three sections, each line OK / WARN / FAIL with one sentence: Config (sanctum.yaml, the paths it names, the Claude frame), Tenants (the boot scan,
 // the clashes across tenants, the never-inherited table against the live merged config, file modes on secrets, each home), Process (node, the build
-// stamp, the database path). Exit code 0 when no FAIL, 1 otherwise; `--json` prints the same report as JSON.
+// stamp, the database path). Exit code 0 when no FAIL, 1 otherwise, 2 for a bad command line; `--json` prints the same report as JSON.
+// WARN: the app runs, but something is not as recommended. FAIL: boot would skip or refuse it, or a secret is exposed.
 //
 // It reads, never writes, and never prints a secret: names, paths, modes and lengths only. It reuses the libraries the wizard and the backend share
 // (scripts/setup-inherit.mjs, scripts/own-files-lib.mjs) rather than re-implementing their rules; the one thing it cannot import is the backend's
 // TypeScript, so the few shipped default paths are a table here (a test keeps it equal to packages/backend/src/config.ts).
 import dotenv from 'dotenv';
 import { createHash } from 'node:crypto';
-import { accessSync, constants, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, lstatSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -48,6 +49,9 @@ const expandHome = (p) => (p === '~' ? homedir() : p.startsWith('~/') ? join(hom
 const modeText = (st) => (st.mode & 0o777).toString(8).padStart(3, '0');
 const oneLine = (e) => String(e?.message ?? e).split('\n')[0];
 const statOrNull = (p) => { try { return statSync(p); } catch { return null; } };
+const lstatOrNull = (p) => { try { return lstatSync(p); } catch { return null; } };
+/** `text` as a sentence: one final period, never two. */
+const sentence = (text) => (/[.!?]$/.test(String(text)) ? String(text) : `${text}.`);
 
 /** A report: sections of { status: 'OK' | 'WARN' | 'FAIL', check, message } lines. */
 function newReport() {
@@ -103,7 +107,7 @@ function frameCheck(r, label, cwd, configured, provider) {
   if (found.source === 'home') r.ok(`${label}frame`, `the Claude frame is the home's own copy, ${found.path}.`);
   else if (found.source === 'configured') r.ok(`${label}frame`, `the Claude frame is the configured file, ${found.path} (no copy at ${join(cwd, 'config', 'companion-claude.md')}).`);
   else if (!configured) r.ok(`${label}frame`, 'agent.system_prompt_file is "": the claude_code preset is used on purpose (no frame, no [Runtime] model line).');
-  else (provider === 'claude' ? r.warn : r.ok)(`${label}frame`, `no frame: neither ${join(cwd, 'config', 'companion-claude.md')} nor ${configured} exists, so the claude_code preset is used (no frame, no [Runtime] model line).`);
+  else (provider === 'claude' ? r.warn : r.ok)(`${label}frame`, (join(cwd, 'config', 'companion-claude.md') === configured ? `no frame: ${configured} does not exist, so the claude_code preset is used (no frame, no [Runtime] model line).` : `no frame: neither ${join(cwd, 'config', 'companion-claude.md')} nor ${configured} exists, so the claude_code preset is used (no frame, no [Runtime] model line).`));
 }
 
 /** Yaml text parsed as a mapping: { cfg } or { error }. */
@@ -115,12 +119,14 @@ function parseYamlText(text) {
   } catch (e) { return { error: oneLine(e) }; }
 }
 
-/** The modes of the secrets in one folder: a file that is group or world readable is a FAIL. `files`: [path, display name]. */
-function checkModes(r, label, files) {
+/** The modes of the secrets in one folder: a file that is group or world readable is a FAIL. `files`: [path, display name]. `refuseLinks` (a tenant
+ *  folder): the boot scan refuses a link, pipe or device there, so no mode is read through it (its target's mode is not the tenant's). */
+function checkModes(r, label, files, { refuseLinks = false } = {}) {
   if (process.platform === 'win32') { r.ok(`${label}file modes`, 'not checked on Windows (the folder\'s access list is the boundary).'); return; }
   for (const [path, name] of files) {
-    const st = statOrNull(path);
+    const st = refuseLinks ? lstatOrNull(path) : statOrNull(path);
     if (!st) continue;
+    if (refuseLinks && !st.isFile()) { r.warn(`${label}mode ${name}`, `not checked: ${path} is not a plain file (a link, for one), which the boot scan refuses; see the boot scan line.`); continue; }
     if (st.mode & 0o077) r.fail(`${label}mode ${name}`, `${path} is mode ${modeText(st)}: group or world can read it (chmod 600).`);
     else r.ok(`${label}mode ${name}`, `${path} is mode ${modeText(st)}.`);
   }
@@ -138,12 +144,12 @@ function checkConfig(r, root, env) {
     try { text = readFileSync(path, 'utf-8'); } catch (e) { r.fail('sanctum.yaml', `${path} cannot be read (${e?.code || 'error'}).`); }
     if (text !== null) {
       const parsed = parseYamlText(text);
-      if (parsed.error) r.fail('sanctum.yaml', `${path} does not parse: ${parsed.error}.`);
+      if (parsed.error) r.fail('sanctum.yaml', `${path} does not parse: ${sentence(parsed.error)}`);
       else { out.file = parsed.cfg; r.ok('sanctum.yaml', `${path} parses (${Object.keys(parsed.cfg).length} top-level keys).`); }
     }
   }
   // The environment wins over the file (applyEnvOverrides); the root .env feeds it, and dotenv never overrides what is already set.
-  try { if (existsSync(join(root, '.env'))) out.env = { ...dotenv.parse(readFileSync(join(root, '.env'))), ...env }; } catch { /* unreadable: the modes check says so */ }
+  try { if (existsSync(join(root, '.env'))) out.env = { ...dotenv.parse(readFileSync(join(root, '.env'))), ...env }; } catch (e) { r.warn('.env', `${join(root, '.env')} cannot be read (${e?.code || 'error'}): its settings are not checked.`); }
 
   const file = out.file;
   const at = (key) => {
@@ -250,10 +256,10 @@ function checkOneTenant(r, { id, dir, root, block, base, household, ctx, checked
   if (household && loose.length) note('warn', 'hosts', 'hosts in tenant.yaml are not read in household mode (the companion is served at /c/<id>/).');
 
   const folderBad = tenantFolderProblem(block.dir, dir, root);
-  if (folderBad) { fail('folder', folderBad); return out; }
+  if (folderBad) { fail('folder', sentence(folderBad)); return out; }
   // The boot scan: every file of the tenant is a real file of its own (no link, pipe, or second hard link).
   const scanBad = tenantFilesProblem(dir, { log: () => {} });
-  if (scanBad) fail('boot scan', scanBad); else note('ok', 'boot scan', 'the folder\'s own files are all real files (no link, pipe or second hard link).');
+  if (scanBad) fail('boot scan', sentence(scanBad)); else note('ok', 'boot scan', 'the folder\'s own files are all real files (no link, pipe or second hard link).');
 
   const p = tenantPaths(dir);
   const readOwn = (path) => { try { return ownReadFile(dir, path, { encoding: 'utf-8' }); } catch (e) { return { error: oneLine(e) }; } };
@@ -261,15 +267,16 @@ function checkOneTenant(r, { id, dir, root, block, base, household, ctx, checked
   if (existsSync(p.yamlPath)) {
     const text = readOwn(p.yamlPath);
     const parsed = typeof text === 'string' ? parseYamlText(text) : { error: text.error };
-    if (parsed.error) fail('tenant.yaml', `${p.yamlPath} cannot be used: ${parsed.error}.`);
+    if (parsed.error) fail('tenant.yaml', `${p.yamlPath} cannot be used: ${sentence(parsed.error)}`);
     else { own = parsed.cfg; note('ok', 'tenant.yaml', `${p.yamlPath} parses (${Object.keys(own).length} top-level keys).`); }
   } else note('ok', 'tenant.yaml', 'there is no tenant.yaml: every setting is inherited or the default.');
   // .env: read for the checks, never printed.
   let envText = '';
   let envFile = {};
+  let envUnread = false;
   if (existsSync(p.envPath)) {
     const t = readOwn(p.envPath);
-    if (typeof t !== 'string') fail('.env', `${p.envPath} cannot be read: ${t.error}.`);
+    if (typeof t !== 'string') { envUnread = true; fail('.env', `${p.envPath} cannot be read: ${sentence(t.error)}`); }
     else { envText = t; envFile = dotenv.parse(t); }
   }
   for (const [platform, key] of [['discord', 'DISCORD_BOT_TOKEN'], ['telegram', 'TELEGRAM_BOT_TOKEN']]) if (envFile[key]) out.bots[platform] = sha(envFile[key]);
@@ -277,7 +284,7 @@ function checkOneTenant(r, { id, dir, root, block, base, household, ctx, checked
   const tokenPath = join(dir, 'data', '.internal-token');
   if (existsSync(tokenPath)) {
     const t = readOwn(tokenPath);
-    if (typeof t !== 'string') fail('internal token', `${tokenPath} cannot be read: ${t.error}.`);
+    if (typeof t !== 'string') fail('internal token', `${tokenPath} cannot be read: ${sentence(t.error)}`);
     else if (t.trim()) {
       out.token = sha(t.trim());
       const short = t.trim().length < 32;
@@ -288,8 +295,9 @@ function checkOneTenant(r, { id, dir, root, block, base, household, ctx, checked
   // The yaml and .env against the rules boot enforces (the wizard's own list: paths inside the folder, process-only keys, timezone, hosts, Revien, background_runs).
   const revienUrl = dig(ctx.file, 'revien.url');
   const problems = tenantYamlProblems(own, dir, ctx.tz, { envText, processRevienUrl: typeof revienUrl === 'string' ? revienUrl : undefined });
-  for (const why of problems) fail('config', why);
-  if (!problems.length) note('ok', 'config', 'tenant.yaml and .env pass the checks boot makes (paths inside the folder, process-only keys, timezone, hosts, Revien, background_runs).');
+  for (const why of problems) fail('config', sentence(why));
+  if (!problems.length && !envUnread) note('ok', 'config', 'tenant.yaml and .env pass the checks boot makes (paths inside the folder, process-only keys, timezone, hosts, Revien, background_runs).');
+  else if (!problems.length) note('warn', 'config', 'tenant.yaml passes the checks boot makes, but the .env could not be read, so its paths, timezone and settings were not checked.');
 
   // The never-inherited table against the live merged config: such a key may only hold what this tenant's own file says.
   const merged = overlay(base, own);
@@ -310,27 +318,31 @@ function checkOneTenant(r, { id, dir, root, block, base, household, ctx, checked
   else note('ok', 'never-inherited', 'every never-inherited key in the merged config is this tenant\'s own, and no secret-named key came from the operator\'s file.');
 
   if (checked) {
-    checkModes(r, label, [[p.envPath, '.env'], [join(dir, 'app.env'), 'app.env'], [tokenPath, 'data/.internal-token'], [join(dir, 'data', '.google-key'), 'data/.google-key']]);
-    const dataStat = statOrNull(join(dir, 'data'));
-    if (dataStat && process.platform !== 'win32') (dataStat.mode & 0o077 ? r.warn : r.ok)(`${label}mode data/`, `${join(dir, 'data')} is mode ${modeText(dataStat)}${dataStat.mode & 0o077 ? ': group or world can list it (chmod 700)' : ''}.`);
+    checkModes(r, label, [[p.envPath, '.env'], [join(dir, 'app.env'), 'app.env'], [tokenPath, 'data/.internal-token'], [join(dir, 'data', '.google-key'), 'data/.google-key']], { refuseLinks: true });
+    const dataStat = lstatOrNull(join(dir, 'data'));
+    if (dataStat?.isDirectory() && process.platform !== 'win32') (dataStat.mode & 0o077 ? r.warn : r.ok)(`${label}mode data/`, `${join(dir, 'data')} is mode ${modeText(dataStat)}${dataStat.mode & 0o077 ? ': group or world can list it (chmod 700)' : ''}.`);
   }
 
-  // The home folder: present, with identity/ and config/ and the harness copies.
-  const ownCwd = dig(merged, 'agent.cwd');
-  const home = resolve(dir, expandHome(String(envFile.AGENT_CWD || (typeof ownCwd === 'string' && ownCwd.trim()) || 'home')));
-  if (!statOrNull(home)?.isDirectory()) note('fail', 'home', `the home folder ${home} does not exist.`);
+  // Boot would not start this tenant: its home, identity, config copies and frame are never read, so probing them (they may sit outside the folder) says nothing true.
+  if (out.wouldSkip) { note('warn', 'home', 'skipped: boot would not start this tenant.'); }
   else {
-    note('ok', 'home', `the home folder ${home} exists.`);
-    for (const sub of ['identity', 'config']) {
-      const there = !!statOrNull(join(home, sub))?.isDirectory();
-      note(there ? 'ok' : 'warn', `home ${sub}/`, `${join(home, sub)} ${there ? 'exists' : 'does not exist'}.`);
+    // The home folder: present, with identity/ and config/ and the harness copies.
+    const ownCwd = dig(merged, 'agent.cwd');
+    const home = resolve(dir, expandHome(String(envFile.AGENT_CWD || (typeof ownCwd === 'string' && ownCwd.trim()) || 'home')));
+    if (!statOrNull(home)?.isDirectory()) note('fail', 'home', `the home folder ${home} does not exist.`);
+    else {
+      note('ok', 'home', `the home folder ${home} exists.`);
+      for (const sub of ['identity', 'config']) {
+        const there = !!statOrNull(join(home, sub))?.isDirectory();
+        note(there ? 'ok' : 'warn', `home ${sub}/`, `${join(home, sub)} ${there ? 'exists' : 'does not exist'}.`);
+      }
+      for (const name of HOME_CONFIG_FILES) if (!existsSync(join(home, 'config', name))) note('warn', `home config/${name}`, `${join(home, 'config', name)} does not exist: a harness that uses it falls back to the shipped copy.`);
     }
-    for (const name of HOME_CONFIG_FILES) if (!existsSync(join(home, 'config', name))) note('warn', `home config/${name}`, `${join(home, 'config', name)} does not exist: a harness that uses it falls back to the shipped copy.`);
+    // The frame as this tenant's app would see it: its own key, else the home's copy.
+    const ownFrame = dig(own, 'agent.system_prompt_file');
+    const configured = ownFrame === '' ? '' : typeof ownFrame === 'string' && ownFrame.trim() ? resolve(dir, expandHome(ownFrame.trim())) : join(home, 'config', 'companion-claude.md');
+    if (checked) frameCheck(r, label, home, configured, dig(merged, 'agent.provider') || ctx.provider);
   }
-  // The frame as this tenant's app would see it: its own key, else the home's copy.
-  const ownFrame = dig(own, 'agent.system_prompt_file');
-  const configured = ownFrame === '' ? '' : typeof ownFrame === 'string' && ownFrame.trim() ? resolve(dir, expandHome(ownFrame.trim())) : join(home, 'config', 'companion-claude.md');
-  if (checked) frameCheck(r, label, home, configured, dig(merged, 'agent.provider') || ctx.provider);
   // The tenant's database is at a fixed place, and this user must be able to write it.
   if (checked) {
     const w = writableOrCreatable(p.dbPath);
@@ -352,10 +364,15 @@ function checkProcess(r, root, ctx, nodeVersion) {
     else if (inRange) r.ok('node', `node ${nodeVersion} is within engines.node ${engines}.`);
     else r.fail('node', `node ${nodeVersion} is outside engines.node ${engines}.`);
   }
-  const stamp = join(root, 'packages', 'frontend', 'build', '.build-id');
-  const stampText = existsSync(stamp) ? readFileSync(stamp, 'utf-8').trim() : '';
-  if (stampText) r.ok('build stamp', `${stamp} holds a build id of ${stampText.length} characters.`);
-  else r.fail('build stamp', `${stamp} is ${existsSync(stamp) ? 'empty' : 'missing'}: run npm run build (scripts/write-build-id.mjs writes it).`);
+  // The build folder is what the app serves (server.ts frontendBuildPath); the id comes from its .build-id, else BUILD_ID in the environment, else "dev".
+  const build = join(root, 'packages', 'frontend', 'build');
+  const stamp = join(build, '.build-id');
+  let stampText = '';
+  try { stampText = readFileSync(stamp, 'utf-8').trim(); } catch { /* below */ }
+  if (!statOrNull(build)?.isDirectory()) r.fail('build stamp', `${build} is missing: no UI is served (run npm run build).`);
+  else if (stampText) r.ok('build stamp', `${stamp} holds a build id of ${stampText.length} characters.`);
+  else if (ctx.env.BUILD_ID) r.ok('build stamp', `${stamp} is ${existsSync(stamp) ? 'empty' : 'missing'}; BUILD_ID in the environment is the build id (${String(ctx.env.BUILD_ID).length} characters).`);
+  else r.warn('build stamp', `${stamp} is ${existsSync(stamp) ? 'empty' : 'missing'}: the app serves the UI but reports its build id as "dev", so a stale tab is never told to reload (npm run build writes it).`);
   // The process's database: server.db_path, DB_PATH wins; a legacy resonant.db is used when sanctum.db is absent and the path was not named.
   const named = ctx.env.DB_PATH || dig(ctx.file, 'server.db_path');
   let dbPath = resolve(root, expandHome(String(named || SHIPPED_PATHS['server.db_path'])));
