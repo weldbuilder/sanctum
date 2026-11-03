@@ -9,7 +9,7 @@ in [README.md](README.md). This file is the technical record.
 | Layer | File, inside the companion's home folder (`agent.cwd`) | How it reaches the model |
 |---|---|---|
 | Harness | `config/codex-base-prompt.md` (dsh: `config/dsh-base-prompt.md`) | Codex: passed per run as `model_instructions_file`, replacing Codex's stock "You are Codex" prompt; `~/.codex/config.toml` is not touched. dsh: set as the persona in the run's overlay. Both are the shared harness: one base plus a short tail per mind (`prompts/README.md`). |
-| Self | `identity/profile.md` and `identity/companion.md` | Joined ahead of each message as "Companion Identity" and "Companion Narrative", then "[Current message]". |
+| Self | `identity/profile.md` and `identity/companion.md` | In the system slot, as on Claude: the harness first, then the identity ("Companion Identity", "Companion Narrative"). Codex: harness and identity are written together into one content-addressed file (`<data>/harness/codex-base` in a tenant, beside the child's writable TMPDIR; `<tmp>/sanctum-codex-base` otherwise) that is the run's `model_instructions_file`; an identity edit makes a new file, so it reaches the next run, a resumed thread included. dsh: the same two joined as the persona. The message carries only memory, the summary, the history and the current message. |
 | Law | `AGENTS.md` | Codex discovers and injects it by itself. |
 
 Resonant's own `CLAUDE.md` and system-prompt frame are not used on the Codex path.
@@ -50,9 +50,10 @@ three-layer files are. (Claude gets the same harness text as its frame,
 
 The app owns the thread history on the Codex path; Codex does not. Each message is a
 fresh, unlogged Codex run (`codex exec --ephemeral`, spawned directly, so no session
-files land in `~/.codex/sessions`). The prompt is, in order: the identity block, the
-Revien memory block, the rolling summary block, `[Conversation so far]` (recent turns
-word for word), `[Current message]`.
+files land in `~/.codex/sessions`). The prompt is, in order: the
+Revien memory block, the rolling summary block, the `[Context]` orientation block, `[Conversation so far]` (recent turns
+word for word, each line marked with who said it: `Sam:` or `Echo:`, under a line saying which name is the companion's own), `[Current message]`.
+The identity is not in it: it rides in the system slot (above).
 
 Older turns are held as append-only summary segments in a JSON sidecar per thread at
 `data/rolling/<thread>.json`. A fold summarizes only the oldest slice of the still-
@@ -141,14 +142,13 @@ readable until they have updated once, or tell them to download the new ZIP.
 | `model` / `model_provider` | `""` / `""` | The summarizer. Empty follows `model_autonomous`, then `model`. On Claude the summarizer is an isolated Claude run (`rolling.model` if it names a Claude model, else the autonomous model); on Codex an isolated Codex run. One summarizer, whichever harness runs turns. |
 | budgets | as before | `tail_chars`, `fold_chars`, `keep_chars`, `tail_turns`, `max_segments`, `segment_cap`, `history_max_chars`, `history_max_turns`, `summarizer_instructions_file`. |
 
-On the Claude path with rolling on: no session is ever resumed, the prompt is context → recalled memory → derived summary → dropped-turns notice → `[Conversation so far]` → `[Current message]` (identity rides in the system prompt), the SDK's compaction and auto-memory stay off, `settingSources: []` is pinned, and the fold runs after the reply. `services/rolling-history.ts` builds that history for both adapters.
+On the Claude path with rolling on: no session is ever resumed, the prompt is context → recalled memory → derived summary → dropped-turns notice → `[Conversation so far]` → `[Current message]` (identity rides in the system prompt; history lines name their speakers), the SDK's compaction and auto-memory stay off, `settingSources: []` is pinned, and the fold runs after the reply. `services/rolling-history.ts` builds that history for both adapters.
 
 ## Settings under `agent.codex`
 | Key | Default | Meaning |
 |---|---|---|
 | `model` | `""` | Chat model id. Empty uses whatever `~/.codex/config.toml` sets. |
 | `model_provider` | `""` | A `[model_providers.*]` key from `~/.codex/config.toml`. Empty = Codex's default provider. |
-| `identity_every_turn` | `true` | Send the identity files with every message, so edits apply at once. `false` sends them on a thread's first message only: fewer tokens, edits reach new threads. |
 | `base_instructions_file` | `./prompts/codex-base-prompt.md` | The shared harness. Used only when the home has no `config/codex-base-prompt.md` (the home's copy wins). `""` gives stock Codex back. |
 | `sandbox_mode` | `workspace-write` | The write boundary: the home folder plus `additional_directories`. |
 | `network_access` | `true` | Must stay `true`. The `res` CLI calls the local backend. |
@@ -179,7 +179,7 @@ On the Claude path with rolling on: no session is ever resumed, the prompt is co
 - **The write-gate is the Codex sandbox**, not a per-tool hook.
 - **The MCP status panel in Settings shows empty.** Servers from `.mcp.json` are still passed through.
 - **One Codex note remains with DeepSeek.** Codex adds a short "you are the primary agent in a team" note, followed by its own instruction not to delegate unless asked. It comes from DeepSeek's `models.json`, not from this app.
-- **Background helpers share the base prompt.** Digest, handoff and outlook runs get the same harness prompt plus their own task brief, and no identity block.
+- **Background helpers share the base prompt.** Digest, handoff and outlook runs get the same harness prompt plus their own task brief, and no identity (a job, not the self).
 - **A global `~/.codex/AGENTS.md` rides into every run, including the summarizer.** Codex loads it regardless of the working folder and there is no per-run switch for it (folder files can be switched off, and the summarizer does). If you keep one, keep identity out of it, or summaries will pick up names and voice from it.
 - **Background helpers run unlogged too** (digest, handoff, outlook), through the same runner, so nothing the app does lands in `~/.codex/sessions`. A helper that resumes a real Codex session still goes through the SDK.
 - **Rolling mode re-sends the session orientation every message.** Resonant sends its tools and skills orientation once per session; with a fresh Codex run per message it goes every time. Estimated from the code at 6,000 to 10,000 characters per message, not measured. The mind prefetch runs every message for the same reason.

@@ -42,14 +42,14 @@ The run's temp root holds the overlay (it carries MCP headers), the run's `TMPDI
 The overlay sets:
 
 - **Approvals:** policy `never`, with every sandbox mode paired to it so dsh's permission plugin loads cleanly. `never` rejects a request that would have asked, meaning an escalation out of the sandbox. Tool calls that stay inside the sandbox do not ask, so they run. This matches Codex's `approval_policy="never"`.
-- **Persona:** the base prompt, with dsh's own "powered by DeepSeek Harness" opener off.
+- **Persona:** the base prompt followed by the identity (a main run), with dsh's own "powered by DeepSeek Harness" opener off.
 - **Model and route:** from `agent.dsh`.
 - **Session title:** dsh's hidden title call is disabled (it is a second model call per run that nothing reads).
 - **MCP:** one `@deepseek-ai/dsh-mcp-client` entry per `.mcp.json` server (stdio, or HTTP with headers).
-- **Throwaway runs** (rolling, one-shot helpers): the session log and the storage directory (its projection cache holds the first prompt, which carries identity and memory) point into the temp root.
+- **Throwaway runs** (rolling, one-shot helpers): the session log and the storage directory (its projection cache holds the first prompt, which carries memory and history) point into the temp root.
 - **Summarizer:** also turns `AGENTS.md` discovery off, as `noProjectDocs` does on Codex.
 
-Three layers, as on Codex: the base prompt (`<agent.cwd>/config/dsh-base-prompt.md`, else `agent.dsh.base_instructions_file`, which ships as `prompts/dsh-base-prompt.md`; only if neither file exists is dsh's stock headless persona used), the identity files prepended to the message, and `AGENTS.md`, which dsh loads itself.
+Three layers, as on Codex: the base prompt (`<agent.cwd>/config/dsh-base-prompt.md`, else `agent.dsh.base_instructions_file`, which ships as `prompts/dsh-base-prompt.md`; only if neither file exists is dsh's stock headless persona used), the identity files (added after the base prompt in the same system prompt, on every main run, rolling or not; helper and public runs do not get them), and `AGENTS.md`, which dsh loads itself.
 
 The shipped base prompt is the same harness Claude and Codex get: one shared base plus a short dsh tail, joined by `npm run prompts:build` (see `prompts/README.md`). Before it shipped, a home without its own `config/dsh-base-prompt.md` ran on dsh's stock persona. The starter home ships a copy in `config/`; an existing home keeps whatever it has until you copy the file in, because the home's copy wins.
 
