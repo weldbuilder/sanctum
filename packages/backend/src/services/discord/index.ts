@@ -40,6 +40,7 @@ import { publicHarnessSupported } from './harness.js';
 import type { MessageBatch } from './types.js';
 import type { AgentService } from '../agent.js';
 import { postSystemLine } from '../system-line.js';
+import { noteDiscordSendOk } from './failure-alert.js';
 import { createMessage, createThread, getThread, ensureDailyThread, getConfig, setConfig, updateThreadActivity, countThreadsWithPrefix } from '../db.js';
 import { getBotToken } from '../bot-token.js';
 import { getSanctumConfig } from '../../config.js';
@@ -636,6 +637,7 @@ export class DiscordService {
       if (outcome.empty && !outcome.final) {
         console.log('[Discord] Empty response from agent');
       } else if (outcome.sent) {
+        noteDiscordSendOk('owner');
         console.log(`[Discord] Sent reply to ${channelId}${outcome.attempts > 1 ? ' (after one rewrite)' : ''}`);
       }
 
@@ -644,7 +646,7 @@ export class DiscordService {
       // (no message, path or stack: the server log has the rest), and it is never handed to memory.
       console.error('[Discord] Handler error:', error);
       this.stats.errors++;
-      logEvent('discord', 'reply_failed', { class: errorClass(error) });
+      logEvent('discord', 'reply_failed', { class: errorClass(error), lane: 'owner' });
       if (ownerThreadId) this.postSystemLine(ownerThreadId, `reply failed: ${errorClass(error)}`, { kind: 'discord_notice' });
     } finally {
       if (typingInterval) clearInterval(typingInterval);
@@ -702,6 +704,7 @@ export class DiscordService {
           },
         });
         // Only a reply that went out counts against a bot's cap.
+        if (outcome.sent) noteDiscordSendOk('public');
         if (outcome.sent && author.bot) this.limiter.recordReply(channelId, userId);
       } catch (err) {
         // Silence. A PublicRunError was already recorded by the run; anything else is recorded here, class only.
@@ -712,7 +715,7 @@ export class DiscordService {
         if (err instanceof PublicRunError && (err.kind === 'api_key_missing' || err.kind === 'identity_missing')) logEvent('discord', err.kind, { once: true });
         else {
           console.error(`[Discord] Public run failed (${errorClass(err)})`);
-          logEvent('discord', 'public_run_failed', { class: errorClass(err) });
+          logEvent('discord', 'public_run_failed', { class: errorClass(err), lane: 'public' });
         }
         if (!(err instanceof PublicRunError)) {
           try { publicTranscript.append({ kind: 'error', who: { id: speaker.id, name: speakerLabel(speaker), bot: speaker.bot }, where, reason: errorClass(err), len: 0 }); } catch { /* nothing more to do */ }

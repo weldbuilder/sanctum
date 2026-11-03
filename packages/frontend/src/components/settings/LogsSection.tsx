@@ -52,7 +52,7 @@ function shortTs(ts: string | null): string {
   return m ? m[0] : ts;
 }
 
-export function LogsSection({ base }: { base: string }) {
+export function LogsSection({ base, initialQuery = '' }: { base: string; initialQuery?: string }) {
   const [lines, setLines] = useState<LogLine[]>([]);
   const [truncated, setTruncated] = useState(false);
   const [present, setPresent] = useState<{ out: boolean; err: boolean }>({ out: true, err: true });
@@ -60,7 +60,7 @@ export function LogsSection({ base }: { base: string }) {
   const [error, setError] = useState<string | null>(null);
 
   const [source, setSource] = useState<SourceFilter>('all');
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
   const [lineLimit, setLineLimit] = useState(500);
   const [follow, setFollow] = useState(true);
 
