@@ -24,7 +24,7 @@ export function UpdateBarView({ model, onUpdate, onDismiss }: { model: BarModel;
   );
 }
 
-/** Mounted once in the shell, only on Home and Chat. */
+/** Mounted in the page it belongs to, in the flow: under the header on Chat, above the welcome title on Home. */
 export function UpdateBar() {
   const snapshot = useUpdateStore(s => s.snapshot);
   const dismissedFor = useUpdateStore(s => s.dismissedFor);
@@ -96,23 +96,18 @@ const DIALOG_CSS = `
 
 export const BAR_CSS = `
   /* The bar's own base: it must not depend on the pill's style block (that one is only rendered where the pills are, never on Home or Chat).
-     A fixed drop-down hanging from the top edge, out of the page flow, above the page and the menus. */
+     It sits IN THE FLOW of the page it is mounted in: on Chat directly under the header (above the thread tabs and the messages), on Home above the welcome
+     title. Nothing is drawn over the header plate or the title, whatever its height. */
   .update-pill.update-bar {
-    position: fixed; z-index: 9000; display: flex; align-items: center; gap: 0.625rem;
+    position: relative; z-index: 1; display: flex; align-items: center; gap: 0.625rem; flex-shrink: 0;
+    align-self: center; box-sizing: border-box;
     background: var(--surface-pill-bg, rgba(44, 26, 16, 0.92));
     border: 1px solid var(--chrome-pill-border, rgba(201, 168, 124, 0.28));
     backdrop-filter: var(--surface-pill-blur, blur(16px) saturate(1.05)); -webkit-backdrop-filter: var(--surface-pill-blur, blur(16px) saturate(1.05));
     box-shadow: 0 4px 20px -4px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(201, 168, 124, 0.06);
-    transform: translateX(-50%);
-    top: 0.75rem; bottom: auto; left: 50%;
-    width: max-content; max-width: min(94vw, 40rem);
+    width: max-content; max-width: min(calc(100% - 1.5rem), 40rem); margin: 0.5rem auto;
     border-radius: 0.75rem; padding: 0.625rem 0.875rem; white-space: normal; cursor: default;
     animation: update-bar-in 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
-  }
-  .update-pill.update-bar:active { transform: translateX(-50%); }
-  @media (max-width: 768px) {
-    /* Under the phone's top bar (Home) and the chat header, not over them. */
-    .update-pill.update-bar { top: calc(env(safe-area-inset-top, 0px) + 3.75rem); }
   }
   .update-bar-body { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
   .update-bar-text {
@@ -140,9 +135,9 @@ export const BAR_CSS = `
     background: transparent; color: var(--surface-chrome-muted, #d9cdb6); font-size: 1.1rem; line-height: 1; cursor: pointer;
   }
   .update-bar .update-pill-x:hover { color: var(--surface-chrome-text, #efe4d0); background: var(--chrome-hover-wash, rgba(201, 168, 124, 0.14)); }
-  @keyframes update-bar-in { from { opacity: 0; transform: translateX(-50%) translateY(-120%); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+  @keyframes update-bar-in { from { opacity: 0; transform: translateY(-0.5rem); } to { opacity: 1; transform: translateY(0); } }
   @keyframes update-bar-turn { to { transform: rotate(360deg); } }
-  @media (max-width: 480px) { .update-pill.update-bar { flex-wrap: wrap; width: calc(100vw - 2rem); max-width: none; } .update-bar-body { flex: 1 1 12rem; } }
+  @media (max-width: 480px) { .update-pill.update-bar { flex-wrap: wrap; width: calc(100% - 2rem); max-width: none; } .update-bar-body { flex: 1 1 12rem; } }
   @media (prefers-reduced-motion: reduce) {
     .update-pill.update-bar { animation: none; }
     .update-bar-spin { animation: none; }

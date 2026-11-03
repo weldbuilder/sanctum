@@ -6,6 +6,7 @@ import { OutlookView } from './OutlookView';
 import { Link, useNavigate } from 'react-router-dom';
 import { useIdentity } from '../store/identity';
 import { BASE } from '../lib/base';
+import { UpdateBar } from './UpdateBar';
 
 // ─── Data shapes ───────────────────────────────────────────────────────────────
 // The /home/mantelpiece endpoint returns two cards:
@@ -584,6 +585,7 @@ export function HomeView() {
     <div className="home-view">
       <div className="home-scroll">
         <div className="home-inner">
+          <UpdateBar />
 
           {/* ── The welcome: the room's own painting, the person greeted, and the companion small in the corner ── */}
           <section className="home-hero" aria-label="Welcome">

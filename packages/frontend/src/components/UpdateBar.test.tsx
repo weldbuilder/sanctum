@@ -58,21 +58,20 @@ describe('the bar\'s own layout rules (a CSS contract, like the theme ones)', ()
     expect(i, `${sel} rule`).toBeGreaterThanOrEqual(0);
     return BAR_CSS.slice(i, BAR_CSS.indexOf('}', i));
   };
-  it('is position: fixed from the top, above the page, not in the flow', () => {
+  it('sits in the flow of its page (under the chat header, above the Home title), never fixed over them', () => {
     const r = rule('.update-pill.update-bar');
-    expect(r).toMatch(/position:\s*fixed/);
-    expect(r).toMatch(/top:\s*0\.75rem/);
-    expect(r).toMatch(/bottom:\s*auto/);
-    expect(r).toMatch(/z-index:\s*9000/);
-    expect(r).toMatch(/left:\s*50%/);
-    expect(r).toMatch(/transform:\s*translateX\(-50%\)/);
+    expect(r).toMatch(/position:\s*relative/);
+    expect(r).not.toMatch(/position:\s*fixed/);
+    expect(r).not.toMatch(/\btop:/);
+    expect(r).not.toMatch(/translateX\(-50%\)/);
+    expect(r).toMatch(/align-self:\s*center/);
     expect(r).toMatch(/display:\s*flex/);
   });
-  it('wears the skins\' pill tokens for its surface and edge (no colour of its own), and the entry animation keeps the centring', () => {
+  it('wears the skins\' pill tokens for its surface and edge (no colour of its own), and the entry animation only fades and slides a little', () => {
     const r = rule('.update-pill.update-bar');
     expect(r).toContain('var(--surface-pill-bg');
     expect(r).toContain('var(--chrome-pill-border');
-    expect(BAR_CSS).toMatch(/@keyframes update-bar-in\s*\{\s*from\s*\{[^}]*translateX\(-50%\)/);
+    expect(BAR_CSS).toMatch(/@keyframes update-bar-in\s*\{\s*from\s*\{[^}]*translateY/);
   });
   it('keeps the dismiss button styled, sized and reachable, and wraps on a phone', () => {
     const x = rule('.update-bar .update-pill-x');
@@ -80,8 +79,8 @@ describe('the bar\'s own layout rules (a CSS contract, like the theme ones)', ()
     expect(x).toMatch(/cursor:\s*pointer/);
     expect(BAR_CSS).toMatch(/max-width:\s*480px\)\s*\{[^}]*flex-wrap:\s*wrap/);
   });
-  it('sits under the phone\'s top bar, not over it', () => {
-    expect(BAR_CSS).toMatch(/max-width:\s*768px\)\s*\{[^}]*safe-area-inset-top[^}]*3\.75rem/);
+  it('has no offset of its own from the top of the screen (the page it is in places it)', () => {
+    expect(BAR_CSS).not.toMatch(/safe-area-inset-top/);
   });
   it('is the one place the bar\'s base rules live: the pill\'s block is not needed (the bar renders its own style element)', () => {
     expect(renderToStaticMarkup(<UpdateBarView model={{ phase: 'offer', text: 'x', detail: '', dismissible: true }} onUpdate={noop} onDismiss={noop} />)).toContain('<style>');

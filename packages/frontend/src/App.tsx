@@ -17,7 +17,7 @@ import { useThemeStore } from './store/theme';
 import { ConfirmProvider } from './components/ConfirmDialog';
 import { COMPANION_PREFIX } from './lib/base';
 import { Hallway } from './components/Hallway';
-import { UpdateBar, UpdateDialog } from './components/UpdateBar';
+import { UpdateDialog } from './components/UpdateBar';
 import { canSelfUpdate, selfUpdateWhy, useUpdateStore } from './store/update';
 
 // ─── Cold routes — lazy-loaded on first visit ──────────────────────────────────
@@ -669,7 +669,6 @@ function AppShell() {
       <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} isChat={isChat} />
       <ApprovalCard />
       {updateBuildId && <UpdatePill onDismiss={dismissUpdate} />}
-      {onBarRoute && <UpdateBar />}
       <UpdateDialog />
       {!updateBuildId && !onBarRoute && newVersion && <NewVersionPill status={newVersion} onDismiss={dismissNewVersion} />}
       <CommandPalette />
