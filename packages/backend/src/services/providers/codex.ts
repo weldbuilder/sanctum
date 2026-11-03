@@ -17,15 +17,16 @@
 //      exists, else agent.codex.base_instructions_file. Replaces Codex's stock
 //      "You are Codex..." prompt for the run; ~/.codex/config.toml is untouched.
 //   2. Identity = the self. <agent.cwd>/identity/profile.md + companion.md,
-//      prepended to the main conversation's message (every turn by default).
+//      written after the base prompt into the same model_instructions_file (the system slot),
+//      so it rides every run of the main conversation and is re-read on each one.
 //   3. AGENTS.md = workspace law. Codex discovers and injects it on its own.
 //   Sanctum's CLAUDE.md / system-prompt frame are not used on this path.
 //   Read-only subagents (digest/handoff/outlook) get their task brief instead of
 //   the identity block: those are jobs, not the self.
 //   Rolling mode (agent.codex.rolling, main conversation only): the app owns the
 //   history. Each turn is a fresh unlogged `codex exec --ephemeral` run whose
-//   prompt is identity + Revien memory + rolling summary + verbatim tail + the
-//   current message. Session id is the stable `rolling:<threadId>`.
+//   prompt is Revien memory + rolling summary + the context block + verbatim tail + the
+//   current message (the identity is in the system slot, not here). Session id is the stable `rolling:<threadId>`.
 //   - Attachments ride as file paths in the prompt (same as Claude path);
 //     native local_image input is a TODO.
 import {
@@ -41,11 +42,12 @@ import { existsSync, readFileSync } from 'node:fs';
 import { identityBlock } from '../identity/block.js';
 import { join } from 'node:path';
 import { getSanctumConfig } from '../../config.js';
-import { runCodexExec } from './codex-exec.js';
+import { runCodexExec, materializeBaseInstructions } from './codex-exec.js';
+import { readOwnOrApp } from '../../tenancy/own-files.js';
 import { childEnv } from './child-env.js';
 import { childRunBase } from '../../tenancy/child.js';
 import { currentTenant, tenancyEnabled } from '../../tenancy/context.js';
-import { assembleRollingHistory } from '../rolling-history.js';
+import { assembleRollingHistory, conversationBlock, splitContextBlock } from '../rolling-history.js';
 import { recallForPrompt, ingestTurn, MEMORY_HEADER } from '../revien.js';
 import { mindRecallBlock } from '../mind-client.js';
 
@@ -58,13 +60,24 @@ function resolveBaseFile(): string {
   return existsSync(homeBase) ? homeBase : (baseCfg && existsSync(baseCfg) ? baseCfg : '');
 }
 
-function getClient(mcpServers: Options['mcpServers']): Codex {
+/** The model_instructions_file for a MAIN run: the harness base first, then the identity, as one content-addressed file (the same order
+ *  as Claude's system prompt: mechanics, then who I am). An edit to either makes a new path. '' when there is neither: stock Codex.
+ *  Read-only helper runs never come through here; they get resolveBaseFile() as it is. */
+function identityBaseFile(): string {
+  const f = resolveBaseFile();
+  const base = f ? readOwnOrApp(f) : '';
+  const text = [base, identityBlock('codex')].filter((x) => x && x.trim()).join('\n\n');
+  return text ? materializeBaseInstructions(text) : '';
+}
+
+/** `baseFile` is the model_instructions_file path: the identity file on a main run (see identityBaseFile), so it is in the cache key,
+ *  and an identity edit (a new path) gets a new client. */
+function getClient(mcpServers: Options['mcpServers'], baseFile: string): Codex {
   const mcp = toCodexMcp(mcpServers);
   // Swap Codex's stock "You are Codex..." base prompt (17k chars, its own
   // personality and formatting rules) for the lean companion one, so AGENTS.md
   // is not arguing with a coding-assistant persona on every turn. Passed as a
   // per-run override: ~/.codex/config.toml is never touched.
-  const baseFile = resolveBaseFile();
   const provider = getSanctumConfig().agent.codex.model_provider || '';
   const harnessMemory = !!getSanctumConfig().agent.harness_memory;
   // The tenant id is in the key: two tenants never share a client (each carries its own env, key and CODEX_HOME).
@@ -223,7 +236,7 @@ export function codexQuery({ prompt, options }: { prompt: string | AsyncIterable
   async function* run(): AsyncGenerator<any> {
     if (typeof prompt !== 'string') throw new Error('[codex] streaming-input prompts are not supported');
 
-    const sanctum = (opts as any).sanctum as { threadId: string; userContent: string; autonomous?: boolean; noIngest?: boolean; memory?: 'none' } | undefined;
+    const sanctum = (opts as any).sanctum as { threadId: string; userContent: string; autonomous?: boolean; noIngest?: boolean; memory?: 'none'; contextBlock?: string } | undefined;
     // memory: 'none' (the public lane): no recall, no ingest, no thread history, no fold, no harness memory.
     const noMemory = sanctum?.memory === 'none';
     const rollingOn = !readOnly && !noMemory && !!cfg.agent.rolling?.codex && !!sanctum?.threadId;
@@ -237,7 +250,7 @@ export function codexQuery({ prompt, options }: { prompt: string | AsyncIterable
     const model = resolveModel(opts.model, readOnly || !!sanctum?.autonomous);
     const sandboxMode = readOnly ? 'read-only' as const : cx.sandbox_mode;
 
-    // Recalled memory (Revien) rides after the identity block. It is for the
+    // Recalled memory (Revien) rides in the message (the identity is in the system slot). It is for the
     // person's own messages: not subagents, and not autonomous wakes, whose
     // canned wake prompt would otherwise be searched for and saved as if said.
     const useMemory = !readOnly && !sanctum?.autonomous && !noMemory;
@@ -268,17 +281,19 @@ export function codexQuery({ prompt, options }: { prompt: string | AsyncIterable
       // History assembly is fail-soft (see rolling-history.ts): a broken history
       // source degrades the context for this one message and says so in the
       // prompt; it never fails or blocks the turn.
-      const history = await assembleRollingHistory(threadId, sanctum!.userContent, !!sanctum!.autonomous);
+      const history = await assembleRollingHistory(threadId, sanctum!.userContent, !!sanctum!.autonomous, { named: true });
       const rolling = history.rolling;
       const { summary, notice, lines } = history;
+      // The orientation block comes out of the message and sits above the conversation.
+      const { context, message } = splitContextBlock(prompt, sanctum?.contextBlock);
       const sections = [
-        identityBlock('codex'),
         memoryBlock,
         mindBlock,
         summary,
         notice,
-        lines.length ? `[Conversation so far]\n${lines.join('\n')}` : '',
-        `[Current message]\n${prompt}`,
+        context,
+        conversationBlock(lines),
+        `[Current message]\n${message}`,
       ].filter(Boolean);
       const input = sections.join('\n\n');
 
@@ -290,7 +305,7 @@ export function codexQuery({ prompt, options }: { prompt: string | AsyncIterable
         const events = runCodexExec({
           prompt: input, signal: ctl.signal, sandboxMode, cwd: workingDirectory,
           additionalDirectories: cx.additional_directories, model, modelProvider: cx.model_provider || undefined, harnessMemory: !noMemory && !!cfg.agent.harness_memory, networkAccess: cx.network_access,
-          baseFile: resolveBaseFile(), effort, mcp: toCodexMcp(opts.mcpServers),
+          baseFile: identityBaseFile(), effort, mcp: toCodexMcp(opts.mcpServers),
         });
         yield* translate(events, { fixedSession: true, model, showThinking, state });
         // The runner ends quietly when stopped; the app needs to hear it as a stop.
@@ -321,8 +336,7 @@ export function codexQuery({ prompt, options }: { prompt: string | AsyncIterable
       ...(effort && { modelReasoningEffort: effort }),
     };
 
-    // Subagents: their task brief. Main conversation: the identity block, then
-    // recalled memory, then the message last. AGENTS.md is added by Codex itself.
+    // Subagents: their task brief. Main conversation: recalled memory, then the message last. AGENTS.md is added by Codex itself.
     let input = prompt;
     if (readOnly) {
       const taskBrief = !resumeId ? systemText(opts.systemPrompt) : '';
@@ -346,15 +360,13 @@ export function codexQuery({ prompt, options }: { prompt: string | AsyncIterable
         return;
       }
     } else {
-      const head = [
-        !resumeId || cx.identity_every_turn ? identityBlock('codex') : '',
-        memoryBlock,
-        mindBlock,
-      ].filter(Boolean);
+      const head = [memoryBlock, mindBlock].filter(Boolean);
       if (head.length) input = `${head.join('\n\n')}\n\n[Current message]\n\n${prompt}`;
     }
 
-    const client = getClient(opts.mcpServers);
+    // The base-instructions file is a per-spawn `--config` the SDK passes on `exec resume` too, and Codex applies it over the resumed
+    // thread's stored one, so an identity edit reaches a resumed thread on its next turn (checked against codex-cli 0.159.3).
+    const client = getClient(opts.mcpServers, readOnly ? resolveBaseFile() : identityBaseFile());
     const thread = resumeId ? client.resumeThread(resumeId, threadOpts) : client.startThread(threadOpts);
 
     try {

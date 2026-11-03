@@ -50,6 +50,15 @@ export function withoutCurrentMessage<T extends HistoryTurn>(turns: T[], userCon
   return match < 0 ? turns : turns.slice(0, match);
 }
 
+/** The orientation block agent.ts puts in front of the person's words (sanctum.contextBlock) comes out of the message here, so a rolling
+ *  prompt can place it above the history and [Current message] carries only what the person said. A prompt that does not start with the
+ *  block (or no block) is returned whole, with no context to place. */
+export function splitContextBlock(prompt: string, contextBlock?: string): { context: string; message: string } {
+  const ctx = contextBlock ?? '';
+  if (!ctx || !prompt.startsWith(ctx)) return { context: '', message: prompt };
+  return { context: ctx, message: prompt.slice(ctx.length).replace(/^\n+/, '') };
+}
+
 export interface RollingHistory {
   /** The derived summary block, '' when the thread has no segments yet. */
   summary: string;

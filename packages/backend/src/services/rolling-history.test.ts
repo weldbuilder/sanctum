@@ -9,7 +9,7 @@ vi.mock('./rolling-context.js', () => ({
     maybeCompact: () => Promise.resolve({}),
   }),
 }));
-import { assembleRollingHistory, conversationBlock, renderNamedLine, speakerNames, withoutCurrentMessage } from './rolling-history.js';
+import { assembleRollingHistory, conversationBlock, renderNamedLine, speakerNames, splitContextBlock, withoutCurrentMessage } from './rolling-history.js';
 
 const t = (id: string, role: 'user' | 'assistant', content: string) => ({ id, role, content, at: '' });
 
@@ -63,5 +63,16 @@ describe('naming the speakers', () => {
   it('conversationBlock prefaces the lines with the one naming the companion, and is empty with no lines', () => {
     expect(conversationBlock(['Sam: hi', 'Echo: hello'])).toBe('Prior turns of this conversation. Lines marked Echo: are your own earlier words.\n\n[Conversation so far]\nSam: hi\nEcho: hello');
     expect(conversationBlock([])).toBe('');
+  });
+});
+
+describe('splitContextBlock', () => {
+  const ctx = '[Context]\nenv\n[/Context]';
+  it('takes the forwarded orientation block off the front of the prompt, leaving the person\'s words', () => {
+    expect(splitContextBlock(`${ctx}\n\nhello`, ctx)).toEqual({ context: ctx, message: 'hello' });
+  });
+  it('leaves a prompt whole when there is no block, or it does not start with it', () => {
+    expect(splitContextBlock('hello', undefined)).toEqual({ context: '', message: 'hello' });
+    expect(splitContextBlock('hello', ctx)).toEqual({ context: '', message: 'hello' });
   });
 });

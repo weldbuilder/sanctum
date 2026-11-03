@@ -3,12 +3,16 @@
 // history, and Codex is handed a fresh prompt every time. Emits the same JSONL
 // event objects the SDK does (thread.started, item.*, turn.*, error).
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { createInterface } from 'node:readline';
 import { dirname, join } from 'node:path';
 import { childEnv } from './child-env.js';
 import { childRunBase } from '../../tenancy/child.js';
-import { tenancyEnabled } from '../../tenancy/context.js';
+import { tenancyEnabled, tenantTmpRoot } from '../../tenancy/context.js';
+import { ownAssertReal, ownWriteFileAtomic } from '../../tenancy/own-files.js';
 
 export interface ExecParams {
   sandboxMode: 'read-only' | 'workspace-write' | 'danger-full-access';
@@ -111,4 +115,24 @@ export async function* runCodexExec(p: ExecParams & { prompt: string; signal?: A
     p.signal?.removeEventListener('abort', kill);
     kill();
   }
+}
+
+/** Codex only takes base instructions as a file (model_instructions_file). Write the combined text (the harness base, then the
+ *  identity) once under a content-hash name and return the path; the same text reuses the same file, and an edit makes a new path.
+ *  Tenant mode (D7): the file lives in <dataDir>/harness/codex-base, a SIBLING of the tenant's TMPDIR (harness/tmp), because the
+ *  sandboxed child can write its TMPDIR and must not be able to rewrite its own identity file. It stays readable by the child (no read
+ *  roots are configured in buildExecArgs; workspace-write reads are unrestricted). Outside a tenant it is <os.tmpdir()>/sanctum-codex-base.
+ *  An existing file is never trusted on its name: it is read back and rewritten when it differs. Written to a temp name in the same
+ *  folder then renamed, so a partial file never sits at the final path. */
+export function materializeBaseInstructions(text: string): string {
+  const root = tenantTmpRoot();
+  const dir = root ? join(dirname(root), 'codex-base') : join(tmpdir(), 'sanctum-codex-base');
+  if (root) ownAssertReal(dir); // (a linked path component is refused BEFORE anything is made)
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (root) ownAssertReal(dir);
+  const f = join(dir, `${createHash('sha256').update(text).digest('hex').slice(0, 24)}.md`);
+  const same = (): boolean => { try { return readFileSync(f, 'utf8') === text; } catch { return false; } };
+  if (same()) return f;
+  try { ownWriteFileAtomic(f, text, { mode: 0o600, process: !root }); } catch (e) { if (same()) return f; throw e; } // (Windows: rename onto an identical file; outside a tenant it is the process-level write)
+  return f;
 }
