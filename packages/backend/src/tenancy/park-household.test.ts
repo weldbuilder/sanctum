@@ -65,8 +65,8 @@ beforeAll(async () => {
   registerProcessConfig(() => proc);
   const app = express();
   runtimes = bootTenants(app, safeTenancyProcess(proc));
-  token = loadOperatorToken(join(base, 'process', 'data'));
-  app.use('/api/internal/tenants', operatorRouter(token));
+  token = loadOperatorToken(join(base, 'process', 'data'))!;
+  app.use('/api/internal/tenants', operatorRouter({ dataDir: join(base, 'process', 'data') }));
   app.use(tenantResolve);
   app.use(express.json());
   app.use(tenantEnter);

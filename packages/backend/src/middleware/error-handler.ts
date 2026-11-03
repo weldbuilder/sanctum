@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
-import { TenantServiceUnavailable } from '../tenancy/errors.js';
+import { TenantParked, TenantServiceUnavailable } from '../tenancy/errors.js';
 import { OwnFileRefused } from '../../../../scripts/own-files-lib.mjs';
 
 /**
@@ -9,6 +9,7 @@ import { OwnFileRefused } from '../../../../scripts/own-files-lib.mjs';
  * was typing into a form, so that error object is never logged. Anything else is a 500 as before.
  */
 export function globalErrorHandler(err: Error & { type?: string }, req: Request, res: Response, _next: NextFunction): void {
+  if (err instanceof TenantParked) { res.status(503).json({ error: 'tenant_unavailable' }); return; }
   // Tenant mode: a service that is still one per process answers 503 rather than with another tenant's state.
   if (err instanceof TenantServiceUnavailable) {
     res.status(503).json({ error: 'service_unavailable', service: err.service });

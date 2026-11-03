@@ -23,9 +23,9 @@ const call = (method: string, path: string, headers: Record<string, string> = {}
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), 'sanctum-park-off-'));
-  token = loadOperatorToken(dir);
+  token = loadOperatorToken(dir)!;
   const app = express();
-  app.use('/api/internal/tenants', operatorRouter(token));
+  app.use('/api/internal/tenants', operatorRouter({ dataDir: dir }));
   app.use((_req, res) => { res.status(404).json({ error: 'Not found' }); });
   await new Promise<void>((ok) => { server = app.listen(0, '127.0.0.1', () => ok()); });
   port = (server.address() as AddressInfo).port;

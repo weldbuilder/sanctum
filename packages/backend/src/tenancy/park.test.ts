@@ -20,7 +20,7 @@ import { tmpdir } from 'node:os';
 import { bootTenants, stopTenantServices, tenantLifecycle } from './boot.js';
 import { currentTenant, enableTenancy, registerProcessConfig, runInTenant, type TenantRuntime } from './context.js';
 import { tenantEnter, tenantResolve, setTenantRegistry, isReservedHost, resolveTenant } from './resolve.js';
-import { loadOperatorToken, operatorRouter } from './operator.js';
+import { loadOperatorToken, operatorBypassesResolve, operatorRouter } from './operator.js';
 import { makeTenantsDir, processConfigFor, safeTenancyProcess, safeTenantYaml, stopBootedTenants } from './test-runtime.js';
 import { registry } from '../services/ws.js';
 import { closeHouse } from './house.js';
@@ -69,10 +69,12 @@ beforeAll(async () => {
   registerProcessConfig(() => cfg);
   const app = express();
   runtimes = bootTenants(app, safeTenancyProcess(cfg, { fakeProvider: true }));
-  opToken = loadOperatorToken(join(top, 'proc-data'));
-  app.use('/api/internal/tenants', operatorRouter(opToken));
-  app.use(tenantResolve);
+  opToken = loadOperatorToken(join(top, 'proc-data'))!;
+  // The order server.ts uses: resolution stands aside for the operator's paths, the router sits after the body parsers and tenantEnter.
+  app.use((req, res, next) => { if (operatorBypassesResolve(req)) next(); else tenantResolve(req, res, next); });
+  app.use(express.json());
   app.use(tenantEnter);
+  app.use('/api/internal/tenants', operatorRouter({ dataDir: join(top, 'proc-data') }));
   app.get('/ping', (_req, res) => { res.json({ id: currentTenant()?.id }); });
   await new Promise<void>((ok) => { server = app.listen(0, '127.0.0.1', () => ok()); });
   port = (server.address() as AddressInfo).port;
@@ -95,12 +97,12 @@ describe('the operator gate', () => {
     expect(opToken).not.toBe(ada.token);
     if (process.platform !== 'win32') expect(statSync(join(top, 'proc-data', '.operator-token')).mode & 0o777).toBe(0o600);
   });
-  it('no token is 401; a wrong one is 403; so is a tenant\'s own internal token (a tenant cannot park a neighbour); nothing changes', async () => {
-    expect((await park('bea', null)).status).toBe(401);
-    expect((await park('bea', 'x'.repeat(64))).status).toBe(403);
-    expect((await park('bea', ada.token)).status).toBe(403);
-    expect((await park('bea', bea.token)).status).toBe(403);
-    expect((await revive('bea', ada.token)).status).toBe(403);
+  it('no token, a wrong one and a tenant\'s own internal token all answer 404 (as internalOnly does); nothing changes', async () => {
+    expect((await park('bea', null)).status).toBe(404);
+    expect((await park('bea', 'x'.repeat(64))).status).toBe(404);
+    expect((await park('bea', ada.token)).status).toBe(404);
+    expect((await park('bea', bea.token)).status).toBe(404);
+    expect((await revive('bea', ada.token)).status).toBe(404);
     expect((await ping('bea')).status).toBe(200);
   });
   it('an id nobody has is 404 (revive and park), and so is a string that is not an id', async () => {

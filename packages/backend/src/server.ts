@@ -58,7 +58,7 @@ import { announceTenantSetupCodes, bootTenants, stopTenantServices } from './ten
 import { installTenantConsole } from './tenancy/console.js';
 import { buildTenantPluginMounts } from './tenancy/plugin-mount.js';
 import { tenantResolve, tenantEnter } from './tenancy/resolve.js';
-import { loadOperatorToken, operatorRouter } from './tenancy/operator.js';
+import { loadOperatorToken, operatorBypassesResolve, operatorRouter } from './tenancy/operator.js';
 import { mountTenantRefusals, tenantMutationScan } from './tenancy/guard.js';
 import { tenantInfoRouter } from './tenancy/info.js';
 import { companionsRouter } from './tenancy/companions.js';
@@ -117,9 +117,9 @@ if (TENANT_MODE) {
   // stdout, so a tenant's own boot lines ([identity], [Voice], [vector-cache]) are its own. The [tenancy] lines are written with no tenant current.
   installTenantConsole();
   tenantRuntimes = bootTenants(app, config);
-  // The operator's park and revive routes: their own token (not a tenant's), so ahead of tenant resolution (tenancy/operator.ts).
-  app.use('/api/internal/tenants', operatorRouter(loadOperatorToken(houseDataDir(config.server.db_path))));
-  app.use(tenantResolve);
+  // The operator's park and revive routes carry their own token (not a tenant's): tenant resolution stands aside for those paths on a host no companion owns,
+  // and the router itself is mounted below with the rest of the chain (helmet, rate limiter, body parsers), tenancy/operator.ts.
+  app.use((req, res, next) => { if (operatorBypassesResolve(req)) next(); else tenantResolve(req, res, next); });
 }
 
 // Environment-conditional origins
@@ -180,6 +180,12 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Body parsers call next() from stream events, outside the store the request started in: enter the tenant again after them.
 if (TENANT_MODE) { app.use(tenantEnter); mountTenantRefusals(app); app.use(['/api', '/mcp'], tenantMutationScan); }
+// The operator's park and revive routes (tenancy/operator.ts), after the body parsers and tenantEnter like any other internal route.
+if (TENANT_MODE) {
+  const operatorDataDir = houseDataDir(config.server.db_path);
+  loadOperatorToken(operatorDataDir); // (creates the owner-only token file on first use; a file open to group or world is refused, and the routes stay off)
+  app.use('/api/internal/tenants', operatorRouter({ dataDir: operatorDataDir, remote: parseTenantsBlock(config)?.operator_routes_remote === true }));
+}
 
 // Plugin routes (docs/PLUGINS.md). Mounted BEFORE the api router, whose blanket
 // session auth would otherwise answer a plugin's internal-token routes first.

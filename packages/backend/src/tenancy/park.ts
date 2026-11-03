@@ -19,11 +19,21 @@ import { registry } from '../services/ws.js';
 import type { AgentService } from '../services/agent.js';
 
 export type TenantState = 'running' | 'parked' | 'failed';
-export interface TenantStatus { id: string; state: TenantState; error?: string }
+export interface TenantStatus { id: string; state: TenantState; error?: string; /** park: the turn did not end within the wait; revive is refused (409) until it does */ turn_still_running?: boolean }
 
 /** A refusal the route turns into a status: 404 no such folder, 409 already in that state (or a change is under way). */
 export class ParkRefusal extends Error {
   constructor(readonly status: 404 | 409, readonly code: string, message: string) { super(message); this.name = 'ParkRefusal'; }
+}
+
+/** How long a park waits for the running turn to end after asking it to stop (ms), before it closes the database anyway. */
+export const parkWait = { ms: 30_000, pollMs: 50 };
+
+/** The runtime's turn is still going: the agent is processing, or its harness query (the child) is still open. */
+function turnRunning(rt: TenantRuntime): boolean {
+  const agent = rt.services.agentService as Partial<AgentService> | undefined;
+  if (!agent) return false;
+  try { return runInTenant(rt, () => !!agent.isProcessing?.() || !!agent.hasActiveQuery?.()); } catch { return false; }
 }
 
 /** The websocket close code a parked companion's clients get: 1013, try again later (the page reconnects and is answered 503 until the revive). */
@@ -54,7 +64,8 @@ export function tenantStatuses(): TenantStatus[] {
   return l ? l.ids.map((id) => statusOf(l, id)) : [];
 }
 
-/** Park one running tenant. Stops its services (stopTenantServices for it alone), closes its sockets and database, keeps its hosts reserved (503). */
+/** Park one running tenant. Stops its services (stopTenantServices for it alone), asks its turn to stop and waits for it (up to parkWait.ms), closes its sockets and
+ *  database, keeps its hosts reserved (503). A turn that ignores the stop is reported (`turn_still_running`) and blocks a revive. */
 export async function parkTenant(id: string): Promise<TenantStatus> {
   const l = lifecycle();
   known(l, id);
@@ -65,19 +76,25 @@ export async function parkTenant(id: string): Promise<TenantStatus> {
   try {
     // First, in one synchronous step, leave the running set: from here a request for this tenant is answered 503, whatever happens below.
     l.runtimes.delete(id);
+    rt.leaving = true;
     l.skippedConfigs.set(id, readRootsLoosely(rt.dir)); // (what it may write stays off limits to the others while it is down)
     l.reservedFor.set(id, [...rt.hosts]);
-    l.inactive.set(id, { kind: 'operator_parked', why: 'parked by the operator' });
+    l.inactive.set(id, { kind: 'operator_parked', why: 'parked by the operator', old: rt });
     republishTenants(l);
     // A turn in flight is asked to stop and its sockets are closed, inside the tenant (its own registry, its own agent).
     runInTenant(rt, () => {
       try { (rt.services.agentService as AgentService | undefined)?.stopGeneration(); } catch { /* best effort */ }
       try { registry.closeAll(PARK_CLOSE_CODE, 'companion parked'); } catch { /* best effort */ }
     });
+    // Services first (pollers, orchestrator, channels), so nothing starts a new turn; then the turn gets a bounded wait to end before its database goes.
     await stopTenantServices([rt]);
+    const deadline = Date.now() + parkWait.ms;
+    while (turnRunning(rt) && Date.now() < deadline) await new Promise((r) => setTimeout(r, parkWait.pollMs));
+    const stillRunning = turnRunning(rt);
+    rt.parked = true; // (from here getDb() for this runtime is a 503, not a closed-database 500)
     closeQuietly(rt);
-    console.warn(`[tenancy] tenant ${id} parked by the operator`);
-    return statusOf(l, id);
+    console.warn(`[tenancy] tenant ${id} parked by the operator${stillRunning ? ' (its turn did not end in time; revive is refused until it does)' : ''}`);
+    return { ...statusOf(l, id), ...(stillRunning ? { turn_still_running: true } : {}) };
   } finally { moving.delete(id); }
 }
 
@@ -88,6 +105,8 @@ export function reviveTenant(id: string): TenantStatus {
   known(l, id);
   if (l.runtimes.has(id)) throw new ParkRefusal(409, 'already_running', `tenant ${id} is already running`);
   if (moving.has(id)) throw new ParkRefusal(409, 'in_progress', `tenant ${id} is already being parked or revived`);
+  const old = l.inactive.get(id)?.old;
+  if (old && turnRunning(old)) throw new ParkRefusal(409, 'turn_still_running', `tenant ${id} was parked with a turn still running (its harness child has not ended); revive once it has`);
   moving.add(id);
   try {
     const why = bringUp(l, id);

@@ -444,6 +444,11 @@ export class AgentService {
     return st().queue.isProcessing;
   }
 
+  /** A harness query (its child process) is open for the running turn. A park waits for this, and a revive is refused while it is true. */
+  hasActiveQuery(): boolean {
+    return st().activeQuery !== null;
+  }
+
   getQueueDepth(): number {
     return st().queue.depth;
   }

@@ -63,7 +63,7 @@ export interface TenantLifecycle {
   /** The hosts of each tenant that is not running: they answer 503, never someone else. */
   reservedFor: Map<string, string[]>;
   /** Why a folder is not running: `start_failed` (boot, or a revive, did not get it up; `why` is the one recorded line) or `operator_parked` (parked on purpose). */
-  inactive: Map<string, { kind: 'start_failed' | 'operator_parked'; why: string; /** the last revive that did not get it up (the tenant stays as it was) */ lastError?: string }>;
+  inactive: Map<string, { kind: 'start_failed' | 'operator_parked'; why: string; /** the last revive that did not get it up (the tenant stays as it was) */ lastError?: string; /** operator_parked: the runtime that was switched off, so a revive can see its turn still running */ old?: TenantRuntime }>;
 }
 let life: TenantLifecycle | null = null;
 /** The lifecycle bootTenants left behind, or null when tenancy never booted. */
@@ -307,7 +307,7 @@ function startTenantServices(processCfg: SanctumConfig, rt: TenantRuntime): void
 export function stopTenantServices(runtimes: Iterable<TenantRuntime>): Promise<unknown> {
   const channels: Promise<unknown>[] = [];
   for (const rt of runtimes) {
-    channels.push(stopTenantChannels(rt));
+    // The pollers, the orchestrator and the watchdog first (they read the database), then the channels: a caller closes the database after this returns.
     runInTenant(rt, () => {
       for (const stop of [
         () => (rt.services.orchestrator as Orchestrator | undefined)?.stop(),
@@ -315,6 +315,7 @@ export function stopTenantServices(runtimes: Iterable<TenantRuntime>): Promise<u
         stopOutlookPoller, stopOutlookAuthor, stopHandoffSchedule,
       ]) { try { stop(); } catch { /* one stopper failing must not keep the others, or the exit, waiting */ } }
     });
+    channels.push(stopTenantChannels(rt));
   }
   return Promise.all(channels);
 }
