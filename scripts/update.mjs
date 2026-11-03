@@ -18,14 +18,14 @@
 // The steps live in scripts/updater-core.mjs, the same module the in-app "Update and
 // restart" uses: a git checkout with local changes is refused (the list is shown), a
 // update is built in <app>/.update-stage/ first (the running folder is untouched until that has built), the previous node_modules, dist
-// and build are kept in <app>/.update-rollback/, and `npm run update -- --rollback` puts them back by hand. --rollback needs nothing
+// and build are kept in <app>/.update-rollback/, and `npm run update -- --rollback` puts them back by hand (a copy is written as .update-rollback.next and replaces the previous one only once the swap succeeded). --rollback needs nothing
 // from the app but node and git, so it works when the app cannot start.
 
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { UpdateError, discardStage, killAllChildren, readEnvFile, readUpdateSettings, readVersion, rollbackInfo, runRollback, runUpdate } from './updater-core.mjs';
+import { UpdateError, discardStage, killAllChildren, readEnvFile, readUpdateSettings, readVersion, recoverInterruptedSwap, rollbackInfo, runRollback, runUpdate } from './updater-core.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const force = process.argv.includes('--force');
@@ -46,6 +46,12 @@ function mindLine() {
 
 // ---- main ---------------------------------------------------------------------
 readEnvFile(root);
+// First of all: a swap or a roll back that an earlier run was cut short in (kill, power cut) is finished from its manifest, so this run starts from a whole folder.
+// `--recover` does only that and is what `npm start` runs before the app (it also works when packages/backend/dist is missing, which a swap cut short can cause).
+try {
+  if (await recoverInterruptedSwap(root, say)) say('the files an interrupted update had changed are back as they were.');
+} catch (err) { say(`could not check for an interrupted update: ${err.message}`); }
+if (process.argv.includes('--recover')) process.exit(0);
 // Ctrl+C stops the npm/tsc/vite children too (they are their own process groups) and deletes the stage: nothing in the app was changed.
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { killAllChildren(); discardStage(root).finally(() => process.exit(130)); });
 if (process.argv.includes('--rollback')) {
@@ -69,6 +75,11 @@ try {
       '  - Or download the ZIP from GitHub again and copy it over this folder, then: npm install && npm run build');
   }
   throw err;
+}
+if (result.upToDate && result.already) {
+  say(`already on ${result.current}: this checkout is on the newest commit, so nothing was rebuilt.`);
+  mindLine();
+  process.exit(0);
 }
 if (result.upToDate) {
   say(`newest is ${result.latest}. You already have it. (npm run update -- --force reinstalls anyway.)`);

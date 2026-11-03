@@ -1,13 +1,13 @@
 // The update steps (scripts/updater-core.mjs) against a fake repo in a temp folder: no network (GitHub is a stub), no real app.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { execFileSync, spawn } from 'node:child_process';
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   UpdateError, applyStaged, archivePlan, clearRollback, discardStage, killAllChildren, killProcessGroup, makeRollbackCopy, miniYaml, protectedPaths, readRollback,
-  recoverInterruptedSwap, resolveRepo, rollbackInfo, run, runRollback, runUpdate, selfUpdateSupport, stageDir, stageUpdate,
+  recoverInterruptedSwap, rollbackNow, errorTail, procStartTime, rollbackNextRoot, takeRecoveredMarker, resolveRepo, rollbackInfo, run, runRollback, runUpdate, selfUpdateSupport, stageDir, stageUpdate,
 } from './updater-core.mjs';
 
 const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 'Sam', GIT_AUTHOR_EMAIL: 'sam@example.test', GIT_COMMITTER_NAME: 'Sam', GIT_COMMITTER_EMAIL: 'sam@example.test', GIT_CONFIG_GLOBAL: '/dev/null' };
@@ -217,6 +217,172 @@ describe('git checkout', () => {
     const { rollbackNow } = await import('./updater-core.mjs');
     await rollbackNow({ root: app, force: true });
     expect(read(app, 'node_modules/built.txt')).toBe('1.0.0');
+  });
+
+  it('a swap that fails keeps the previous rollback copy whole (the new copy is written to .update-rollback.next and dropped)', async () => {
+    release('1.1.0');
+    await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
+    const kept = readRollback(app);
+    const keptManifest = JSON.stringify(kept.manifest);
+    expect(read(kept.dir, 'files/node_modules/built.txt')).toBe('1.0.0');
+    release('1.2.0');
+    const plan = await stageUpdate({ root: app, settings, fetchFn: fakeFetch('1.2.0') });
+    const err = await applyStaged({ root: app, plan: { ...plan, toSha: '0000000000000000000000000000000000000000' } }).catch((e) => e);
+    expect(err).toBeInstanceOf(UpdateError);
+    expect(err.restored).toBe(true);
+    const after = readRollback(app);
+    expect(JSON.stringify(after.manifest)).toBe(keptManifest); // still the 1.0.0 -> 1.1.0 copy, untouched
+    expect(read(after.dir, 'files/node_modules/built.txt')).toBe('1.0.0');
+    expect(existsSync(rollbackNextRoot(app))).toBe(false);
+    expect(read(app, 'node_modules/built.txt')).toBe('1.1.0'); // the running folder is as it was
+  });
+
+  it('a swap that succeeds replaces the previous copy only at the end, and leaves no .update-rollback.next', async () => {
+    release('1.1.0');
+    await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
+    release('1.2.0');
+    await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.2.0') });
+    expect(existsSync(rollbackNextRoot(app))).toBe(false);
+    expect(readRollback(app).manifest).toMatchObject({ version: '1.1.0', toVersion: '1.2.0', phase: 'swapped' });
+  });
+
+  it('already on the target commit with a version that is not newer: no build, no swap, no rollback copy ("already on 1.0.0")', async () => {
+    const lines = [], states = [];
+    const r = await runUpdate({ root: app, settings, force: true, fetchFn: fakeFetch('1.0.0'), log: (l) => lines.push(l), setState: (s) => states.push(s) });
+    expect(r).toMatchObject({ upToDate: true, already: true, current: '1.0.0' });
+    expect(lines).toContain('already on 1.0.0');
+    expect(states).not.toContain('installing');
+    expect(rollbackInfo(app).available).toBe(false);
+    expect(existsSync(stageDir(app))).toBe(false);
+    // the swap itself has the same guard
+    const sha = git(app, 'rev-parse', 'HEAD');
+    appendFileSync(join(app, '.git', 'info', 'exclude'), '.update-stage/\n');
+    write(stageDir(app), 'package.json', pkg('1.0.0'));
+    const swapped = await applyStaged({ root: app, plan: { upToDate: false, staged: true, from: '1.0.0', to: '1.0.0', mode: 'git', sha, toSha: sha, branch: 'main', files: [] } });
+    expect(swapped).toMatchObject({ upToDate: true, already: true });
+    expect(rollbackInfo(app).available).toBe(false);
+  });
+
+  describe('a swap cut short (the pre-boot recovery)', () => {
+    /** Run a full update, then rewind the folder to what a kill after `kept` renames would have left: the first `kept` moved entries are new, the rest still the
+     *  originals, the manifest says `swapping`. `merged`: whether the git merge had run. */
+    async function cutAt(kept, { merged = true, manifestFlag = false } = {}) {
+      const before = git(app, 'rev-parse', 'HEAD');
+      release('1.1.0');
+      const r = await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
+      const rb = readRollback(app);
+      const moved = rb.manifest.entries.filter((e) => e.how === 'moved');
+      moved.forEach((e, i) => {
+        if (i < kept) return;
+        if (e.kind === 'dir') { rmSync(join(app, e.path), { recursive: true, force: true }); mkdirSync(dirname(join(app, e.path)), { recursive: true }); copyDir(join(rb.dir, 'files', e.path), join(app, e.path)); rmSync(join(rb.dir, 'files', e.path), { recursive: true, force: true }); }
+      });
+      if (!merged) git(app, 'reset', '--hard', before);
+      // the cut state lives in .update-rollback.next
+      rmSync(rollbackNextRoot(app), { recursive: true, force: true });
+      mkdirSync(rollbackNextRoot(app), { recursive: true });
+      execFileSync('mv', [rb.dir, join(rollbackNextRoot(app), '1.0.0')]);
+      rmSync(join(app, '.update-rollback'), { recursive: true, force: true });
+      const mf = join(rollbackNextRoot(app), '1.0.0', 'manifest.json');
+      writeFileSync(mf, JSON.stringify({ ...rb.manifest, phase: 'swapping', merged: manifestFlag }, null, 2));
+      mkdirSync(stageDir(app), { recursive: true });
+      return { before, toSha: r.toSha };
+    }
+    const copyDir = (a, b) => execFileSync('cp', ['-a', a, b]);
+
+    it.each([
+      ['after the first rename (node_modules swapped, the rest not)', 1, true],
+      ['after dist and build are swapped (every rename done, phase still swapping)', 99, true],
+      ['between the merge and the manifest write (HEAD is new, no merged flag, nothing renamed)', 0, true],
+      ['before the merge ran (HEAD still the old one)', 0, false],
+    ])('%s: the previous version is back, HEAD included, whatever the merged flag says', async (_n, kept, merged) => {
+      const { before } = await cutAt(kept, { merged, manifestFlag: false });
+      const lines = [];
+      expect(await recoverInterruptedSwap(app, (l) => lines.push(l))).toBe(true);
+      expect(git(app, 'rev-parse', 'HEAD')).toBe(before);
+      expect(read(app, 'node_modules/built.txt')).toBe('1.0.0');
+      expect(read(app, 'packages/backend/dist/server.js')).toContain('1.0.0');
+      expect(read(app, 'packages/frontend/build/index.html')).toContain('1.0.0');
+      expect(read(app, 'package.json')).toContain('"1.0.0"');
+      expect(existsSync(rollbackNextRoot(app))).toBe(false);
+      expect(lines.join('\n')).toMatch(/cut short/);
+      expect(takeRecoveredMarker(app)).toBe(true); // the booting app words its job from this
+      expect(takeRecoveredMarker(app)).toBe(false);
+      expect(await recoverInterruptedSwap(app)).toBe(false); // and a second run finds nothing
+    });
+
+    it('a cut swap leaves the PREVIOUS rollback copy alone', async () => {
+      release('1.1.0');
+      await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
+      const prev = JSON.stringify(readRollback(app).manifest);
+      git(app, 'reset', '--hard', 'HEAD'); // (clean)
+      const next = join(rollbackNextRoot(app), '1.1.0');
+      write(next, 'manifest.json', JSON.stringify({ version: '1.1.0', mode: 'tarball', phase: 'swapping', entries: [] }));
+      expect(await recoverInterruptedSwap(app)).toBe(true);
+      expect(JSON.stringify(readRollback(app).manifest)).toBe(prev);
+    });
+
+    it('a complete swap whose copy was not yet moved over the previous one is finished (promoted)', async () => {
+      release('1.1.0');
+      await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
+      const rb = readRollback(app);
+      mkdirSync(rollbackNextRoot(app), { recursive: true });
+      execFileSync('mv', [rb.dir, join(rollbackNextRoot(app), '1.0.0')]);
+      expect(await recoverInterruptedSwap(app)).toBe(false); // (nothing was put back: the swap had succeeded)
+      expect(existsSync(rollbackNextRoot(app))).toBe(false);
+      expect(readRollback(app).manifest).toMatchObject({ version: '1.0.0', phase: 'swapped' });
+      expect(read(app, 'node_modules/built.txt')).toBe('1.1.0');
+    });
+
+    it('a .update-rollback.next with no manifest (cut before anything moved) is just removed', async () => {
+      mkdirSync(join(rollbackNextRoot(app), '1.0.0', 'files'), { recursive: true });
+      expect(await recoverInterruptedSwap(app)).toBe(false);
+      expect(existsSync(rollbackNextRoot(app))).toBe(false);
+    });
+  });
+
+  describe('a roll back is crash-safe', () => {
+    it('the current directories go aside first and are deleted only after the manifest says rolled_back', async () => {
+      release('1.1.0');
+      await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
+      const rb = readRollback(app);
+      const seen = [];
+      await rollbackNow({ root: app, force: false, log: (l) => seen.push(l) });
+      const m = JSON.parse(readFileSync(join(rb.dir, 'manifest.json'), 'utf-8'));
+      expect(m.phase).toBe('rolled_back');
+      expect(existsSync(join(rb.dir, 'aside'))).toBe(false); // deleted last
+      expect(read(app, 'node_modules/built.txt')).toBe('1.0.0');
+    });
+
+    it('a crash after the old node_modules is back but before the rest is finished by the recovery (HEAD reset, the other directories put back, copy consumed)', async () => {
+      const before = git(app, 'rev-parse', 'HEAD');
+      release('1.1.0');
+      await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
+      const rb = readRollback(app);
+      // what a roll back looks like part-way: manifest rolling_back, HEAD already reset, node_modules put back with the new one set aside, dist not yet
+      const { phase: _p, ...rest } = rb.manifest;
+      writeFileSync(join(rb.dir, 'manifest.json'), JSON.stringify({ ...rest, phase: 'rolling_back' }, null, 2));
+      mkdirSync(join(rb.dir, 'aside'), { recursive: true });
+      renameSync(join(app, 'node_modules'), join(rb.dir, 'aside', 'node_modules'));
+      renameSync(join(rb.dir, 'files', 'node_modules'), join(app, 'node_modules'));
+      expect(await recoverInterruptedSwap(app)).toBe(true);
+      expect(git(app, 'rev-parse', 'HEAD')).toBe(before);
+      expect(read(app, 'node_modules/built.txt')).toBe('1.0.0');
+      expect(read(app, 'packages/backend/dist/server.js')).toContain('1.0.0');
+      expect(read(app, 'packages/frontend/build/index.html')).toContain('1.0.0');
+      expect(existsSync(join(app, '.update-rollback'))).toBe(false); // a roll back consumes its copy
+    });
+
+    it('a crash after the manifest said rolled_back only has the set-aside copies left to delete', async () => {
+      release('1.1.0');
+      await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
+      await rollbackNow({ root: app, force: false });
+      const rb = readRollback(app);
+      mkdirSync(join(rb.dir, 'aside'), { recursive: true });
+      write(rb.dir, 'aside/node_modules/leftover', 'x');
+      expect(await recoverInterruptedSwap(app)).toBe(false);
+      expect(existsSync(join(app, '.update-rollback'))).toBe(false);
+      expect(read(app, 'node_modules/built.txt')).toBe('1.0.0');
+    });
   });
 
   describe('which repository', () => {
@@ -448,16 +614,65 @@ describe('build children are their own process group', () => {
     expect(() => process.kill(pid, 0)).toThrow();
   });
 
+  it.skipIf(process.platform !== 'linux')('boot cleanup does not kill a pid whose start time differs (a number reused after a reboot), nor a bare pid with no start time', async () => {
+    const app = join(tmp, 'app');
+    write(app, 'package.json', pkg('1.0.0'));
+    const bystander = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { detached: true, stdio: 'ignore' });
+    bystander.unref();
+    write(stageDir(app), '.pgids', `${bystander.pid} ${Number(procStartTime(bystander.pid)) + 12345}\n${bystander.pid}\n${bystander.pid} -\n`);
+    await discardStage(app);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(() => process.kill(bystander.pid, 0)).not.toThrow(); // still running
+    process.kill(bystander.pid, 'SIGKILL');
+    expect(existsSync(stageDir(app))).toBe(false);
+  });
+
+  it.skipIf(process.platform === 'win32')('a symlinked .update-stage is never followed: discardStage leaves it and what it points at alone, and stageUpdate refuses it', async () => {
+    const app = join(tmp, 'app');
+    write(app, 'package.json', pkg('1.0.0'));
+    const outside = join(tmp, 'outside');
+    write(outside, 'precious.txt', 'keep');
+    const bystander = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { detached: true, stdio: 'ignore' });
+    bystander.unref();
+    write(outside, '.pgids', `${bystander.pid} ${procStartTime(bystander.pid)}\n`); // (a pid file a link would have us read)
+    symlinkSync(outside, stageDir(app));
+    expect(await discardStage(app)).toBe(false);
+    await new Promise((r) => setTimeout(r, 200));
+    expect(() => process.kill(bystander.pid, 0)).not.toThrow(); // nothing was read through the link
+    expect(read(outside, 'precious.txt')).toBe('keep');
+    const err = await stageUpdate({ root: app, settings, fetchFn: fakeFetch('9.9.9') }).catch((e) => e);
+    expect(err).toBeInstanceOf(UpdateError);
+    expect(err.message).toMatch(/symbolic link/);
+    expect(read(outside, 'precious.txt')).toBe('keep');
+    process.kill(bystander.pid, 'SIGKILL');
+  });
+
   it.skipIf(process.platform !== 'linux')('boot cleanup kills a build a SIGKILLed run left running (its group is in the stage\'s .pgids) and removes the stage', async () => {
     const app = join(tmp, 'app');
     write(app, 'package.json', pkg('1.0.0'));
     const orphan = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { detached: true, stdio: 'ignore' });
     orphan.unref();
-    write(stageDir(app), '.pgids', `${orphan.pid}\n`);
+    write(stageDir(app), '.pgids', `${orphan.pid} ${procStartTime(orphan.pid)}\n`); // (pid and start time: a bare pid proves nothing after a reboot)
     expect(() => process.kill(orphan.pid, 0)).not.toThrow();
     expect(await discardStage(app)).toBe(true);
     for (let i = 0; i < 100; i++) { try { process.kill(orphan.pid, 0); } catch { break; } await new Promise((r) => setTimeout(r, 20)); }
     expect(() => process.kill(orphan.pid, 0)).toThrow();
     expect(existsSync(stageDir(app))).toBe(false);
+  });
+});
+
+describe('the reason a failed step gives', () => {
+  it('prefers the first error-looking line of the last 60 (npm warnings skipped) and the two after it', () => {
+    const lines = ['npm warn deprecated left-pad@1.0.0: no', 'added 10 packages', 'src/a.ts(3,1): error TS2304: Cannot find name x', '  at line 3', 'Found 1 error.', 'npm ERR! code 1', 'npm warn something', 'more noise', 'last'];
+    expect(errorTail(lines)).toEqual(['src/a.ts(3,1): error TS2304: Cannot find name x', '  at line 3', 'Found 1 error.']);
+  });
+  it('an npm warning that mentions "error" is not picked', () => {
+    expect(errorTail(['npm warn error handling is deprecated', 'ok', 'fine'])).toEqual(['npm warn error handling is deprecated', 'ok', 'fine']); // (no real error line: the last three)
+    expect(errorTail(['npm warn error handling is deprecated', 'a', 'b', 'c', 'Error: ENOENT: no such file', 'x'])).toEqual(['Error: ENOENT: no such file', 'x']);
+  });
+  it('without an error-looking line: the last three lines; only the last 60 are looked at', () => {
+    expect(errorTail(['a', 'b', 'c', 'd'])).toEqual(['b', 'c', 'd']);
+    const old = ['error: at the very start', ...Array.from({ length: 70 }, (_, i) => `line ${i}`)];
+    expect(errorTail(old)).toEqual(['line 67', 'line 68', 'line 69']);
   });
 });

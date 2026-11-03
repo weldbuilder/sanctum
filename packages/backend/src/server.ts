@@ -1,3 +1,6 @@
+// Pre-boot recovery (src/update-recover.ts): a swap that was cut short is put back, and the process started over, before any other module of the app loads.
+// It must stay the FIRST import of this file.
+import './update-recover.js';
 // Node version guard — must run before any other imports that load native addons
 const _nodeVersion = process.versions.node;
 const _nodeMajor = parseInt(_nodeVersion.split('.')[0], 10);
@@ -47,7 +50,7 @@ import apiRoutes, { initCcRoutes, ccEnabledGate } from './routes/api.js';
 import setupRoutes from './routes/setup.js';
 import { announceSetupCode } from './services/setup-code.js';
 import houseUpdateRoutes from './routes/house-update.js';
-import { initUpdater, setRestartControl, stopUpdateWork } from './services/updater.js';
+import { flushUpdateJob, initUpdater, setRestartControl, stopUpdateWork } from './services/updater.js';
 import authPreferencesRoutes from './routes/auth-preferences.js';
 import googleRoutes from './routes/google-routes.js';
 import { startOutlookPoller, stopOutlookPoller } from './services/outlook.js';
@@ -468,6 +471,7 @@ async function gracefulStop(signal: string): Promise<void> {
     db?.close();
     if (tenantRuntimes) for (const rt of tenantRuntimes.values()) rt.db.close();
     closeHouse();
+    flushUpdateJob(); // (synchronous: a supervised restart ends here, and the swap and restart lines must be on disk first)
     process.exit(0);
   });
   server.closeAllConnections?.(); // a keep-alive connection must not hold the port open

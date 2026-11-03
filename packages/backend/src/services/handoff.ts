@@ -38,7 +38,7 @@ import { existsSync } from 'fs';
 import { readOwnText } from '../tenancy/own-files.js';
 import { join, dirname } from 'path';
 import { query } from './providers/index.js';
-import { trackBackgroundRun } from './update-block.js';
+import { createCatchUp, trackBackgroundRun, updateBlocking, type CatchUp } from './update-block.js';
 import { Cron } from 'croner';
 import {
   getDb,
@@ -551,7 +551,7 @@ export function getHandoffStatus(): HandoffStatus {
 // --- Croner lifecycle (its OWN schedule, NOT the orchestrator) --------------
 
 // Per tenant (tenantLocal): the croner of each tenant, created inside its runInTenant; tenancy off, the one module cron as before.
-const taskLocal = tenantLocal<{ task: Cron | null; retries: Set<NodeJS.Timeout> }>(() => ({ task: null, retries: new Set() }));
+const taskLocal = tenantLocal<{ task: Cron | null; retries: Set<NodeJS.Timeout>; catchUp: CatchUp | null }>(() => ({ task: null, retries: new Set(), catchUp: null }));
 
 /** Start the 12:10am daily handoff cron. The cron always fires; the handler runs
  *  the handoff only when enabled (so a runtime toggle takes effect on the next
@@ -565,6 +565,13 @@ export function startHandoffSchedule(): void {
   st.task = new Cron(HANDOFF_CRON, { timezone }, bindCurrentTenant(() => {
     if (!isHandoffEnabled()) {
       // Silent skip — the feature is off. (No log spam at every midnight.)
+      return;
+    }
+    if (updateBlocking()) {
+      // An in-app update is installing: remember it, and run the handoff once when the pause ends without a restart.
+      console.log('[handoff] skipped — an update is installing; it runs once when the update ends');
+      if (!st.catchUp) st.catchUp = createCatchUp(bindCurrentTenant(() => { if (isHandoffEnabled()) void runHandoff().catch(() => {}); }));
+      st.catchUp.skipped('handoff');
       return;
     }
     void runHandoff().catch((err) => {
@@ -586,4 +593,6 @@ export function stopHandoffSchedule(): void {
   }
   for (const t of st.retries) clearTimeout(t);
   st.retries.clear();
+  st.catchUp?.dispose();
+  st.catchUp = null;
 }

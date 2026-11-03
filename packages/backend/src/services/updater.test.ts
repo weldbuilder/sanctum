@@ -57,6 +57,19 @@ describe('performRestart', () => {
     expect(calls).toEqual(['close', 'spawn', 'wait', 'relisten']);
   });
 
+  it('hands the job file over before the replacement exists, and takes it back if the replacement never answers', async () => {
+    const calls: string[] = [];
+    const deps = { ctl: ctlStub(calls), log: () => {}, flush: () => calls.push('flush'), handOver: (on: boolean) => calls.push(`handover:${on}`) };
+    await performRestart({ ...deps, supervised: false, spawnChild: () => { calls.push('spawn'); return { exited: () => false }; }, waitHealthy: async () => true });
+    expect(calls).toEqual(['flush', 'close', 'handover:true', 'spawn', 'stop']);
+    calls.length = 0;
+    await performRestart({ ...deps, supervised: false, spawnChild: () => { calls.push('spawn'); return { exited: () => false }; }, waitHealthy: async () => false });
+    expect(calls).toEqual(['flush', 'close', 'handover:true', 'spawn', 'handover:false', 'relisten']);
+    calls.length = 0;
+    await performRestart({ ...deps, supervised: true, spawnChild: () => ({ exited: () => false }), waitHealthy: async () => true });
+    expect(calls).toEqual(['flush', 'handover:true', 'stop']); // supervised: flushed (synchronously) before the stop
+  });
+
   it('respawn, the spawn itself throws: listen again', async () => {
     const calls: string[] = [];
     const r = await performRestart({
@@ -124,8 +137,8 @@ describe('an update job', () => {
     await _jobDone();
     expect(calls).toEqual(['close', 'stop']);
     expect(onDisk).toBe('restarting');
-    // the replacement process starts: it reads the file
-    _setUpdaterEnv({ root, dataDir: () => data, busy: () => false });
+    // the replacement process starts (another pid, another start time): it reads the file
+    _setUpdaterEnv({ root, dataDir: () => data, busy: () => false, self: () => ({ pid: process.pid + 1, boot_at: 1 }) });
     const next = getJob()!;
     expect(next).toMatchObject({ state: 'done', from: '1.0.0', to: '1.1.0', kind: 'update' });
     expect(next.log.length).toBeGreaterThan(3);
@@ -133,6 +146,62 @@ describe('an update job', () => {
     const snap = await getSnapshot();
     expect(snap.rollback).toMatchObject({ available: true, version: '1.0.0' });
     expect(snap.restart_mode).toBe('respawn');
+  });
+
+  it('the old process writes nothing once the replacement exists: the replacement\'s `done` is not overwritten with `restarting`', async () => {
+    const file = join(data, 'update-job.json');
+    _setRestartOverrides({
+      spawnChild: () => ({ exited: () => false }),
+      waitHealthy: async () => { // (the replacement boots, settles the job file as done, and only then answers the health poll)
+        const j = JSON.parse(readFileSync(file, 'utf-8')); j.state = 'done'; j.finished_at = '2026-11-03T12:00:00.000Z'; writeFileSync(file, JSON.stringify(j));
+        return true;
+      },
+    });
+    startUpdate();
+    await _jobDone();
+    await new Promise((r) => setTimeout(r, 1200)); // (past the once-a-second trailing write)
+    const onDisk = JSON.parse(readFileSync(file, 'utf-8'));
+    expect(onDisk.state).toBe('done');
+    expect(onDisk.log.map((l: { line: string }) => l.line).join('\n')).not.toMatch(/replacement answered/);
+  });
+
+  it('supervised: the swap and restart lines are on disk (flushed synchronously) before the stop', async () => {
+    _setUpdaterEnv({ root, dataDir: () => data, busy: () => false, supervised: () => true });
+    let lines = '';
+    setRestartControl({ ...ctlStub(calls), gracefulStop: async () => { calls.push('stop'); lines = JSON.parse(readFileSync(join(data, 'update-job.json'), 'utf-8')).log.map((l: { line: string }) => l.line).join('\n'); } });
+    startUpdate();
+    await _jobDone();
+    expect(lines).toMatch(/swapped in/);
+    expect(lines).toMatch(/restarting: stopping so the supervisor/);
+  });
+
+  it('a `restarting` job written by this very process is still in progress; one written by another process (the predecessor) is done', async () => {
+    const mine = { pid: 4242, boot_at: 777 };
+    put(data, 'update-job.json', JSON.stringify({ id: 'x', kind: 'update', state: 'restarting', from: '1.0.0', to: '1.1.0', started_at: 'z', finished_at: null, error: null, ...mine, log: [] }));
+    _setUpdaterEnv({ root, dataDir: () => data, busy: () => false, self: () => mine });
+    await initUpdater();
+    expect(getJob()!.state).toBe('restarting');
+    _setUpdaterEnv({ root, dataDir: () => data, busy: () => false, self: () => ({ pid: 4242, boot_at: 888 }) }); // (same pid, as in a container: another start)
+    await initUpdater();
+    expect(getJob()!.state).toBe('done');
+  });
+
+  it('boot: a stage present with a job already `done` does not mark it failed', async () => {
+    mkdirSync(join(root, '.update-stage', 'node_modules'), { recursive: true });
+    put(data, 'update-job.json', JSON.stringify({ id: 'x', kind: 'update', state: 'done', from: '1.0.0', to: '1.1.0', started_at: 'z', finished_at: '2026-11-03T12:00:00.000Z', error: null, pid: 1, boot_at: 1, log: [] }));
+    await initUpdater();
+    expect(existsSync(join(root, '.update-stage'))).toBe(false);
+    expect(JSON.parse(readFileSync(join(data, 'update-job.json'), 'utf-8'))).toMatchObject({ state: 'done', error: null });
+    expect(getJob()).toMatchObject({ state: 'done', error: null });
+  });
+
+  it('boot: a swap the pre-boot recovery already put back (its marker is in the stage) says so, even though nothing is left to recover', async () => {
+    mkdirSync(join(root, '.update-stage'), { recursive: true });
+    writeFileSync(join(root, '.update-stage', '.recovered'), 'x');
+    put(data, 'update-job.json', JSON.stringify({ id: 'x', kind: 'update', state: 'restarting', from: '1.0.0', to: '1.1.0', started_at: 'z', finished_at: null, error: null, log: [] }));
+    await initUpdater();
+    expect(getJob()).toMatchObject({ state: 'failed', error: 'The update did not finish; the previous version was put back.' });
+    expect(existsSync(join(root, '.update-stage'))).toBe(false);
   });
 
   it('a job caught mid-way by a process exit reads as failed (interrupted) and keeps its log', () => {

@@ -46,6 +46,10 @@ export const canSelfUpdate = (s: UpdateSnapshot | null | undefined): boolean => 
 export const selfUpdateWhy = (s: UpdateSnapshot | null | undefined): string => (!s || canSelfUpdate(s) ? '' : !s.self_update.ok ? (s.self_update.reason ?? 'This install cannot update itself.') : 'Set a password, or run npm run update');
 
 const ACTIVE: JobState[] = ['checking', 'fetching', 'installing', 'building', 'restarting'];
+/** Is the app refusing new messages (an update installing, building or restarting)? The composer keeps the draft instead of sending. */
+export const messagesPaused = (j: UpdateJob | null | undefined): boolean => !!j && (j.state === 'installing' || j.state === 'building' || j.state === 'restarting');
+/** The line shown where a message was refused. The text stays in the box. */
+export const UPDATE_REFUSED_NOTICE = 'Updating; your message was not sent.';
 export const jobActive = (j: UpdateJob | null | undefined): boolean => !!j && ACTIVE.includes(j.state);
 
 const STATE_WORDS: Record<JobState, string> = {

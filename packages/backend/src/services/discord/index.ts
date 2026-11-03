@@ -45,6 +45,7 @@ import { createMessage, createThread, getThread, ensureDailyThread, getConfig, s
 import { getBotToken } from '../bot-token.js';
 import { getSanctumConfig } from '../../config.js';
 import { bindCurrentTenant, tenantLocal } from '../../tenancy/context.js';
+import { UPDATING_REPLY, noticeOnce, updateBlocking } from '../update-block.js';
 import type { registry as registryInstance } from '../ws.js';
 
 type ConnectionRegistry = typeof registryInstance;
@@ -399,6 +400,13 @@ export class DiscordService {
   private async handleBatch(batch: MessageBatch): Promise<void> {
     const { firstMessage, lastMessage } = batch;
     const isOwner = batch.lane === 'owner';
+
+    // An in-app update is installing: no turn can start. Say so once per channel (one line), then ignore until the pause ends.
+    if (updateBlocking()) {
+      if (noticeOnce(`discord:${batch.channelId}`)) lastMessage.reply({ content: UPDATING_REPLY, allowedMentions: { repliedUser: false } }).catch(() => {});
+      console.log('[Discord] A message arrived while an update is installing; it was not processed.');
+      return;
+    }
 
     // Defer non-owner Discord messages when owner is actively chatting on web UI
     // This prevents Discord conversations from interrupting the owner's flow

@@ -7,7 +7,57 @@ let inFlight = 0;
 
 /** True while an update job is installing, building or restarting. */
 export function updateBlocking(): boolean { return blocking; }
-export function setUpdateBlocking(on: boolean): void { blocking = on; }
+export function setUpdateBlocking(on: boolean): void {
+  const was = blocking;
+  blocking = on;
+  if (on && !was) noticed.clear();
+  if (was && !on) {
+    noticed.clear();
+    for (const fn of [...clearedHooks]) { try { fn(); } catch (err) { console.warn('[update] a catch-up after the pause failed:', (err as Error).message); } }
+  }
+}
+
+// ---- when the pause ends -------------------------------------------------------------
+// The pause ends without a restart when an update fails or is only installed (a successful update replaces the process). What was skipped meanwhile
+// is picked up once, by each scheduler that skipped something (`createCatchUp`), and each channel that turned a message away said so only once (`noticeOnce`).
+const clearedHooks = new Set<() => void>();
+const noticed = new Set<string>();
+/** Run `fn` each time the pause ends. Returns the way to stop. */
+export function onUpdateBlockCleared(fn: () => void): () => void { clearedHooks.add(fn); return () => { clearedHooks.delete(fn); }; }
+
+/** True the first time `key` (a channel) is seen during this pause: the caller says "updating, back in a minute" then, and ignores the rest. Reset when the pause ends. */
+export function noticeOnce(key: string): boolean {
+  if (noticed.has(key)) return false;
+  noticed.add(key);
+  return true;
+}
+export const UPDATING_REPLY = 'Updating, back in a minute.';
+
+export interface CatchUp {
+  /** Something this scheduler would have run was skipped because of the pause. `item` names it (a wake type), so each is run once. */
+  skipped(item?: string): void;
+  /** The `skippedWhileBlocked` flag. */
+  readonly skippedWhileBlocked: boolean;
+  dispose(): void;
+}
+/** A scheduler's catch-up: when the pause ends and it skipped something, `run` is called ONCE with what was skipped (never when nothing was). `run` must be bound to the
+ *  scheduler's tenant by the caller (bindCurrentTenant). */
+export function createCatchUp(run: (items: string[]) => void | Promise<void>): CatchUp {
+  const items = new Set<string>();
+  let skippedWhileBlocked = false;
+  const off = onUpdateBlockCleared(() => {
+    if (!skippedWhileBlocked) return;
+    skippedWhileBlocked = false;
+    const list = [...items];
+    items.clear();
+    void Promise.resolve().then(() => run(list)).catch((err) => console.warn('[update] a catch-up pass failed:', (err as Error).message));
+  });
+  return {
+    skipped(item = '') { skippedWhileBlocked = true; if (item) items.add(item); },
+    get skippedWhileBlocked() { return skippedWhileBlocked; },
+    dispose() { off(); },
+  };
+}
 
 /** The notice shown where a new message was refused. */
 export const UPDATE_BLOCK_NOTICE = 'An update is being installed, so new messages are paused for a minute or two.';
@@ -31,4 +81,4 @@ export function trackBackgroundStart(): () => void {
 }
 export function backgroundRunsInFlight(): number { return inFlight; }
 /** Test hook. */
-export function _resetUpdateBlock(): void { blocking = false; inFlight = 0; }
+export function _resetUpdateBlock(): void { blocking = false; inFlight = 0; noticed.clear(); }

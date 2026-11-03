@@ -18,6 +18,7 @@ import { getBotToken } from '../bot-token.js';
 import { saveFile } from '../files.js';
 import { getSanctumConfig } from '../../config.js';
 import { bindCurrentTenant, envFor } from '../../tenancy/context.js';
+import { UPDATING_REPLY, noticeOnce, updateBlocking } from '../update-block.js';
 import type { registry as registryInstance } from '../ws.js';
 
 type ConnectionRegistry = typeof registryInstance;
@@ -284,6 +285,13 @@ export class TelegramService {
     }
     if (chatId !== telegramConfig.ownerChatId) {
       console.log(`[Telegram] Rejected message from unknown chat: ${chatId}`);
+      return;
+    }
+
+    // An in-app update is installing: no turn can start. Say so once (one line), then ignore until the pause ends.
+    if (updateBlocking()) {
+      if (noticeOnce(`telegram:${chatId}`)) await ctx.reply(UPDATING_REPLY).catch(() => {});
+      console.log('[Telegram] A message arrived while an update is installing; it was not processed.');
       return;
     }
 

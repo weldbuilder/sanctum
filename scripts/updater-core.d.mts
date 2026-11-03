@@ -19,7 +19,7 @@ export interface StagedPlan {
   files: string[];
 }
 export type UpdateResult =
-  | { upToDate: true; current: string; latest: string }
+  | { upToDate: true; current: string; latest: string; already?: boolean }
   | { upToDate: false; from: string; to: string; mode: 'git' | 'tarball'; sha: string | null; toSha: string | null };
 export interface RunUpdateOptions {
   root: string;
@@ -41,8 +41,8 @@ export function installMode(root: string): 'git' | 'tarball';
 export function originRepo(root: string): string;
 export function resolveRepo(root: string, opts: { repo: string; explicit?: boolean }): { repo: string; note?: string; error?: string };
 export function stageDir(root: string): string;
-export function stageUpdate(opts: RunUpdateOptions): Promise<{ upToDate: true; current: string; latest: string } | StagedPlan>;
-export function applyStaged(opts: { root: string; plan: StagedPlan; log?: (line: string) => void }): Promise<Exclude<UpdateResult, { upToDate: true }>>;
+export function stageUpdate(opts: RunUpdateOptions): Promise<{ upToDate: true; current: string; latest: string; already?: boolean } | StagedPlan>;
+export function applyStaged(opts: { root: string; plan: StagedPlan; log?: (line: string) => void }): Promise<UpdateResult>;
 export function discardStage(root: string, log?: (line: string) => void): Promise<boolean>;
 export function recoverInterruptedSwap(root: string, log?: (line: string) => void): Promise<boolean>;
 export function runUpdate(opts: RunUpdateOptions): Promise<UpdateResult>;
@@ -51,6 +51,10 @@ export function rollbackNow(opts: { root: string; log?: (line: string) => void; 
 export function rollbackInfo(root: string): RollbackInfo;
 export function readRollback(root: string): { dir: string; manifest: Record<string, any> } | null;
 export function rollbackRoot(root: string): string;
+export function rollbackNextRoot(root: string): string;
+export function takeRecoveredMarker(root: string): boolean;
+export function procStartTime(pid: number): string;
+export function errorTail(lines: string[]): string[];
 export function clearRollback(root: string): void;
 export function makeRollbackCopy(opts: { root: string; version: string; mode: string; branch: string; sha?: string | null; entries?: string[] }): Promise<Record<string, any>>;
 export function protectedPaths(root: string, cwd?: string): string[];

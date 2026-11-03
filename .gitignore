@@ -3,6 +3,7 @@ dist/
 build/
 .update-stage/
 .update-rollback/
+.update-rollback.next/
 .svelte-kit/
 *.js.map
 *.tsbuildinfo

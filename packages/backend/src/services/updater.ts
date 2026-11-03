@@ -26,7 +26,7 @@ import { isInteractiveAgentBusy } from './agent.js';
 import { checkForUpdate, clearUpdateCache, type UpdateStatus } from './update-check.js';
 import {
   UpdateError, applyStaged, clearRollback, discardStage, killAllChildren, readEnvFile, readUpdateSettings, recoverInterruptedSwap, rollbackInfo, rollbackNow,
-  runRollback, selfUpdateSupport, stageUpdate, type RollbackInfo, type SelfUpdateSupport, type StagedPlan,
+  runRollback, selfUpdateSupport, stageUpdate, takeRecoveredMarker, type RollbackInfo, type SelfUpdateSupport, type StagedPlan,
 } from '../../../../scripts/updater-core.mjs';
 
 export type JobState = 'checking' | 'fetching' | 'installing' | 'building' | 'restarting' | 'done' | 'failed' | 'rolled_back';
@@ -44,6 +44,10 @@ export interface UpdateJob {
   dirty: string[] | null;
   /** The new version is installed but the restart did not happen (a turn kept running); restart the app to finish. */
   restart_pending: boolean;
+  /** The process that last wrote the job (its pid, and the moment it started: a container's pid is the same every time, the start is not). A `restarting` job
+   *  written by another process than the one reading it is the predecessor's hand-over; one written by this process is still in progress. */
+  pid?: number;
+  boot_at?: number;
   log: JobLine[];
 }
 
@@ -54,6 +58,8 @@ export class UpdaterError extends Error {
 const ACTIVE: JobState[] = ['checking', 'fetching', 'installing', 'building', 'restarting'];
 /** Between these states new turns are refused and background runs wait. */
 const BLOCKING: JobState[] = ['installing', 'building', 'restarting'];
+/** When this process started (ms), stable for its life: with the pid it names this process. */
+const BOOT_AT = Math.round(Date.now() - process.uptime() * 1000);
 const MAX_LOG = 400;
 const MAX_LINE = 400;
 
@@ -65,6 +71,8 @@ export interface UpdaterEnv {
   busy(): boolean;
   supervised(): boolean;
   now(): Date;
+  /** Which process this is (a test stands in another one to play the replacement reading the job file). */
+  self(): { pid: number; boot_at: number };
 }
 function defaultDataDir(): string {
   // The process's own data folder (the one holding sanctum.db, house.db), never a companion's.
@@ -82,13 +90,14 @@ const defaultEnv: UpdaterEnv = {
   busy: defaultBusy,
   supervised: () => !!process.env.pm_id || process.env.SANCTUM_SUPERVISED === '1',
   now: () => new Date(),
+  self: () => ({ pid: process.pid, boot_at: BOOT_AT }),
 };
 let env: UpdaterEnv = defaultEnv;
 /** Test hook. */
 export function _setUpdaterEnv(e: Partial<UpdaterEnv> | null): void {
   env = e ? { ...defaultEnv, ...e } : defaultEnv; job = null; loaded = false; control = null; restartOverrides = {};
   if (trailing) { clearTimeout(trailing); trailing = null; }
-  abort = null; bootFinding = null; setUpdateBlocking(false);
+  abort = null; bootFinding = null; handedOver = false; setUpdateBlocking(false);
 }
 
 // ---- the job and its file ------------------------------------------------------------
@@ -97,12 +106,15 @@ let loaded = false;
 let lastWrite = 0;
 let trailing: ReturnType<typeof setTimeout> | null = null;
 let abort: AbortController | null = null;
+/** Set once a replacement process (or the supervisor's) has been handed the job file: from then on this process writes nothing more to it, so its last
+ *  words ("the replacement answered") cannot land on top of what the new process wrote (`done`). Cleared again if the hand-over fails. */
+let handedOver = false;
 /** What boot cleanup found (initUpdater): a stage left behind, or a swap that was cut short and put back. */
 let bootFinding: { stage: boolean; swap: boolean } | null = null;
 const jobFile = () => join(env.dataDir(), 'update-job.json');
 
 function writeJob(): void {
-  if (!job) return;
+  if (!job || handedOver) return;
   lastWrite = Date.now();
   try {
     mkdirSync(env.dataDir(), { recursive: true });
@@ -110,6 +122,12 @@ function writeJob(): void {
     writeFileSync(tmp, JSON.stringify(job, null, 2));
     renameSync(tmp, jobFile());
   } catch (err) { console.warn('[updater] could not write update-job.json:', (err as Error).message); }
+}
+/** Write the job file now, synchronously, unless it was handed over. The graceful stop calls this just before process.exit, so lines still waiting for the
+ *  once-a-second write are on disk first. */
+export function flushUpdateJob(): void {
+  if (trailing) { clearTimeout(trailing); trailing = null; }
+  writeJob();
 }
 /** Write the job file now (`force`), or at most once a second with a trailing write, so the file never goes stale behind a quiet log. */
 function persist(force = true): void {
@@ -136,8 +154,12 @@ function load(): void {
     const j = JSON.parse(readFileSync(jobFile(), 'utf-8')) as UpdateJob;
     if (!j || typeof j.state !== 'string') return;
     job = { ...j, dirty: j.dirty ?? null, restart_pending: !!j.restart_pending };
-    // `restarting` with no stage left and no cut-short swap: the swap finished and this is the process that replaced the old one.
-    if (job.state === 'restarting' && !bootFinding?.stage && !bootFinding?.swap) {
+    // `restarting` written by another process than this one (its predecessor), with no stage left and no cut-short swap: the swap finished and this is
+    // the process that replaced it. A `restarting` this very process wrote is still in progress, and a job already `done` is never touched.
+    const me = env.self();
+    const mine = j.pid === me.pid && j.boot_at === me.boot_at;
+    if (job.state === 'restarting' && mine) { /* in progress here */ }
+    else if (job.state === 'restarting' && !bootFinding?.stage && !bootFinding?.swap) {
       job.state = job.kind === 'rollback' ? 'rolled_back' : 'done';
       job.finished_at = env.now().toISOString();
       addLine(job.kind === 'rollback' ? 'restarted on the previous version' : 'restarted on the new version');
@@ -156,7 +178,10 @@ function load(): void {
 export async function initUpdater(): Promise<void> {
   loaded = false; job = null;
   const finding = { stage: false, swap: false };
-  try { finding.swap = await recoverInterruptedSwap(env.root, console.log); } catch (err) { console.warn('[updater] could not check for a cut-short swap:', (err as Error).message); }
+  // (The pre-boot recovery, src/update-recover.ts, has normally put a cut-short swap back already, before this process loaded the app, and left a marker in the
+  // stage; the call here is for a swap that was cut short in this very process's life.)
+  try { finding.swap = takeRecoveredMarker(env.root); } catch { /* no marker */ }
+  try { finding.swap = (await recoverInterruptedSwap(env.root, console.log)) || finding.swap; } catch (err) { console.warn('[updater] could not check for a cut-short swap:', (err as Error).message); }
   try { finding.stage = await discardStage(env.root, console.log); } catch (err) { console.warn('[updater] could not remove the update stage:', (err as Error).message); }
   bootFinding = finding;
   load();
@@ -172,6 +197,7 @@ function addLine(line: string): void {
 function setState(s: JobState): void {
   if (!job) return;
   job.state = s;
+  job.pid = env.self().pid; job.boot_at = env.self().boot_at;
   setUpdateBlocking(BLOCKING.includes(s));
   persist();
 }
@@ -206,29 +232,39 @@ export interface RestartDeps {
   waitHealthy(url: string, ms: number, childExited: () => boolean): Promise<boolean>;
   log(line: string): void;
   healthTimeoutMs?: number;
+  /** Write the job file now and synchronously (before the listener closes or the process stops). */
+  flush?(): void;
+  /** True once the next process owns the job file (this one writes nothing more); false again if the hand-over failed. */
+  handOver?(on: boolean): void;
 }
 /** Stop this process in whichever way the mode asks. 'stopping': the process is on its way out (gracefulStop was called). 'failed': the replacement never came up and this process listens again. */
 export async function performRestart(d: RestartDeps): Promise<'stopping' | 'failed'> {
   if (d.supervised) {
     d.log('restarting: stopping so the supervisor (pm2 or the like) starts the app again');
+    d.flush?.(); // (the last lines are on disk before the stop; the stop itself ends in process.exit)
+    d.handOver?.(true);
     await d.ctl.gracefulStop();
     return 'stopping';
   }
   d.log('restarting: closing the listener and starting a replacement');
+  d.flush?.();
   await d.ctl.closeListener();
   let child: { exited(): boolean };
+  d.handOver?.(true); // (before the replacement exists: it settles the job file at its own boot, and nothing of this process may land on top of that)
   try { child = d.spawnChild(); } catch (err) {
+    d.handOver?.(false);
     d.log(`could not start a replacement: ${(err as Error).message}`);
     d.ctl.relisten();
     return 'failed';
   }
   const ok = await d.waitHealthy(d.ctl.healthUrl, d.healthTimeoutMs ?? 60_000, child.exited);
   if (!ok) {
+    d.handOver?.(false);
     d.log('the replacement did not answer in time; this process listens again');
     d.ctl.relisten();
     return 'failed';
   }
-  d.log('the replacement answered; stopping this process');
+  d.log('the replacement answered; stopping this process'); // (in memory only: the job file belongs to the replacement now)
   await d.ctl.gracefulStop();
   return 'stopping';
 }
@@ -276,9 +312,12 @@ async function restartNow(plan?: StagedPlan): Promise<void> {
   const kind = job.kind;
   const doneState: JobState = kind === 'rollback' ? 'rolled_back' : 'done';
   /** The swap itself. Throws UpdateError with the files put back. */
+  let noop = false;
   const swap = async (): Promise<void> => {
-    if (plan) { const r = await applyStaged({ root: env.root, plan, log: addLine }); if (job) job.to = r.to; }
-    else { const r = await runRollback({ root: env.root, log: addLine }); if (job) job.to = r.version; }
+    if (plan) {
+      const r = await applyStaged({ root: env.root, plan, log: addLine });
+      if (r.upToDate) noop = true; else if (job) job.to = r.to;
+    } else { const r = await runRollback({ root: env.root, log: addLine }); if (job) job.to = r.version; }
   };
   const failSwap = async (err: unknown) => {
     if (!job) return;
@@ -289,6 +328,7 @@ async function restartNow(plan?: StagedPlan): Promise<void> {
   };
   if (!control) { // nothing wired (a test, or a harness that is not server.ts): swap now, the person restarts
     try { await swap(); } catch (err) { await failSwap(err); return; }
+    if (noop) { addLine(`already on ${job.from}; nothing to restart`); finish('done'); return; }
     job.restart_pending = true;
     addLine('installed. Restart the app to finish.');
     finish(doneState);
@@ -304,8 +344,10 @@ async function restartNow(plan?: StagedPlan): Promise<void> {
   }
   setState('restarting');
   try { await swap(); } catch (err) { await failSwap(err); return; }
+  if (noop) { addLine(`already on ${job.from}; nothing to restart`); finish('done'); return; }
   const result = await performRestart({
-    supervised: env.supervised(), ctl: control, spawnChild: spawnReplacement, waitHealthy, log: addLine, ...restartOverrides,
+    supervised: env.supervised(), ctl: control, spawnChild: spawnReplacement, waitHealthy, log: addLine,
+    flush: () => persist(true), handOver: (on) => { handedOver = on; }, ...restartOverrides,
   });
   if (result === 'failed') {
     // The new process would not start: put the previous files back so the next start is the old version, and say so.
