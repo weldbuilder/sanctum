@@ -676,8 +676,7 @@ rehashed (same prefilter) against its digest first: an altered ratified copy fal
 back to the version before it, else the check is `unavailable` naming the copy.
 
 **Boot.** Every place identity is read runs the check: per query on Claude, per
-turn on Codex and dsh (first message of a resumed thread when
-`identity_every_turn` is off), per public-lane message. It serves the ratified
+turn on Codex and dsh (where it is written into the system slot with the harness), per public-lane message. It serves the ratified
 snapshot whenever one exists. While a change waits it adds one fixed line to the
 identity block: "A change to <files> is waiting for the person to ratify it; this
 run uses the ratified version." With nothing ratified yet it serves the live

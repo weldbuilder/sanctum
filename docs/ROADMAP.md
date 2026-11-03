@@ -10,10 +10,11 @@ things each verification pass left behind. Update it when a PR merges.*
 |---|---|---|
 | 1 | Plugin loader, `plugins.enabled`, hash ratification, `plugins.trust` (companion default, person opt-in) | `PLUGINS.md` |
 | 2 | Agent-driven browser seat (`.mcp.json` entry, MCP filter, skill) | `CONFIGURATION.md` |
-| 3 | Discord: two lanes, persisted queues, fence-aware chunker, attachments, send-scan guard, holes D1–D14 except the D11 reader (below) | `DISCORD-PLAN.md` |
+| 3 | Discord: two lanes, persisted queues, fence-aware chunker, attachments, send-scan guard, holes D1–D14 (the D11 reader is done: channel card plus failure alert) | `DISCORD-PLAN.md` |
 | 4 | Mind client and Mind watchdog (status, Test connection, header notice, `MIND_API_KEY` from `.env`, key never in a child env) | `CONFIGURATION.md` |
 | 7 | Identity ratification: one identity source for every harness, ledger + journal with authors, boot on the verified ratified copy, Settings → Identity | `PLUGINS.md` "Identity ratification" |
 | – | In-app setup wizard (first-run page, Run setup again, CLI on one declarative plan with a byte-identical replay) | `CONFIGURATION.md`, README step 8 |
+| – | `npm run doctor`: config, tenants (boot scan, clashes, never-inherited table, file modes, homes) and process health checks, OK / WARN / FAIL, `--tenant`, `--json`, no secrets | `MULTI-TENANT.md`, `CONFIGURATION.md` |
 | – | Skins: six rooms and materials, Extra readable, safe preview | `CONFIGURATION.md` §7 |
 | 9 | Multi-tenant: built (option b): several tenants in one process, each with its own database, login, channels, scheduler and harness homes, inheriting the operator's `sanctum.yaml`; the wizard per tenant (`--tenant`) and the first-run page; household mode (the default: one login, a `/c/<id>/` path prefix per companion, `tenants.auth: per-tenant` for the hostname shape); option (a) one clone per tenant stays documented | `MULTI-TENANT.md` |
 | – | In-app update: a bar on Home and Chat ("Update and restart", password asked again), one job at a time, a rollback copy and a roll back, a dirty git tree refused, restart under pm2 or by the app's own replacement process; `npm run update` shares the steps | `CONFIGURATION.md` "Updating from inside the app", `MULTI-TENANT.md` |
@@ -51,7 +52,6 @@ Small, each a few lines; none blocks anything.
 **Plugins and Discord**
 - Overlapping reloads: merge rather than drop the older one, with a doc note.
 - A `res` help topic so the companion knows it can call `PUT /api/plugins/enabled`.
-- D11 reader: `recentFailures` is on `GET /api/discord/status` but nothing in Settings reads it and the watchdog does not alert on it. Surface it on the channel card and add the alert.
 - Discord lows from the B3d pass (one-liners; see the PR #5 thread).
 - Browser: `--workdir` pointing at a file gives an ENOTDIR stack trace; stale `setup.mjs` "outdated" message.
 

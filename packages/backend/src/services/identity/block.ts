@@ -1,4 +1,4 @@
-// The identity block Codex and dsh put ahead of the message, read from the home's identity folder
+// The identity block Codex and dsh put in the system slot (after the harness base), read from the home's identity folder
 // through the one reader (source.ts). The framing is what both harnesses always sent: "# Companion
 // Identity" (profile.md), "## Companion Narrative" (companion.md), and now any other file in the folder.
 import { getSanctumConfig } from '../../config.js';
@@ -16,7 +16,7 @@ export function identityBlock(harness: string): string {
   if (!run.text) {
     if (!warnedNoIdentity.has(harness)) {
       warnedNoIdentity.add(harness);
-      console.warn(`[${harness}] no identity files in ${identityFolder(cfg.agent.cwd)} (profile.md / companion.md): sending messages without an identity block`);
+      console.warn(`[${harness}] no identity files in ${identityFolder(cfg.agent.cwd)} (profile.md / companion.md): running without an identity block`);
     }
     return '';
   }

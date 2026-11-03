@@ -211,12 +211,12 @@ function SubSidebar({
 
 // ─── Content renderer ─────────────────────────────────────────────────────────
 
-function SectionContent({ id }: { id: SectionId }) {
+function SectionContent({ id, logsQuery, onOpenLogs }: { id: SectionId; logsQuery: string; onOpenLogs: (q: string) => void }) {
   switch (id) {
     case 'preferences': return <PreferencesSection base={BASE} />;
     case 'appearance':  return <AppearanceSection />;
     case 'orchestrator': return <OrchestratorSection base={BASE} />;
-    case 'channels':    return <ChannelsSection base={BASE} />;
+    case 'channels':    return <ChannelsSection base={BASE} onOpenLogs={onOpenLogs} />;
     case 'mcps':        return <McpSection base={BASE} />;
     case 'skills':        return <SkillsStatusSection base={BASE} />;
     case 'usage':         return <UsageSection base={BASE} />;
@@ -230,7 +230,7 @@ function SectionContent({ id }: { id: SectionId }) {
     );
     case 'plugins':       return <PluginsSection base={BASE} />;
     case 'identity':      return <IdentitySection base={BASE} />;
-    case 'logs':          return <LogsSection base={BASE} />;
+    case 'logs':          return <LogsSection base={BASE} initialQuery={logsQuery} />;
     default: return null;
   }
 }
@@ -239,6 +239,11 @@ function SectionContent({ id }: { id: SectionId }) {
 
 export function SettingsView() {
   const [activeSection, setActiveSection] = useState<SectionId>('preferences');
+  // A card can send the person to the log viewer with a filter already typed (the Discord card: `[discord]`).
+  const [logsQuery, setLogsQuery] = useState('');
+  const openLogs = (q: string) => { setLogsQuery(q); setActiveSection('logs'); };
+  // Only the card's button seeds the filter: leaving Logs, or opening it from the sidebar, starts clean.
+  const chooseSection = (id: SectionId) => { setLogsQuery(''); setActiveSection(id); };
 
   const activeMeta = SECTIONS.find(s => s.id === activeSection)!;
 
@@ -248,7 +253,7 @@ export function SettingsView() {
       <style>{PRIMITIVES_CSS}</style>
 
       {/* Sub-sidebar */}
-      <SubSidebar active={activeSection} onChange={setActiveSection} />
+      <SubSidebar active={activeSection} onChange={chooseSection} />
 
       {/* Content pane */}
       <div className="settings-content" role="main">
@@ -261,7 +266,7 @@ export function SettingsView() {
             </header>
 
             {/* Section body */}
-            <SectionContent id={activeSection} />
+            <SectionContent id={activeSection} logsQuery={logsQuery} onOpenLogs={openLogs} />
 
           </div>
         </div>

@@ -93,7 +93,6 @@ export interface SanctumConfig {
       home: string;             // DSH_HOME for this companion; '' → dsh's default
       sandbox_mode: 'read-only' | 'workspace-write' | 'danger-full-access';
       base_instructions_file: string; // fallback base prompt when <cwd>/config/dsh-base-prompt.md is absent; '' = dsh's stock persona
-      identity_every_turn: boolean;
     };
     codex: {
       model: string;            // '' → Codex CLI default
@@ -103,7 +102,6 @@ export interface SanctumConfig {
       network_access: boolean;  // must stay true for the res CLI (loopback) to work
       additional_directories: string[];
       base_instructions_file: string; // fallback base prompt when <cwd>/config/codex-base-prompt.md is absent; '' = stock Codex
-      identity_every_turn: boolean;   // true = send <cwd>/identity/* with every message; false = first message of a thread only
       /** Legacy location of the rolling settings (before 2026-10-08). Read once at
        *  load and folded into agent.rolling; never read anywhere else. */
       rolling?: Partial<RollingConfig> & { enabled?: boolean };
@@ -445,7 +443,6 @@ const DEFAULTS: SanctumConfig = {
       home: '',
       sandbox_mode: 'workspace-write',
       base_instructions_file: './prompts/dsh-base-prompt.md',
-      identity_every_turn: true,
     },
     codex: {
       model: '',
@@ -455,7 +452,6 @@ const DEFAULTS: SanctumConfig = {
       network_access: true,
       additional_directories: [],
       base_instructions_file: './prompts/codex-base-prompt.md',
-      identity_every_turn: true,
     },
     rolling: {
       claude: true,

@@ -18,7 +18,8 @@
     "check": "npm run build --workspace=packages/shared && npm run check --workspaces --if-present",
     "test": "vitest run",
     "update": "node scripts/update.mjs",
-    "setup": "node scripts/setup.mjs"
+    "setup": "node scripts/setup.mjs",
+    "doctor": "node scripts/doctor.mjs"
   },
   "engines": {
     "node": ">=20.0.0 <25.0.0"

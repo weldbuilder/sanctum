@@ -18,6 +18,7 @@ import {
 } from './primitives';
 import type { ChannelSummary, ChannelsResponse, ChannelTestResult } from '@sanctum/shared';
 import { useConfirm } from '../ConfirmDialog';
+import { parseRecentFailures, describeFailures, DISCORD_LOG_FILTER, type FailureView } from './discordFailures';
 
 // ─── CSS (scoped .ch-* — no overrides to .sp-* primitives) ───────────────────
 
@@ -80,6 +81,11 @@ const CHANNELS_CSS = `
   margin-bottom: 0;
 }
 
+.ch-failures { margin: 0 0 0.375rem; font-size: 0.8125rem; color: var(--text-muted, #6a6258); display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; }
+.ch-failures.error { color: var(--status-error-text); }
+.ch-failures.warning { color: var(--status-warning-text); }
+.ch-failures-link { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-decoration: underline; cursor: pointer; }
+
 .ch-loading {
   display: flex;
   justify-content: center;
@@ -90,6 +96,7 @@ const CHANNELS_CSS = `
   .settings-view .ch-card-desc { font-size: 14px; }
   .settings-view .ch-header-note { font-size: 14px; }
   .settings-view .ch-err { font-size: 14px; }
+  .settings-view .ch-failures { font-size: 14px; }
 }
 
 @media (max-width: 600px) {
@@ -120,16 +127,52 @@ const PILL_MAP: Record<ChannelState, { color: string; label: string }> = {
   no_token:  { color: '#d4a843', label: 'no token' },
 };
 
+// ─── Discord send failures (D11 reader) ──────────────────────────────────────
+
+const FAILURES_REFRESH_MS = 30_000;
+
+function DiscordFailures({ base, onOpenLogs }: { base: string; onOpenLogs?: (q: string) => void }) {
+  const [view, setView] = useState<FailureView | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const res = await fetch(`${base}/api/discord/status`);
+        if (!res.ok) return;
+        const v = describeFailures(parseRecentFailures(await res.json()));
+        if (alive) setView(v);
+      } catch { /* no status: the card shows nothing rather than a guess */ }
+    };
+    load();
+    // The Settings page can sit open: read again every 30 seconds, and stop with the card.
+    const timer = setInterval(load, FAILURES_REFRESH_MS);
+    return () => { alive = false; clearInterval(timer); };
+  }, [base]);
+  if (!view) return null;
+  return (
+    <p className={`ch-failures ${view.tone}`} role={view.tone === 'error' ? 'alert' : undefined}>
+      <span>{view.headline}</span>
+      {view.detail && <span>{view.detail}</span>}
+      {view.note && <span>{view.note}</span>}
+      {onOpenLogs && (
+        <button type="button" className="ch-failures-link" onClick={() => onOpenLogs(DISCORD_LOG_FILTER)}>open the log, filtered to [discord]</button>
+      )}
+    </p>
+  );
+}
+
 // ─── ChannelCard ──────────────────────────────────────────────────────────────
 
 function ChannelCard({
   channel,
   base,
   onRefresh,
+  onOpenLogs,
 }: {
   channel: ChannelSummary;
   base: string;
   onRefresh: () => Promise<void>;
+  onOpenLogs?: (q: string) => void;
 }) {
   const { id, hasToken, enabled, connected, ownerId, tokenEnvVar } = channel;
 
@@ -372,6 +415,8 @@ function ChannelCard({
       {/* Toggle error flash */}
       {errMsg && <p className="ch-err">{errMsg}</p>}
 
+      {id === 'discord' && hasToken && enabled && <DiscordFailures base={base} onOpenLogs={onOpenLogs} />}
+
       {/* ── Configure body — conditionally rendered, collapses to zero naturally ── */}
       {configOpen && (
         <div className="ch-card-config">
@@ -453,7 +498,7 @@ function ChannelCard({
 
 // ─── ChannelsSection ──────────────────────────────────────────────────────────
 
-export function ChannelsSection({ base }: { base: string }) {
+export function ChannelsSection({ base, onOpenLogs }: { base: string; onOpenLogs?: (q: string) => void }) {
   const [channels, setChannels] = useState<ChannelSummary[] | null>(null);
   const [unavailable, setUnavailable] = useState(false);
 
@@ -500,6 +545,7 @@ export function ChannelsSection({ base }: { base: string }) {
               channel={ch}
               base={base}
               onRefresh={load}
+              onOpenLogs={onOpenLogs}
             />
           ))}
         </div>

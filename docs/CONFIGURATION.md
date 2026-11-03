@@ -43,6 +43,7 @@ Create them once, from the project root:
 ```bash
 cp sanctum.example.yaml sanctum.yaml
 cp .env.example .env
+chmod 600 .env
 ```
 
 Then open each in any text editor and fill in what you want. Both templates are
@@ -211,8 +212,10 @@ exists, else the file named by `agent.codex.base_instructions_file` or
 `agent.dsh.base_instructions_file`, else the mind's stock prompt. **The home's copy
 always wins over the shipped fallback**, so an existing home keeps the prompt it
 has until you copy the new one into its `config/`. The starter home
-(`companion-home/config/`) ships all three files. On Codex the built base rides
-every message (roughly 2,000 tokens per turn). Details are in `docs/DSH.md` and `FORK_NOTES.md`.
+(`companion-home/config/`) ships all three files. On all three minds the identity is in the system
+slot, after the harness (Codex: one file passed as `model_instructions_file`; dsh: the persona), as on Claude, not in the
+message; the message carries memory, the summary, the history and what was said. The harness and the
+identity ride every run (roughly 2,000 tokens per turn for the harness). Details are in `docs/DSH.md` and `FORK_NOTES.md`.
 
 ### Which one do I edit?
 
@@ -461,6 +464,7 @@ The server never makes a password up for the setup screen (it could not hand one
 | `discord.gate.names_file` | `<private_dir>/names.txt` | Optional real-name guard. Absent, or empty (comments and blanks only): guard off (logged once at boot). A malformed line fails closed. |
 | `discord.paused` | `false` | Closes the public lane at intake (and before a queued message runs). The owner lane is unaffected. |
 | `discord.deferral_hours` | `24` | How long a deferred message may wait, 1 to 48. When it runs out the hourglass reaction is cleared and one line in the owner thread says how many messages from whom (never what they said). The older database key `discord.deferMaxAgeMs` overrides this only if it was explicitly set, with one warning. The queue lives in memory for now: a restart loses it. |
+| `discord.failureAlertCount` / `discord.failureAlertWindowMin` | `3` / `10` | Database keys (not yaml), like the other `discord.*` timings. That many failed sends (`reply_failed`, `public_run_failed`, `gate_error`) inside that many minutes post one line in today's daily thread, at most one an hour per tenant and lane. The counts are kept per lane (owner, public; a gate error counts on the lane it fired on): a lane's next successful reply posts "sends are going out again on the <lane> lane" only while an alert is up for that lane, and clears that lane's count only. Setup states (missing key, exclusions file) do not count: the Discord card in Settings → Channels shows them. Count 1 to 100, window 1 to 1440 minutes. |
 | `discord.private_dir` | `<agent.cwd>/../sanctum-private` | Holds the three lists. Refused, with a warning, when it or a list file is inside any folder the companion can write, and refused outright (clash `full_access`) while the active harness is at `danger-full-access` (`agent.codex.sandbox_mode` on Codex, `agent.dsh.sandbox_mode` on dsh): the gate then blocks every message and the public lane is silent. Claude is not refused, but its write-gate covers `Write` and `Edit` only; `Bash` is ungated under `bypassPermissions`, so keep the folder where the companion's OS user cannot write. `npm run setup` creates it. |
 | `telegram.enabled` | `false` | Turn on the Telegram gateway. |
 | `telegram.owner_chat_id` | `""` | The Telegram chat the bot answers to. |
@@ -955,6 +959,15 @@ gitignored config files, since those aren't in version control either:
 
 To **restore**, put `data/` and those config files back in place and start the
 app. Everything comes home exactly as it was.
+
+### Checking your install: `npm run doctor`
+
+`npm run doctor` reads your `sanctum.yaml`, `.env`, `data/` and (with a `tenants:` block) every tenant folder, and prints one line per check: OK, WARN or
+FAIL, each with a sentence saying why. It checks that the config parses, that the companion home, the shipped prompts, the wake prompts and the `CLAUDE.md` and `.mcp.json` paths exist, which Claude frame the app will use, that the
+secret files (`.env`, `data/.internal-token`) are not readable by anyone but you, that the build stamp is there, that your node version is in range
+and that the database folder is writable; for tenants it adds the clash and inheritance checks in `MULTI-TENANT.md`. It never prints a key, a token or
+a password. It exits 1 when any line is a FAIL, so it can gate a restart; `npm run doctor -- --json` prints the same as JSON and
+`npm run doctor -- --tenant <id>` reports one tenant. A WARN means the app runs but something is not as recommended; a FAIL means boot would skip or refuse it, or a secret is exposed. Exit code 2 means a command line it could not read.
 
 ---
 
