@@ -72,3 +72,6 @@ tmp/
 scripts/__fixtures__/setup/.sbx-*
 /ledger.json
 /journal.jsonl
+
+# hard-link test homes made inside the repo (same device as the app files)
+.tmp-*/

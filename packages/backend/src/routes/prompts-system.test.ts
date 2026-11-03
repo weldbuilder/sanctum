@@ -2,7 +2,7 @@
 // configured file) and saves to the home copy, or to a custom frame inside the write roots. It never writes into the app's prompts/ folder.
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import express from 'express';
-import { closeSync, constants, existsSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, constants, mkdtempSync, existsSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
@@ -70,6 +70,16 @@ afterAll(async () => { await new Promise((r) => server.close(r)); rmSync(h.top, 
 
 const homeCopy = () => join(h.home, 'config', 'companion-claude.md');
 const appFrame = () => join(PROJECT_ROOT, 'prompts', 'companion-claude.md');
+/** A home on the same device as the app's files, for a test that hard-links an app file into it (a hard link cannot cross devices: EXDEV on Windows, where the
+ *  repo and the OS temp folder are on different drives). Made inside the repo (.gitignore: .tmp-*), not under prompts/ or companion-home/, so a save there is
+ *  legitimate; removed after the test. */
+let repoHome = '';
+const useRepoHome = () => { repoHome = realpathSync(mkdtempSync(join(PROJECT_ROOT, '.tmp-prompts-system-'))); h.home = repoHome; };
+/** Hard-link `from` to `to`. Only a cross-device refusal (EXDEV) skips the case, and only that one; on Linux the home is on the app's device, so this never
+ *  skips there, and any other error (EPERM, EEXIST, ...) is rethrown, never swallowed. */
+const hardLink = (ctx: { skip: (note?: string) => never }, from: string, to: string) => {
+  try { linkSync(from, to); } catch (e) { if ((e as NodeJS.ErrnoException).code === 'EXDEV') ctx.skip('hard link across devices not possible here'); throw e; }
+};
 const get = async () => { const r = await fetch(`${base}/prompts/system`); return { status: r.status, json: (await r.json()) as any }; };
 const put = async (content: unknown) => {
   const r = await fetch(`${base}/prompts/system`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content }) });
@@ -90,6 +100,7 @@ afterEach(() => {
   failWrites.on = false; failWrites.calls = 0;
   rnd.fixed = null;
   h.cwd = '';
+  if (repoHome) { h.home = join(h.top, 'home'); rmSync(repoHome, { recursive: true, force: true }); repoHome = ''; }
   // The app's own file is never touched by any case here.
   expect(readFileSync(appFrame(), 'utf8')).toBe(shipped);
 });
@@ -284,9 +295,10 @@ describe('PUT /api/prompts/system', () => {
       rmSync(custom);
     });
 
-    it('a home copy hard-linked to the app file: refused, the app file byte-identical', async () => {
+    it('a home copy hard-linked to the app file: refused, the app file byte-identical', async (ctx) => {
+      useRepoHome();
       mkdirSync(join(h.home, 'config'));
-      linkSync(appFrame(), homeCopy());
+      hardLink(ctx, appFrame(), homeCopy());
       const before = readFileSync(appFrame());
       const r = await put('OVERWRITTEN THROUGH THE HARD LINK');
       expect(r.status).toBe(400);
@@ -369,9 +381,10 @@ const swapForLink = (dir: string, to: string) => { renameSync(dir, `${dir}-real`
 const swapBack = (dir: string) => { rmSync(dir, { force: true }); if (existsSync(`${dir}-real`)) renameSync(`${dir}-real`, dir); };
 
 describe('an exact-file write root: the target itself is always checked', () => {
-  it('a hard link at the home copy, named exactly by a write root: refused, the tracked file byte-identical', async () => {
+  it('a hard link at the home copy, named exactly by a write root: refused, the tracked file byte-identical', async (ctx) => {
+    useRepoHome();
     mkdirSync(join(h.home, 'config'));
-    linkSync(appFrame(), homeCopy());
+    hardLink(ctx, appFrame(), homeCopy());
     h.extra = [homeCopy()];
     const app = snapshotApp();
     const r = await put('OVERWRITTEN THROUGH THE HARD LINK');
@@ -579,8 +592,11 @@ describe('the open handle is verified by inode, whatever the path checks saw', (
     rmSync(join(h.home, 'a'), { recursive: true, force: true });
   });
 
-  it('RACE: a hard link to the tracked file appears at the target once its folder is held: 400, the app trees unchanged', async () => {
+  it('RACE: a hard link to the tracked file appears at the target once its folder is held: 400, the app trees unchanged', async (ctx) => {
+    useRepoHome();
     const tree = appTree();
+    // (the hook runs inside the request: a cross-device refusal would surface there as a 500, so it is found out first, before the request)
+    mkdirSync(join(h.home, 'config')); hardLink(ctx, appFrame(), homeCopy()); rmSync(join(h.home, 'config'), { recursive: true });
     setFrameStageHookForTest((at) => { if (at === 'parent') { mkdirSync(join(h.home, 'config'), { recursive: true }); linkSync(appFrame(), homeCopy()); } });
     const r = await put('X');
     expect(r.status).toBe(400);
@@ -624,7 +640,7 @@ describe('the open handle is verified by inode, whatever the path checks saw', (
   });
 });
 
-describe('the save is all or nothing (Linux: a temp file in the held folder, renamed over the name)', () => {
+describe('the save is all or nothing (a temp file in the folder, renamed over the name)', () => {
   it.skipIf(!procFdUsable())('rename, unlink and mkdir through /proc/self/fd/<fd>/<name> work on this kernel, and land in the HELD folder after it moved (skipped where /proc/self/fd is not readable)', () => {
     const real = join(h.outside, 'held');
     mkdirSync(real);
@@ -648,7 +664,7 @@ describe('the save is all or nothing (Linux: a temp file in the held folder, ren
     } finally { closeSync(P); }
   });
 
-  it('a write that fails part-way (ENOSPC) leaves the existing frame byte-identical, the same file, and no temp file behind', async () => {
+  it('a write that fails part-way (ENOSPC) leaves the existing frame byte-identical, and no temp file behind', async () => {
     mkdirSync(join(h.home, 'config'));
     writeFileSync(homeCopy(), 'THE FRAME AS IT WAS\n');
     const ino = statSync(homeCopy()).ino;
@@ -659,10 +675,25 @@ describe('the save is all or nothing (Linux: a temp file in the held folder, ren
     expect(failWrites.calls).toBe(2); // (half the bytes went out, then the disk was full)
     expect(r.status).toBe(500);
     expect(readFileSync(homeCopy(), 'utf8')).toBe('THE FRAME AS IT WAS\n');
-    if (procFdUsable()) {
-      expect(statSync(homeCopy()).ino).toBe(ino);
-      expect(readdirSync(join(h.home, 'config'))).toEqual(['companion-claude.md']);
-    }
+    expect(statSync(homeCopy()).ino).toBe(ino); // (the rename never happened: the same file)
+    expect(readdirSync(join(h.home, 'config'))).toEqual(['companion-claude.md']); // (the temp file removed)
+    sameTree(tree);
+  });
+
+  it('off Linux (darwin path): a write that fails part-way (ENOSPC) leaves the existing frame byte-identical, and no temp file behind', async () => {
+    mkdirSync(join(h.home, 'config'));
+    writeFileSync(homeCopy(), 'THE FRAME AS IT WAS\n');
+    const ino = statSync(homeCopy()).ino;
+    const tree = appTree();
+    failWrites.on = true;
+    let r!: { status: number; json: any };
+    await withPlatform('darwin', async () => { r = await put('A NEW FRAME, '.repeat(6000)); });
+    failWrites.on = false;
+    expect(failWrites.calls).toBe(2); // (half the bytes went out, then the disk was full)
+    expect(r.status).toBe(500);
+    expect(readFileSync(homeCopy(), 'utf8')).toBe('THE FRAME AS IT WAS\n');
+    expect(statSync(homeCopy()).ino).toBe(ino); // (the rename never happened: the same file)
+    expect(readdirSync(join(h.home, 'config'))).toEqual(['companion-claude.md']); // (the temp file removed)
     sameTree(tree);
   });
 
@@ -689,7 +720,10 @@ describe('the save is all or nothing (Linux: a temp file in the held folder, ren
 describe('a folder or the temp file changed underneath a save or a read (Linux)', () => {
   const tmpName = () => readdirSync(join(h.home, 'config')).find((n) => n.includes('.tmp-'))!;
 
-  it.runIf(procFdUsable()).each(['symlink', 'hard link'])('RACE: the temp file replaced by a %s to the tracked file before the rename: 400, no home copy, the app file unchanged, the other entry left alone', async (kind) => {
+  for (const kind of ['symlink', 'hard link']) it.runIf(procFdUsable())(`RACE: the temp file replaced by a ${kind} to the tracked file before the rename: 400, no home copy, the app file unchanged, the other entry left alone`, async (ctx) => {
+    useRepoHome();
+    mkdirSync(join(h.home, 'config'));
+    if (kind === 'hard link') { hardLink(ctx, appFrame(), join(h.home, 'config', 'probe')); rmSync(join(h.home, 'config', 'probe')); }
     const tree = appTree();
     let planted = '';
     setFrameStageHookForTest((at) => {

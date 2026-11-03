@@ -15,12 +15,12 @@
 //
 // Other platforms (macOS, Windows, a Linux without /proc): no directory descriptor to hold, so the path approach stays (an lstat walk, an O_NOFOLLOW open
 // where the platform has it, the inode checks) with every folder verified just before anything is made in it, and a new file or folder looked for, by
-// inode, in each app folder by that folder's own path. There the folder-swap race is NARROWED, not closed: a swap at the moment of a create can still make
+// inode, in each app folder by that folder's own path. The save is still a temp file renamed over the name, so it is all or nothing there too. There the folder-swap race is NARROWED, not closed: a swap at the moment of a create can still make
 // an empty file or folder in an app folder for an instant (it is refused before a byte is written and taken away by the app folder's own path), and a
 // save can land in some other folder the swapped link names. docs/CONFIGURATION.md says so.
 import { randomBytes } from 'node:crypto';
 import {
-  accessSync, closeSync, constants, fchmodSync, fstatSync, fsyncSync, ftruncateSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync,
+  accessSync, closeSync, constants, fchmodSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync,
   realpathSync, renameSync, rmdirSync, statSync, unlinkSync, writeSync,
   type BigIntStats,
 } from 'node:fs';
@@ -416,43 +416,74 @@ function writeByPath(target: string, content: string, opts: FrameIoOptions): voi
       if (probe.ino !== seen.ino || probe.dev !== seen.dev) throw moved();
     } finally { closeSync(r); }
   }
-  const base = constants.O_WRONLY | flags;
-  let fd: number;
+  // All or nothing, as on Linux: a temp file in the same folder (random name, made exclusively, never through a link), written and synced, then renamed over
+  // the name (a rename replaces an existing file on every platform, and replaces a second name for another file without ever writing through it).
+  const name = basename(target);
+  const dir = dirname(target);
+  const tmpPath = join(dir, `.${name}.tmp-${randomBytes(8).toString('hex')}`);
+  const mode = seen ? Number(seen.mode & 0o777n) : 0o644;
+  let fd = -1;
+  let mine: BigIntStats | null = null; // (the temp file as written: what the rename must still find at its name)
+  let landedAt = ''; // (an app folder the temp file was created in through a swapped link; taken away from there)
   try {
-    fd = seen ? openSync(target, base) : openSync(target, base | constants.O_CREAT | constants.O_EXCL, 0o644);
-  } catch (e) {
-    const code = codeOf(e);
-    if (code === 'ELOOP' || code === 'EMLINK') throw new FrameRefused(400, 'The frame file is a link; the frame is not saved through a link');
-    if (code === 'ENXIO') throw new FrameRefused(400, 'The frame file is not a regular file; the frame is saved only to a plain file'); // (a pipe with no reader)
-    if (code === 'EEXIST' || code === 'ENOENT') throw moved();
-    if (code === 'EISDIR') throw new FrameRefused(400, 'The frame file is not a regular file; the frame is saved only to a plain file');
-    throw e;
-  }
-  try {
+    try { fd = openSync(tmpPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (noFollow ?? 0), mode); } catch (e) {
+      const code = codeOf(e);
+      if (code === 'ELOOP' || code === 'EMLINK') throw new FrameRefused(400, 'The frame file is a link; the frame is not saved through a link');
+      if (code === 'EEXIST') throw changed('save'); // (the temp name is taken: not ours, so never removed)
+      if (code === 'ENOENT') throw moved();
+      throw e;
+    }
+    mine = fstatSync(fd, { bigint: true });
+    if (seen && process.platform !== 'win32') fchmodSync(fd, mode); // (the existing file's mode exactly, whatever the umask)
     assertRegularSingleLink(fd, 'The frame file');
     if (guard) assertNotProtectedInode(fd, guard.files);
-    const mine = fstatSync(fd, { bigint: true });
-    if (probe && (mine.ino !== probe.ino || mine.dev !== probe.dev)) throw moved();
-    // Where the open handle is. A name this call just made through a folder swapped for a link is IN an app folder: it is found there by that folder's own
-    // path, refused before a byte is written, and taken away again by that same path (its inode checked; never by the swappable path the save was given).
-    const landed = landedInApp(basename(target), mine, guard);
-    if (landed) {
-      if (!seen) { try { const there = lstatSync(join(landed, basename(target)), { bigint: true }); if (there.ino === mine.ino && there.dev === mine.dev) unlinkSync(join(landed, basename(target))); } catch { /* gone */ } }
-      throw new FrameRefused(403, FRAME_IN_APP);
-    }
+    // Where the open handle is. A temp file made through a folder swapped for a link is IN an app folder: found there by that folder's own path, refused
+    // before a byte is written, and taken away again by that same path (its inode checked; never by the swappable path the save was given).
+    const landed = landedInApp(basename(tmpPath), mine, guard);
+    if (landed) { landedAt = join(landed, basename(tmpPath)); throw new FrameRefused(403, FRAME_IN_APP); }
     // And the folder it is in, looked up again now that the file is open: not one of the app's (stat follows a link swapped in, to the folder it names).
     let parent: BigIntStats;
-    try { parent = statSync(dirname(target), { bigint: true }); } catch { throw moved(); }
+    try { parent = statSync(dir, { bigint: true }); } catch { throw moved(); }
     if (guard?.dirs.has(keyOf(parent))) throw new FrameRefused(403, FRAME_IN_APP);
-    ftruncateSync(fd, 0);
     const bytes = Buffer.from(content, 'utf8');
     for (let off = 0; off < bytes.length;) {
-      const n = writeSync(fd, bytes, off, bytes.length - off, off);
+      const n = writeSync(fd, bytes, off, bytes.length - off);
       if (n <= 0) throw new Error('write made no progress');
       off += n;
     }
     fsyncSync(fd);
-  } finally { closeSync(fd); }
+    const done = fd; fd = -1; closeSync(done); // (closed once: a close that throws is not retried by the error path)
+    // The temp name must still be the file just written, and the target still what it was judged to be (a link or a second name put there since is refused).
+    let now: BigIntStats;
+    try { now = lstatSync(tmpPath, { bigint: true }); } catch { throw changed('save'); }
+    if (!now.isFile() || now.dev !== mine.dev || now.ino !== mine.ino || now.nlink !== 1n) throw changed('save');
+    let at2: BigIntStats | null = null;
+    try { at2 = lstatSync(target, { bigint: true }); } catch (e) { if (codeOf(e) !== 'ENOENT') throw cannot(); }
+    if (at2) {
+      if (at2.isSymbolicLink()) throw new FrameRefused(400, 'The frame file is a link; the frame is not saved through a link');
+      if (!at2.isFile()) throw new FrameRefused(400, 'The frame file is not a regular file; the frame is saved only to a plain file');
+      if (at2.nlink > 1n) throw new FrameRefused(400, 'The frame file is hard-linked; the frame is not saved through a second name for another file');
+      if (guard?.files.has(keyOf(at2))) throw new FrameRefused(403, FRAME_IN_APP);
+    }
+    if (!!at2 !== !!seen || (at2 && seen && (at2.ino !== seen.ino || at2.dev !== seen.dev))) throw moved();
+    try { renameSync(tmpPath, target); } catch (e) {
+      const code = codeOf(e);
+      if (code === 'ENOTDIR' || code === 'EISDIR') throw changed('save');
+      if (code === 'ENOENT') throw moved();
+      throw e;
+    }
+    mine = null;
+  } catch (e) {
+    if (fd >= 0) { try { closeSync(fd); } catch { /* closed */ } }
+    if (mine) { // (only if it still is the file written: never another file)
+      const victim = landedAt || tmpPath;
+      try {
+        const st = lstatSync(victim, { bigint: true });
+        if (st.isFile() && st.dev === mine.dev && st.ino === mine.ino) unlinkSync(victim);
+      } catch { /* gone */ }
+    }
+    throw e;
+  }
 }
 
 function readByPath(path: string, opts: FrameIoOptions): string {
