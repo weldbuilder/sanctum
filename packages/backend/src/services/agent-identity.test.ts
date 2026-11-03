@@ -116,6 +116,15 @@ describe('the Claude harness identity', () => {
     expect(p.indexOf('[Conversation so far]')).toBeLessThan(p.indexOf('[Current message]\nhello'));
   });
 
+  it.each(['codex', 'dsh'])('forwards the context block to the %s provider as sanctum.contextBlock', async (provider) => {
+    h.provider = provider;
+    await turn();
+    const sanctum = h.options.sanctum;
+    expect(sanctum.userContent).toBe('hello');
+    expect(sanctum.contextBlock).toMatch(/^\[Context\]\n/);
+    expect(sanctum.contextBlock).toMatch(/\n\[\/Context\]$/);
+  });
+
   it("carries the home's identity/profile.md and companion.md (not the project root's)", async () => {
     mkdirSync(join(h.home, 'identity'));
     writeFileSync(join(h.home, 'identity', 'profile.md'), 'Hazel lives in the garden.');

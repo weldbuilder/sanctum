@@ -950,7 +950,7 @@ export class AgentService {
       // enrichedPrompt (see buildAttachmentNote above); no streaming-input branch
       // is needed, which keeps resume/session handling simple and uniform.
       // Codex / dsh: the adapter owns thread history and needs the raw user message.
-      if (activeProvider() !== 'claude') (options as any).sanctum = { threadId, userContent: content, autonomous: isAutonomous, senderIsOwner: isAutonomous ? undefined : senderIsOwnerFor(platformOpts?.platform, platformOpts?.senderIsOwner), ...(hold ? { noIngest: true } : {}), ...(noMemory ? { memory: 'none' } : {}) };
+      if (activeProvider() !== 'claude') (options as any).sanctum = { threadId, userContent: content, contextBlock, autonomous: isAutonomous, senderIsOwner: isAutonomous ? undefined : senderIsOwnerFor(platformOpts?.platform, platformOpts?.senderIsOwner), ...(hold ? { noIngest: true } : {}), ...(noMemory ? { memory: 'none' } : {}) };
       const result = query({ prompt: enrichedPrompt, options });
       st().activeQuery = result;
 
