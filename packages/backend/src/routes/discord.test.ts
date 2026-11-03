@@ -45,7 +45,7 @@ beforeEach(() => { h.kv.clear(); h.service = null; resetEvents(); });
 describe('GET /api/discord/status: recentFailures (D11)', () => {
   it('is there on a fresh install, empty', async () => {
     const body: any = await (await fetch(`${base}/status`)).json();
-    expect(body.recentFailures).toEqual({ count24h: 0, lastKind: null, lastAt: null });
+    expect(body.recentFailures).toEqual({ count24h: 0, lastKind: null, lastAt: null, byKind: {} });
   });
 
   it('counts the last 24 hours and names the last kind; kinds only, running or not', async () => {
@@ -53,9 +53,9 @@ describe('GET /api/discord/status: recentFailures (D11)', () => {
     logEvent('discord', 'gate_error');
     logEvent('discord', 'reply_failed', { class: 'provider_error' });
     const stopped: any = await (await fetch(`${base}/status`)).json();
-    expect(stopped.recentFailures).toMatchObject({ count24h: 2, lastKind: 'reply_failed' });
+    expect(stopped.recentFailures).toMatchObject({ count24h: 2, byKind: { gate_error: 1, reply_failed: 1 }, lastKind: 'reply_failed' });
     expect(typeof stopped.recentFailures.lastAt).toBe('string');
-    expect(Object.keys(stopped.recentFailures).sort()).toEqual(['count24h', 'lastAt', 'lastKind']);
+    expect(Object.keys(stopped.recentFailures).sort()).toEqual(['byKind', 'count24h', 'lastAt', 'lastKind']);
     h.service = new (await import('../services/discord/index.js')).DiscordService({} as any, {} as any);
     const running: any = await (await fetch(`${base}/status`)).json();
     expect(running.enabled).toBe(true);
