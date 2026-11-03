@@ -49,7 +49,9 @@ The overlay sets:
 - **Throwaway runs** (rolling, one-shot helpers): the session log and the storage directory (its projection cache holds the first prompt, which carries memory and history) point into the temp root.
 - **Summarizer:** also turns `AGENTS.md` discovery off, as `noProjectDocs` does on Codex.
 
-Three layers, as on Codex: the base prompt (`<agent.cwd>/config/dsh-base-prompt.md`, else `agent.dsh.base_instructions_file`, which ships as `prompts/dsh-base-prompt.md`; only if neither file exists is dsh's stock headless persona used), the identity files (added after the base prompt in the same system prompt, on every main run, rolling or not; helper and public runs do not get them), and `AGENTS.md`, which dsh loads itself.
+Three layers, as on Codex: the base prompt (`<agent.cwd>/config/dsh-base-prompt.md`, else `agent.dsh.base_instructions_file`, which ships as `prompts/dsh-base-prompt.md`; only if neither file exists is dsh's stock headless persona used), the identity files (added after the base prompt in the same system prompt, on every main run, rolling or not; helper runs do not get them, and the public lane's run gets the identity it builds for itself, after the fixed public base prompt), and `AGENTS.md`, which dsh loads itself.
+
+dsh interpolates `{{name}}` in persona text and fails assembly on an unknown one, and the persona mechanism has no escape for it, so the whole persona (base prompt and identity alike) goes through `defangTemplate`: every `{{` becomes `{ {`. The identity text therefore reaches dsh with a space inside any double brace, which the message path never did to it. Identity files are prose, so this rarely shows; avoid literal `{{` in them.
 
 The shipped base prompt is the same harness Claude and Codex get: one shared base plus a short dsh tail, joined by `npm run prompts:build` (see `prompts/README.md`). Before it shipped, a home without its own `config/dsh-base-prompt.md` ran on dsh's stock persona. The starter home ships a copy in `config/`; an existing home keeps whatever it has until you copy the file in, because the home's copy wins.
 

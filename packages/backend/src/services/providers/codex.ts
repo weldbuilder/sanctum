@@ -60,19 +60,28 @@ function resolveBaseFile(): string {
   return existsSync(homeBase) ? homeBase : (baseCfg && existsSync(baseCfg) ? baseCfg : '');
 }
 
-/** The model_instructions_file for a MAIN run: the harness base first, then the identity, as one content-addressed file (the same order
- *  as Claude's system prompt: mechanics, then who I am). An edit to either makes a new path. '' when there is neither: stock Codex.
- *  Read-only helper runs never come through here; they get resolveBaseFile() as it is. */
-function identityBaseFile(): string {
+/** How a MAIN run carries the identity. With a harness base: the base first, then the identity, as one content-addressed
+ *  model_instructions_file (the same order as Claude's system prompt: mechanics, then who I am; an edit to either makes a new path).
+ *  With NO base (`base_instructions_file: ""`, stock Codex): the identity goes through `developer_instructions`, which keeps Codex's own
+ *  prompt (tool and apply_patch guidance) and prepends the text to the developer message; model_instructions_file stays unset.
+ *  Nothing at all when there is neither. Read-only helper runs never come through here; they get resolveBaseFile() as it is. */
+interface Slot { baseFile: string; developerInstructions?: string }
+function identitySlot(): Slot {
   const f = resolveBaseFile();
   const base = f ? readOwnOrApp(f) : '';
-  const text = [base, identityBlock('codex')].filter((x) => x && x.trim()).join('\n\n');
-  return text ? materializeBaseInstructions(text) : '';
+  const identity = identityBlock('codex');
+  if (base.trim()) return { baseFile: materializeBaseInstructions([base, identity].filter((x) => x && x.trim()).join('\n\n')) };
+  return identity.trim() ? { baseFile: '', developerInstructions: identity } : { baseFile: '' };
 }
+const helperSlot = (): Slot => ({ baseFile: resolveBaseFile() });
 
-/** `baseFile` is the model_instructions_file path: the identity file on a main run (see identityBaseFile), so it is in the cache key,
- *  and an identity edit (a new path) gets a new client. */
-function getClient(mcpServers: Options['mcpServers'], baseFile: string): Codex {
+/** Everything about a client but its instructions: two clients that match on this are the same client at different identity texts. */
+const clientFamily = (mcp: unknown, provider: string, harnessMemory: boolean): string => JSON.stringify([mcp, provider, harnessMemory, currentTenant()?.id ?? null]);
+const clientFamilies = new Map<string, string>(); // clients key -> its family
+
+/** `slot` is the instructions the client carries (model_instructions_file path, or developer_instructions text), so it is in the cache key,
+ *  and an identity edit (a new path or text) gets a new client; the one it replaces is dropped (same family, other slot). */
+function getClient(mcpServers: Options['mcpServers'], slot: Slot): Codex {
   const mcp = toCodexMcp(mcpServers);
   // Swap Codex's stock "You are Codex..." base prompt (17k chars, its own
   // personality and formatting rules) for the lean companion one, so AGENTS.md
@@ -81,22 +90,26 @@ function getClient(mcpServers: Options['mcpServers'], baseFile: string): Codex {
   const provider = getSanctumConfig().agent.codex.model_provider || '';
   const harnessMemory = !!getSanctumConfig().agent.harness_memory;
   // The tenant id is in the key: two tenants never share a client (each carries its own env, key and CODEX_HOME).
-  const key = JSON.stringify([mcp, baseFile, provider, harnessMemory, currentTenant()?.id ?? null]);
+  const family = clientFamily(mcp, provider, harnessMemory);
+  const key = JSON.stringify([family, slot.baseFile, slot.developerInstructions ?? '']);
   let c = clients.get(key);
   if (!c) {
+    for (const [k, fam] of clientFamilies) if (fam === family && k !== key) { clients.delete(k); clientFamilies.delete(k); }
     // Passing env stops the SDK inheriting ours wholesale; it is ours minus the Mind's key.
     const base = childRunBase();
     const opts: CodexOptions = { env: Object.fromEntries(Object.entries(childEnv(base)).filter(([, v]) => v !== undefined)) as Record<string, string> };
     if (base.OPENAI_API_KEY) opts.apiKey = base.OPENAI_API_KEY; // else: `codex login` session
     const config: Record<string, any> = {};
     if (Object.keys(mcp).length) config.mcp_servers = mcp;
-    if (baseFile) config.model_instructions_file = baseFile;
+    if (slot.baseFile) config.model_instructions_file = slot.baseFile;
+    if (slot.developerInstructions) config.developer_instructions = slot.developerInstructions;
     if (provider) config.model_provider = provider;
     config.features = { memories: harnessMemory }; // explicit both ways; see codex-exec.ts
     if (tenancyEnabled()) config.sandbox_workspace_write = { exclude_slash_tmp: true }; // D7: see codex-exec.ts
     if (Object.keys(config).length) opts.config = config;
     c = new Codex(opts);
     clients.set(key, c);
+    clientFamilies.set(key, family);
   }
   return c;
 }
@@ -284,14 +297,14 @@ export function codexQuery({ prompt, options }: { prompt: string | AsyncIterable
       const history = await assembleRollingHistory(threadId, sanctum!.userContent, !!sanctum!.autonomous, { named: true });
       const rolling = history.rolling;
       const { summary, notice, lines } = history;
-      // The orientation block comes out of the message and sits above the conversation.
+      // The orientation block comes out of the message and sits first, as it does on Claude (above memory and the summary).
       const { context, message } = splitContextBlock(prompt, sanctum?.contextBlock);
       const sections = [
+        context,
         memoryBlock,
         mindBlock,
         summary,
         notice,
-        context,
         conversationBlock(lines),
         `[Current message]\n${message}`,
       ].filter(Boolean);
@@ -305,7 +318,7 @@ export function codexQuery({ prompt, options }: { prompt: string | AsyncIterable
         const events = runCodexExec({
           prompt: input, signal: ctl.signal, sandboxMode, cwd: workingDirectory,
           additionalDirectories: cx.additional_directories, model, modelProvider: cx.model_provider || undefined, harnessMemory: !noMemory && !!cfg.agent.harness_memory, networkAccess: cx.network_access,
-          baseFile: identityBaseFile(), effort, mcp: toCodexMcp(opts.mcpServers),
+          ...identitySlot(), effort, mcp: toCodexMcp(opts.mcpServers),
         });
         yield* translate(events, { fixedSession: true, model, showThinking, state });
         // The runner ends quietly when stopped; the app needs to hear it as a stop.
@@ -360,13 +373,15 @@ export function codexQuery({ prompt, options }: { prompt: string | AsyncIterable
         return;
       }
     } else {
-      const head = [memoryBlock, mindBlock].filter(Boolean);
-      if (head.length) input = `${head.join('\n\n')}\n\n[Current message]\n\n${prompt}`;
+      // Not rolling: the orientation block still comes out of the message, first, so it never sits inside [Current message].
+      const { context, message } = splitContextBlock(prompt, sanctum?.contextBlock);
+      const head = [context, memoryBlock, mindBlock].filter(Boolean);
+      if (head.length) input = `${head.join('\n\n')}\n\n[Current message]\n\n${message}`;
     }
 
     // The base-instructions file is a per-spawn `--config` the SDK passes on `exec resume` too, and Codex applies it over the resumed
     // thread's stored one, so an identity edit reaches a resumed thread on its next turn (checked against codex-cli 0.159.3).
-    const client = getClient(opts.mcpServers, readOnly ? resolveBaseFile() : identityBaseFile());
+    const client = getClient(opts.mcpServers, readOnly ? helperSlot() : identitySlot());
     const thread = resumeId ? client.resumeThread(resumeId, threadOpts) : client.startThread(threadOpts);
 
     try {
