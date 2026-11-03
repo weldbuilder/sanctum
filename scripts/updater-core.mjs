@@ -464,9 +464,7 @@ export async function discardStage(root, log = noop) {
       }
     } catch { /* no pid list */ }
   }
-  if (installMode(root) === 'git') {
-    if (had) spawnSync('git', ['worktree', 'remove', '--force', stage], { cwd: root, stdio: 'ignore' });
-  }
+  // (async rm: a stage holds a whole node_modules, and a synchronous removal would stall the running app. `git worktree prune` then forgets it.)
   await rm(stage, { recursive: true, force: true, maxRetries: 3 });
   if (installMode(root) === 'git') spawnSync('git', ['worktree', 'prune'], { cwd: root, stdio: 'ignore' });
   return had;
