@@ -206,6 +206,13 @@ function scheduleTimelineFlush(entries: TimelineEntry[]) {
   });
 }
 
+// Timeline events build their next snapshot from the latest one, which is the pending snapshot when a flush has not
+// run yet. Building from the store alone would drop whatever arrived earlier in the same frame (sealed narration,
+// then its tool event).
+function pendingOrCurrentTimeline(): TimelineEntry[] {
+  return _pendingTimeline ?? useChatStore.getState().timelineEntries;
+}
+
 // ─── Token rate-smoothing buffer ─────────────────────────────────────────────
 // WS delivers token deltas at irregular network-burst cadence. We smooth the
 // reveal by drip-feeding characters at a capped rate per animation frame,
@@ -504,7 +511,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
           });
 
           // 2. Upsert into the unified timeline — RAF-coalesced
-          const currentEntries = get().timelineEntries;
+          const currentEntries = pendingOrCurrentTimeline();
           const tidx = currentEntries.findIndex(e => e.kind === 'thinking' && e.id === m.id);
           let nextEntries: TimelineEntry[];
           if (tidx >= 0) {
@@ -555,7 +562,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
           // Also upsert into unified timeline
           const textOffset = m.textOffset ?? get().streamingTokens.length;
-          const currentEntries = get().timelineEntries;
+          const currentEntries = pendingOrCurrentTimeline();
           const tidx = currentEntries.findIndex(e => e.kind === 'tool' && e.toolId === m.toolId);
           let nextEntries: TimelineEntry[];
           if (tidx >= 0) {
@@ -593,7 +600,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
           }));
 
           // Mirror into timeline
-          const currentEntries = get().timelineEntries;
+          const currentEntries = pendingOrCurrentTimeline();
           const tidx = currentEntries.findIndex(e => e.kind === 'tool' && e.toolId === m.toolId);
           if (tidx >= 0) {
             const nextEntries = currentEntries.map((e, i) =>
@@ -618,7 +625,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
           }));
 
           // Mirror elapsed into timeline
-          const currentEntries = get().timelineEntries;
+          const currentEntries = pendingOrCurrentTimeline();
           const tidx = currentEntries.findIndex(e => e.kind === 'tool' && e.toolId === m.toolId);
           if (tidx >= 0) {
             const nextEntries = currentEntries.map((e, i) =>

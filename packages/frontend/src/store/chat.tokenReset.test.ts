@@ -91,4 +91,23 @@ describe('the displayed reply when pre-tool narration is sealed', () => {
     runFrames();
     expect(useChatStore.getState().displayedTokens).toBe('Hello there, Sam.');
   });
+
+  it('keeps sealed narration in the timeline when its tool event lands in the same frame', async () => {
+    const { useChatStore, send } = await openStream();
+    const narration = 'Let me look through the notes folder before I answer you.';
+    send({ type: 'stream_token', messageId: 'm1', token: narration });
+    runFrames();
+    expect(useChatStore.getState().displayedTokens).toBe(narration);
+
+    // The backend seals narration, clears the reply, then the PreToolUse hook sends the tool: all before the next frame.
+    send({ type: 'thinking', id: 'm1-narr-1', content: narration, summary: 'Looking', textOffset: 0, isComplete: true, narration: true });
+    send({ type: 'stream_token', messageId: 'm1', token: '' });
+    send({ type: 'tool_use', toolId: 'tool-1', toolName: 'Read', input: 'notes', isComplete: false, textOffset: narration.length });
+    runFrames();
+
+    const state = useChatStore.getState();
+    expect(state.displayedTokens).toBe('');
+    expect(state.timelineEntries.map(e => e.kind)).toEqual(['thinking', 'tool']);
+    expect(state.timelineEntries[0]).toMatchObject({ kind: 'thinking', id: 'm1-narr-1', content: narration, narration: true });
+  });
 });
