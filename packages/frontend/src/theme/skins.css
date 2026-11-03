@@ -186,6 +186,16 @@ body::after {
     box-shadow: none !important;
     outline: 0 !important;
   }
+  /* Hedgewitch's rail is its solid wood, the same surface as its phone drawer (--chrome-rail-bg is the drawer's wood under a dark veil),
+     not the translucent fill above; the gold hairline stays and the active item keeps its plate. Other skins keep the fill. */
+  :root[data-material="hedgewitch"] .nav-rail {
+    background: var(--chrome-rail-bg) !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  /* Light on the wood: the chrome cream (#efe4d0) reads 4.54:1 on the wood's lightest pixel, and the active plate's selected wash lifts
+     that further, so the rail's rows take a near-white cream in every state (4.65:1 or better on the worst pixel under the hover and active washes). The drawer keeps the palette's own. */
+  :root[data-material="hedgewitch"] .nav-rail .navlink, :root[data-material="hedgewitch"] .nav-rail .navlink:hover { color: #fffdf8; }
   /* The Settings section menu is the rail's twin: same fill, blur and hairline, no plate. */
   :root .settings-subnav {
     background-color: color-mix(in srgb, var(--plate-bg, var(--surface-chrome)) 60%, transparent) !important;
