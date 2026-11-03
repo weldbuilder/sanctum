@@ -433,7 +433,11 @@ export const useChatStore = create<ChatStore>((set, get) => {
       case 'stream_token':
         // CRITICAL: token is CUMULATIVE — assign, not append
         if (get().streamingMessageId === m.messageId) {
-          set({ streamingTokens: m.token });
+          // The drip loop only ever appends. When the server restarts the reply (it sends '' once pre-tool
+          // narration is sealed into the Thinking disclosure, then the post-tool reply), the new text is not an
+          // extension of what is on screen, so drop the displayed text and let the drip start over.
+          const restarted = !m.token.startsWith(get().displayedTokens);
+          set(restarted ? { streamingTokens: m.token, displayedTokens: '' } : { streamingTokens: m.token });
           // Update the buffer and kick off the drip loop (idempotent if already running)
           _tokenBuffer = m.token;
           scheduleTokenFlush();
