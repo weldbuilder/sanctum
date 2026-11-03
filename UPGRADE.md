@@ -184,3 +184,20 @@ until you want it to. To take the new harness there, copy the files from this st
 `companion-home/config/` into your home's `config/` (replacing the Codex one), or delete
 your home's copy to use the shipped fallback. Check any edits you made first: the new file
 replaces them. The Codex base now rides every message at roughly 2,000 tokens a turn.
+
+---
+
+# Updating from inside the app
+
+From this version the app updates itself: when a newer version is out, a bar on Home and Chat
+offers **Update and restart**, asks for your password again, keeps a copy of the current
+version in `<data dir>/update-rollback/`, builds, and restarts. `npm run update` runs the
+same steps. Two things to know when you move over:
+
+- A git checkout with local changes is refused (the changed files are listed). Commit or
+  discard them first; nothing is stashed.
+- Under pm2 (or any supervisor) set nothing new for pm2; for another supervisor add
+  `SANCTUM_SUPERVISED=1` and have it restart the app when it exits. Without either, the app
+  starts its own replacement.
+
+Full detail: [docs/CONFIGURATION.md](docs/CONFIGURATION.md), "Updating from inside the app".

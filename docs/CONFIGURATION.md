@@ -529,6 +529,48 @@ See [PLUGINS.md](PLUGINS.md), including "Where to put the house".
 |---|---|---|
 | `origins` | `[]` | Any origin a browser opens the app from. The live connection is refused silently (the header shows *Disconnected*) when the browser's origin is missing; the raw Tailscale IP and the `.ts.net` name are two different origins. Loopback, and `http://<server.host>:<port>` when `server.host` is not loopback, are always allowed. |
 
+### `updates` — the newer-version notice and the in-app update
+
+| Key | Default | Meaning |
+|---|---|---|
+| `check` | `true` | Ask GitHub (at most every six hours) whether the project's `package.json` carries a higher version. The only thing the app sends out on its own. `false` turns the notice off; `npm run update` still works. |
+| `repo` | `""` | `owner/name` on GitHub. `""` = the `repository` line in `package.json`. A private project needs `GITHUB_TOKEN` in `.env`. |
+| `branch` | `main` | The branch whose head is installed (and whose `package.json` version is "newest"). Tags are not used. A git checkout must be on this branch to update. |
+
+Process-only (see `tenants`).
+
+#### Updating from inside the app
+
+**Update and restart** (the bar on Home and Chat, the pill elsewhere, Settings → Preferences → Updates) calls `POST /api/house/update/start`
+with the house password typed again; `POST /api/house/update/rollback` does the same for a roll back; `GET /api/house/update` is the status. They are
+house routes, never under a companion's prefix, and a companion's tools cannot reach them. One job runs at a time (a second is `409`), and none starts
+while a conversation turn is running in any companion.
+
+The steps (the same module, `scripts/updater-core.mjs`, as `npm run update`):
+
+1. **checking**: read the settings, ask GitHub for the newest version.
+2. A **git checkout** with anything in `git status --porcelain` (untracked files too) is refused, and the list is the error. Nothing is stashed or overwritten.
+3. **fetching**: `git fetch` then `git merge --ff-only origin/<branch>`, recording the previous commit. A **downloaded folder** (no `.git`) downloads the branch tarball to a temp folder and copies only the files the archive holds: never `.env`, `sanctum.yaml`, `.mcp.json`, `data/`, nor `companion-home/` (nor the folder `agent.cwd` names, when it is inside the app folder).
+4. The **rollback copy**, taken before anything changes: `package.json`, `package-lock.json`, every `packages/*/dist`, `packages/frontend/build`, and on the tarball path every file the archive will overwrite, in `<data dir>/update-rollback/<previous version>/` with a `manifest.json`. Only the latest copy is kept.
+5. **installing**: `npm ci --include=dev` (`npm install --include=dev` only when there is no lockfile, and the log says so). **building**: `npm run build`.
+6. A failure in steps 3 to 5 restores the copy (`git reset --hard <previous commit>` on a git checkout, which is safe because the tree was clean), puts `node_modules` back in line with the old lockfile, and marks the job `failed` with the reason; the app keeps running the old build.
+7. **restarting**: see below. The states are `checking, fetching, installing, building, restarting, done, failed, rolled_back`.
+
+**Roll back** puts the copy back the same way (a git checkout must be clean and still on the commit the update left), then restarts. It is offered only while a copy exists, and the copy is spent by it.
+
+**Two restart modes.**
+
+- *Supervised*: when `pm_id` (pm2) or `SANCTUM_SUPERVISED=1` is in the environment, the app stops gracefully and exits 0, and the supervisor starts it again. The supervisor must restart on exit 0 (pm2 does; systemd needs `Restart=always`, Docker `restart: always`). Set `SANCTUM_SUPERVISED=1` for anything that is not pm2.
+- *Respawn* (the default): the app closes its listener, starts a detached replacement (`node packages/backend/dist/server.js`, same folder and environment, output in `<data dir>/update-restart.log`), waits up to 60 seconds for it to answer `/api/health` on the same port, then stops. If it never answers the app listens again, the previous files are put back, and the job is `failed`. For those seconds the replacement and the old process both run (a Discord or Telegram connection may complain once).
+
+The page reconnects until `/api/version` reports a new build, then reloads.
+
+**Files in the data folder** (next to `sanctum.db`; the process's own folder, never a companion's):
+
+- `update-job.json`: the last job, its state and its log (timestamped lines), so it survives the restart. A job caught mid-way by a crash reads as `failed`; one that was `restarting` reads as `done` (or `rolled_back`) in the new process.
+- `update-rollback/<version>/`: the rollback copy and its `manifest.json` (version, mode, commits, every item and whether it existed).
+- `update-restart.log`: what the respawned replacement printed.
+
 ### `tenants` — several people in one process (optional)
 
 Absent by default; without it nothing here applies. With it the app serves one tenant per folder under `dir`, each with its own
@@ -857,6 +899,7 @@ Inside `data/` you'll find:
 - **`.internal-token`** — an auto-generated secret the app uses to talk to itself.
 - **`.google-key`** — an auto-generated key that encrypts stored Google tokens.
 - **`identity/`** — the identity ledger (`identity.ledger_dir` moves it): `ledger.json` (the digest of the identity files you ratified, who ratified it and when), `journal.jsonl` (one line for every change to the identity folder: when, which files, and whether it was you, your companion, something else on disk, a rollback or the first look) and `snapshots/` (the ratified copy that your companion actually runs on, and the one before it). It is separate from `plugins/`. Back up the whole folder: without `snapshots/` the app cannot serve the ratified copy and says so in Settings > Identity.
+- **`update-job.json`, `update-rollback/`, `update-restart.log`** — the in-app updater's last job, the copy it keeps to roll back to, and the log of the restart. Safe to delete when no update is running; see "Updating from inside the app" under `updates`.
 - **`plugins/`** — `audit.json`: every change to a plugin's files, as it was noticed (the last 20 per plugin), which Settings > Plugins reads for "changed since you last looked". If you chose `plugins.trust: person`, it also holds `ratified.json` (which plugin code you have approved, by hash) and `snapshots/` (the approved copy that actually runs); a plugin whose files differ from that record does nothing until you approve it again. Back up the whole folder. If you set `plugins.ledger_dir`, it lives there instead.
 
 The database is created automatically the first time you run the app — the schema

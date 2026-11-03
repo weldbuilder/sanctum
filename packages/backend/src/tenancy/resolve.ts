@@ -47,7 +47,7 @@ export function splitCompanionPath(path: string): { id: string; rest: string } |
 export function isHouseRoute(path: string): boolean {
   const p = path.toLowerCase().replace(/\/+$/, '');
   if (p === '/api' || p.startsWith('/api/')) {
-    return p.startsWith('/api/auth/') || p === '/api/companions' || p === '/api/health' || p === '/api/version' || p === '/api/push/vapid-public' || p === '/api/setup' || p.startsWith('/api/setup/');
+    return p.startsWith('/api/auth/') || p === '/api/companions' || p === '/api/health' || p === '/api/version' || p === '/api/push/vapid-public' || p === '/api/setup' || p.startsWith('/api/setup/') || p.startsWith('/api/house/');
   }
   return !(p === '/mcp' || p.startsWith('/mcp/'));
 }

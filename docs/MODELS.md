@@ -114,7 +114,11 @@ npm start
 
 - **Plain terminal (the default setup):** stop it with **Ctrl+C**, then run the
   two commands above.
-- **Under a process manager (e.g. `pm2`):** stop the process, rebuild, then
+- **Updating from inside the app under pm2:** the app's **Update and restart** needs no pm2
+  commands. It builds, then exits (code 0) and lets pm2 start it again, because `pm_id` is in the
+  environment. Make sure pm2 is left to restart on exit (its default). Under another supervisor set
+  `SANCTUM_SUPERVISED=1` and have it restart on exit 0.
+- **Under a process manager (e.g. `pm2`), by hand:** stop the process, rebuild, then
   start it again — and note two hard-won cautions:
   - **Prefer delete-and-start over restart.** `pm2 delete sanctum && pm2 start
     <your ecosystem file>` (or `pm2 start "npm start" --name sanctum`) reliably

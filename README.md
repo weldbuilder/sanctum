@@ -143,14 +143,26 @@ Each is off until you turn it on.
 
 ## Updating
 
-When a new version is out the app shows a notice. In the app's folder:
+When a new version is out, a notice drops down at the top of Home and Chat: **Sanctum X.Y is out.
+Update and restart.** Press the button, type your password again, and the app downloads the new
+version, keeps a copy of the one you have, builds, and restarts itself. The page reloads when it
+is back. In household mode one update restarts every companion in the house.
 
-```bash
-npm run update
-```
+- **Something went wrong?** A failed install or build puts the old version back by itself, and
+  the log is in **Settings → Preferences → Updates**. After a good update, **Roll back to X.Y**
+  there returns to the kept copy (one copy is kept: the version before the last update).
+- **Local changes in a git checkout** stop the update, and the files are listed. Nothing is
+  stashed or overwritten; commit or discard them and try again.
+- **Restart:** under pm2 (or `SANCTUM_SUPERVISED=1`) the app exits and lets the supervisor start
+  it; anywhere else it starts its own replacement. Details in
+  [docs/CONFIGURATION.md](docs/CONFIGURATION.md), "Updating from inside the app".
+- **From a terminal** the same steps run with `npm run update` (then restart with Ctrl+C and
+  `npm start`), and `npm run update -- --rollback` restores the kept copy. Where the platform
+  cannot update itself (no `git` in a git checkout, no `tar` in a downloaded folder) the notice
+  says so and shows this command.
 
-Then restart (Ctrl+C, `npm start`). Your `sanctum.yaml`, `.env`, `data` folder and their
-home folder are never touched. Upgrading from an older layout: [UPGRADE.md](UPGRADE.md).
+Your `sanctum.yaml`, `.env`, `data` folder and their home folder are never touched. Upgrading
+from an older layout: [UPGRADE.md](UPGRADE.md).
 
 ## Setting it up with an AI assistant
 

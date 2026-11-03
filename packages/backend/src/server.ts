@@ -46,6 +46,8 @@ import { writePluginsEnabled } from './services/plugin-config.js';
 import apiRoutes, { initCcRoutes, ccEnabledGate } from './routes/api.js';
 import setupRoutes from './routes/setup.js';
 import { announceSetupCode } from './services/setup-code.js';
+import houseUpdateRoutes from './routes/house-update.js';
+import { setRestartControl } from './services/updater.js';
 import authPreferencesRoutes from './routes/auth-preferences.js';
 import googleRoutes from './routes/google-routes.js';
 import { startOutlookPoller, stopOutlookPoller } from './services/outlook.js';
@@ -207,6 +209,9 @@ app.use('/api/setup', setupRoutes);
 if (TENANT_MODE) app.use('/api/tenant', tenantInfoRouter);
 // Household mode only: the hallway's list of companions (a house route: the house session, no companion).
 if (TENANT_MODE && householdMode()) app.use('/api/companions', companionsRouter);
+
+// The house's update routes (/api/house/update): unprefixed only, a session plus the password typed again; 404 under a companion's prefix.
+app.use('/api/house/update', houseUpdateRoutes);
 
 // All API routes — auth middleware is applied selectively inside the router
 app.use('/api', apiRoutes);
@@ -443,8 +448,8 @@ server.listen(PORT, HOST, () => {
 });
 
 // Graceful shutdown
-process.on('SIGTERM', async () => {
-  console.log('SIGTERM received, shutting down gracefully...');
+async function gracefulStop(signal: string): Promise<void> {
+  console.log(`${signal} received, shutting down gracefully...`);
   orchestrator?.stop(); // (null in tenant mode)
   mindWatchdog?.stop();
   if (tenantRuntimes) await stopTenantServices(tenantRuntimes.values()); // each tenant's orchestrator, watchdog and timers, then its database below
@@ -460,23 +465,19 @@ process.on('SIGTERM', async () => {
     closeHouse();
     process.exit(0);
   });
-});
+  server.closeAllConnections?.(); // a keep-alive connection must not hold the port open
+}
+process.on('SIGTERM', () => { void gracefulStop('SIGTERM'); });
+process.on('SIGINT', () => { void gracefulStop('SIGINT'); });
 
-process.on('SIGINT', async () => {
-  console.log('SIGINT received, shutting down gracefully...');
-  orchestrator?.stop(); // (null in tenant mode)
-  mindWatchdog?.stop();
-  if (tenantRuntimes) await stopTenantServices(tenantRuntimes.values()); // each tenant's orchestrator, watchdog and timers, then its database below
-  if (!TENANT_MODE) { stopOutlookPoller(); stopOutlookAuthor(); stopHandoffSchedule(); } // (tenant mode: per tenant, in stopTenantServices)
-  if (discordService) await discordService.stop();
-  if (telegramService) await telegramService.stop();
-  wss.clients.forEach(ws => ws.close());
-  wss.close();
-  server.close(() => {
-    console.log('Server closed');
-    db?.close();
-    if (tenantRuntimes) for (const rt of tenantRuntimes.values()) rt.db.close();
-    closeHouse();
-    process.exit(0);
-  });
+// The in-app updater (services/updater.ts) restarts this process through these three.
+setRestartControl({
+  healthUrl: `http://${HOST === '0.0.0.0' || HOST === '::' || HOST === '' ? '127.0.0.1' : HOST}:${PORT}/api/health`,
+  closeListener: () => new Promise<void>((resolve) => {
+    wss.clients.forEach(ws => ws.close()); // (the sockets only; the socket server stays attached for the listener that comes back)
+    server.close(() => resolve());
+    server.closeAllConnections?.();
+  }),
+  relisten: () => { server.listen(PORT, HOST, () => console.log(`[updater] listening again at http://${HOST}:${PORT}`)); },
+  gracefulStop: () => gracefulStop('Update restart'),
 });

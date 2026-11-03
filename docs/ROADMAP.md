@@ -1,6 +1,6 @@
 # Roadmap
 
-*Status as of 2026-10-22. The agreed order comes from the OpenClaw gap audit (2026-10-12) and is kept in
+*Status as of 2026-11-03. The agreed order comes from the OpenClaw gap audit (2026-10-12) and is kept in
 `PLUGINS.md` under "Order"; this page is the running list of what is done, what is next, and the small
 things each verification pass left behind. Update it when a PR merges.*
 
@@ -16,6 +16,7 @@ things each verification pass left behind. Update it when a PR merges.*
 | – | In-app setup wizard (first-run page, Run setup again, CLI on one declarative plan with a byte-identical replay) | `CONFIGURATION.md`, README step 8 |
 | – | Skins: six rooms and materials, Extra readable, safe preview | `CONFIGURATION.md` §7 |
 | 9 | Multi-tenant: built (option b): several tenants in one process, each with its own database, login, channels, scheduler and harness homes, inheriting the operator's `sanctum.yaml`; the wizard per tenant (`--tenant`) and the first-run page; household mode (the default: one login, a `/c/<id>/` path prefix per companion, `tenants.auth: per-tenant` for the hostname shape); option (a) one clone per tenant stays documented | `MULTI-TENANT.md` |
+| – | In-app update: a bar on Home and Chat ("Update and restart", password asked again), one job at a time, a rollback copy and a roll back, a dirty git tree refused, restart under pm2 or by the app's own replacement process; `npm run update` shares the steps | `CONFIGURATION.md` "Updating from inside the app", `MULTI-TENANT.md` |
 
 ## Next, in the agreed order
 
