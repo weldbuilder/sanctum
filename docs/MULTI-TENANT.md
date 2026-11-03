@@ -532,6 +532,35 @@ What it is **not**:
 - **One clock.** A tenant whose `identity.timezone` differs from the process's is refused at boot; the local-time sites
   are an audit for later.
 - **One process.** A crash, a runaway loop or an out-of-memory in one tenant's work takes every tenant down.
+- **Parking is not isolation.** A parked companion is switched off, not walled off (see "Parking a companion"): a harness child mid-turn is asked to stop, not killed, and the files and token stay where they were.
+
+### Parking a companion
+
+One companion can be switched off and on again without restarting the process, with the operator's token (not a companion's):
+
+```sh
+curl -X POST -H "x-internal-token: $(cat <process data dir>/.operator-token)" http://127.0.0.1:<port>/api/internal/tenants/<id>/park
+curl -X POST -H "x-internal-token: $(cat <process data dir>/.operator-token)" http://127.0.0.1:<port>/api/internal/tenants/<id>/revive
+```
+
+(`GET /api/internal/tenants` lists every folder as `running`, `parked` or `failed`, with the last error.) The token is `.operator-token` beside `house.db`
+(the process's data folder), made owner-only at boot; it is the process's, so a companion's own internal token, which its harness children carry, cannot park a
+neighbour (a missing token is 401, any other is 403). The routes exist only in tenant mode: with no `tenants:` block they are as unknown as any path.
+
+**Park** stops that companion's scheduler, watchdog, pollers and channels (the same stop as a shutdown, for it alone), asks a turn in flight to stop, closes its
+websocket clients (code 1013) and its database, and keeps its hosts reserved: its prefix (household) or hosts answer 503, its socket path answers 503, and the
+house list says `unavailable`. It does not touch another companion: their routes, sockets, scheduler and Revien are as they were. **Revive** builds the companion
+again from its files as they are now, by the code path boot uses (the same admission, the same layout check a reload makes, the same service start under the same
+catch), so a companion whose files were fixed while it was parked comes back; one that fails to start stays down, the answer is a 500 with the line, and the line is
+kept (`GET` shows it). A companion that did not start at boot (listed `failed`) is revived with the same call. A park of one that is not running, or a revive of one
+that is, is 409; a name with no folder is 404. The folder list is the one read at boot: a new folder still needs a restart.
+
+What a park is not: it is one process still, so it is not a security measure against the companion (it keeps its files and its token). A harness child already
+running (a Claude Code or Codex process in the middle of a turn) is asked to stop through the agent, not killed by the park, and may outlive it briefly; a request
+already inside the companion when it parks can fail on the closed database; a plugin's own module state is not reset (one module is shared by every companion). The
+words are not interchangeable with the per-service parks above (a duplicate bot token or Revien address parks one service and leaves the companion up). A companion
+that held a bot token another companion also holds stays parked on that service until it is toggled, and a revive checks the token again, so a token another
+companion took while it was away parks it on that service.
 
 ### Compared with OpenClaw and Hermes Agent
 
@@ -548,8 +577,7 @@ Both projects were read for how they isolate (their docs and issue trackers, mai
 | Sandbox | per agent or session, optional, documented as not a perfect boundary | none in-process | none in-process; the `spawnWrapper` seam |
 | Trust statement | one trust boundary per gateway; adversarial users need a separate gateway and OS user | in-process isolation is not enough for adversarial profiles | the same: option (a), or the seam |
 
-What they have and this does not: a filesystem sandbox per agent, per-agent tool allow and deny lists, hot park and revive of one
-tenant without a restart, a full per-profile HOME as an option (here it is the only mode), and audit or doctor commands. Those are
+What they have and this does not: a filesystem sandbox per agent, per-agent tool allow and deny lists, a full per-profile HOME as an option (here it is the only mode), and audit or doctor commands. Those are
 in the roadmap. Their open reports are the checklist this was built against: a singleton that wrote one profile's memory into
 another, configuration bridged into the process environment, scope lost across an executor or a watcher task, a same-named MCP
 server shared across profiles, a reload with no secret scope. Each has a counterpart here (per-tenant state behind `tenantLocal`,

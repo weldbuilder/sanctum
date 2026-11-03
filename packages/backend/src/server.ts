@@ -58,11 +58,12 @@ import { announceTenantSetupCodes, bootTenants, stopTenantServices } from './ten
 import { installTenantConsole } from './tenancy/console.js';
 import { buildTenantPluginMounts } from './tenancy/plugin-mount.js';
 import { tenantResolve, tenantEnter } from './tenancy/resolve.js';
+import { loadOperatorToken, operatorRouter } from './tenancy/operator.js';
 import { mountTenantRefusals, tenantMutationScan } from './tenancy/guard.js';
 import { tenantInfoRouter } from './tenancy/info.js';
 import { companionsRouter } from './tenancy/companions.js';
 import { announceHouseSetupCode, houseSetupRouter } from './tenancy/house-setup.js';
-import { closeHouse, householdMode } from './tenancy/house.js';
+import { closeHouse, houseDataDir, householdMode } from './tenancy/house.js';
 import type { TenantRuntime } from './tenancy/context.js';
 
 // Load config FIRST — before any other initialization
@@ -116,6 +117,8 @@ if (TENANT_MODE) {
   // stdout, so a tenant's own boot lines ([identity], [Voice], [vector-cache]) are its own. The [tenancy] lines are written with no tenant current.
   installTenantConsole();
   tenantRuntimes = bootTenants(app, config);
+  // The operator's park and revive routes: their own token (not a tenant's), so ahead of tenant resolution (tenancy/operator.ts).
+  app.use('/api/internal/tenants', operatorRouter(loadOperatorToken(houseDataDir(config.server.db_path))));
   app.use(tenantResolve);
 }
 

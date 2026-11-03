@@ -12,8 +12,15 @@ import { runInTenant, type TenantRuntime } from './context.js';
 
 const KEY = 'pluginMount';
 
+let mountDeps: (() => MountDeps) | null = null;
+/** A tenant that starts after the server was built (a revive, tenancy/park.ts) gets its own mount the same way. A no-op before the mounts were built. */
+export function mountPluginsFor(rt: TenantRuntime): void {
+  if (mountDeps) { const deps = mountDeps; rt.services[KEY] = runInTenant(rt, () => createPluginMount(deps())); }
+}
+
 export function buildTenantPluginMounts(runtimes: Iterable<TenantRuntime>, deps: () => MountDeps): RequestHandler {
-  for (const rt of runtimes) rt.services[KEY] = runInTenant(rt, () => createPluginMount(deps()));
+  mountDeps = deps;
+  for (const rt of runtimes) mountPluginsFor(rt);
   return (req, res, next) => {
     const mount = req.tenant?.services[KEY] as Router | undefined;
     if (!mount) { res.status(503).json({ error: 'service_unavailable', service: 'plugins' }); return; }
