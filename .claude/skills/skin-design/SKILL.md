@@ -20,8 +20,8 @@ the rules that came out of that, and the workflow that keeps them true. The per-
    or too uniform; the fix was always the painting's own darker value and its fine grain, with the mottling kept faint.
 3. **Only the Library and Hedgewitch are light, paper skins.** Every other skin's fields, chat bar and wizards stay dark,
    including screens outside the skins (the setup wizard is dark leather and brass in every skin). In the Library the parchment
-   is the surface everywhere, the menu included: no ivory layer on top of it, anywhere. Icons on parchment are ink (dark),
-   never brown.
+   is the plates' surface (Home, Files, the chat bubbles); its menu, header, chat list and chat bar are its oxblood wood, and
+   there is no ivory layer anywhere. Icons on the parchment plates are ink (dark), never brown; icons on the wood are light.
 4. **Contrast is a gate, not a goal.** Every ink on every textured plate must read 4.5:1 plus a 0.1 margin on the worst
    composite (the texture's lightest or darkest pixel at its alpha), and control borders and focus rings 3:1
    (`texturedPairs` in `materials.ts`, held by `materials.test.ts`). When a texture fails, cap or floor its extremes
@@ -30,8 +30,8 @@ the rules that came out of that, and the workflow that keeps them true. The per-
    distinct surfaces, using the painting's own cloths (`ACCENTS` and `ACCENT_SUBSTRATE` in `materials.ts`). Dark-on-dark
    everywhere was rejected. Celestial is the owner's exception: its Home cards wear the navy of its Command center, and its
    Command panels wear the Home cards' gold studs and rim (`FRAMED_ROUTE_PANELS`), so the two pages read as one set; the
-   frame, not the cloth, sets them apart from the menu. The Library's menu sits on the same parchment as everything else and
-   reads distinct through its plate edge, brackets and ink icons, never through a different (ivory) colour.
+   frame, not the cloth, sets them apart from the menu. The Library's menu, header, chat list and chat bar are its oxblood wood
+   (`#301409`, `library-wood.webp`), distinct from the parchment plates beside them; the wood is never swapped for ivory or parchment.
 6. **Colours stay in the skin's family.** A selected item takes a colour of the skin (Library wine red, Velvet crimson), never
    a stray accent (lavender in a red room was rejected). The only constant across skins is the Sanctum mark.
 7. **Edges sit into their material.** A rim on a dark plate must not glow: it takes the skin's own dark-edge colour, not a bright
@@ -53,7 +53,8 @@ the rules that came out of that, and the workflow that keeps them true. The per-
     rather than let it drift.
 13. **No personal names** anywhere in the repo, commit messages or PR text: demo content uses Echo (the companion) and Sam.
 14. **Desktop menu** (1920): about 160px wide, a dark fill with the room faintly through it, a gold hairline on its right edge,
-    icon-and-label rows. Only the active item gets a plate. (Under 1100px the compact rail is 80px.)
+    icon-and-label rows. Only the active item gets a plate.
+   Hedgewitch is the exception: its desktop rail is its solid wood, the same as its phone drawer, not the translucent fill. (Under 1100px the compact rail is 80px.)
 15. **Chat bubbles** are capped at about 3/4 of the width on desktop.
 16. **Phone room backgrounds** show the portrait painting (2:3 asset) whole across the full width from the top; its bottom fifth
     fades into the blurred fill. Never cover-zoom it into one wall panel. Hedgewitch (landscape) keeps `cover`.
