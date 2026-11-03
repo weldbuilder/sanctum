@@ -557,8 +557,12 @@ the environment never written, bound callbacks, MCP keyed by tenant, `rt.reload(
 
 ### `npm run doctor`
 
-`npm run doctor [-- --tenant <id>] [-- --json]` prints the health checks the runbook below does by hand, one line each (OK, WARN or FAIL, with a
-sentence), and exits 1 when any is a FAIL. It reads and never writes, and prints names, paths, modes and lengths, never a secret.
+`npm run doctor [-- --tenant <id>] [--json] [--root <dir>]` prints the health checks the runbook below does by hand, one line each (OK, WARN or FAIL, with a
+sentence). It exits 0 when no line is a FAIL, 1 when any is, and 2 for a command line it cannot read. It reads and never writes, and prints names, paths, modes and lengths, never a secret.
+
+- **WARN**: the app runs, but something is not as recommended (a missing optional file, a short token, a home folder others can list).
+- **FAIL**: boot would skip or refuse it, or a secret is exposed (a `.env` that group or world can read).
+- `--root <dir>` checks the install in another folder (operator use): it reads that folder with the permissions of whoever runs it.
 
 - **Config**: `sanctum.yaml` parses; the shipped prompts, the wake prompts and the companion-home config files exist; the Claude frame as the
   app resolves it (the home's copy, the configured file, or the preset).
@@ -568,10 +572,10 @@ sentence), and exits 1 when any is a FAIL. It reads and never writes, and prints
   `data/.google-key`: none group or world readable), and the home with `identity/` and the three harness copies in `config/`. Across tenants:
   duplicate hosts, hosts reserved by a tenant boot would skip, duplicate internal tokens and duplicate bot tokens in the `.env` files (compared by
   hash; a token saved in a tenant's database is not read). `--tenant` reports one tenant in full and still runs the clash checks over all.
-- **Process**: the node version against `engines`, the build stamp (`packages/frontend/build/.build-id`), the database path writable, and the
+- **Process**: the node version against `engines`, the build folder (`packages/frontend/build`: missing is a FAIL, no UI is served) and its stamp (`.build-id`, or `BUILD_ID` in the environment: neither is a WARN), the database path writable, and the
   process's own secret files.
 
-`--json` prints the same report as `{ ok, exitCode, counts, sections: [{ name, checks: [{ status, check, message }] }] }`. Run it before the
+`--json` prints the same report as `{ ok, exitCode, counts, root, sections: [{ name, checks: [{ status, check, message }] }] }`. Run it before the
 soak below and after every step that edits a tenant's files.
 
 ### A chaos and soak run, locally

@@ -5,7 +5,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { SHIPPED_PATHS, formatReport, nodeInRange, parseArgs, runDoctor } from './doctor.mjs';
+import { SHIPPED_PATHS, formatReport, frameResolution, nodeInRange, parseArgs, runDoctor } from './doctor.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const posix = process.platform !== 'win32';
@@ -151,12 +151,12 @@ describe('doctor: what fails', () => {
       expect(lines(report, 'WARN').some((c) => c.check === 'reserved host' && c.message.includes('ada.example.net'))).toBe(true);
     } finally { cleanup(root); }
   });
-  it('a missing home, a missing build stamp and an out-of-range node are FAILs; a yaml that does not parse names its path', () => {
+  it('a missing home, a missing build folder and an out-of-range node are FAILs; a yaml that does not parse names its path', () => {
     const root = app();
     try {
       withTenants(root, [{ id: 'ada' }]);
       fs.rmSync(path.join(root, 'tenants', 'ada', 'home'), { recursive: true });
-      fs.rmSync(path.join(root, 'packages', 'frontend', 'build', '.build-id'));
+      fs.rmSync(path.join(root, 'packages', 'frontend', 'build'), { recursive: true });
       const failed = lines(go(root, { nodeVersion: '18.0.0' }), 'FAIL').map((c) => c.check);
       expect(failed).toEqual(expect.arrayContaining(['tenant ada: home', 'build stamp', 'node']));
       put(path.join(root, 'sanctum.yaml'), 'a: [unclosed\n', 0o644);
@@ -176,6 +176,72 @@ describe('doctor: what fails', () => {
   });
 });
 
+describe('doctor: links, refused paths and the build', () => {
+  it.skipIf(!posix)('a tenant .env that is a link reports the scan FAIL and no mode line through it', () => {
+    const root = app();
+    try {
+      withTenants(root, [{ id: 'ada' }]);
+      const real = path.join(root, 'real.env');
+      put(real, 'TZ=UTC\n', 0o644);
+      const envPath = path.join(root, 'tenants', 'ada', '.env');
+      fs.rmSync(envPath);
+      fs.symlinkSync(real, envPath);
+      const report = go(root);
+      expect(lines(report, 'FAIL').some((c) => c.check === 'tenant ada: boot scan')).toBe(true);
+      const modeLine = report.sections[1].checks.find((c) => c.check === 'tenant ada: mode .env');
+      expect(modeLine.status).toBe('WARN');
+      expect(modeLine.message).toMatch(/not checked.*boot scan/);
+      expect(modeLine.message).not.toMatch(/mode 644/);
+      expect(lines(report, 'FAIL').some((c) => c.check === 'tenant ada: mode .env')).toBe(false);
+    } finally { cleanup(root); }
+  });
+  it('a refused agent.cwd prints one skipped line and probes nothing outside the folder', () => {
+    const root = app();
+    try {
+      const outside = path.join(root, 'elsewhere');
+      fs.mkdirSync(outside);
+      withTenants(root, [{ id: 'ada', yaml: `hosts:\n  - ada.example.net\nagent:\n  cwd: ${JSON.stringify(outside)}\n` }]);
+      const checks = go(root).sections[1].checks.filter((c) => c.check.startsWith('tenant ada: '));
+      expect(checks.find((c) => c.check === 'tenant ada: config').status).toBe('FAIL');
+      expect(checks.find((c) => c.check === 'tenant ada: home').message).toBe('skipped: boot would not start this tenant.');
+      expect(checks.filter((c) => /home|frame/.test(c.check) && !/skipped/.test(c.message))).toEqual([]);
+      expect(checks.some((c) => c.message.includes(outside) && !/^.*config$/.test(c.check))).toBe(false);
+      for (const c of checks) expect(c.message).not.toMatch(/\.\.|\.\s*\.$/);
+    } finally { cleanup(root); }
+  });
+  it('a missing build folder is a FAIL; a missing stamp with the build present is a WARN; BUILD_ID in the environment is OK', () => {
+    const root = app();
+    try {
+      const stamp = path.join(root, 'packages', 'frontend', 'build', '.build-id');
+      const find = (report) => report.sections[2].checks.find((c) => c.check === 'build stamp');
+      fs.rmSync(stamp);
+      expect(find(go(root)).status).toBe('WARN');
+      expect(find(go(root, { env: { BUILD_ID: 'deploy-42' } })).status).toBe('OK');
+      expect(go(root).exitCode).toBe(0);
+      fs.rmSync(path.join(root, 'packages', 'frontend', 'build'), { recursive: true });
+      expect(find(go(root)).status).toBe('FAIL');
+      expect(find(go(root)).message).toMatch(/no UI is served/);
+    } finally { cleanup(root); }
+  });
+  it('frameResolution agrees with the backend resolveFrameFile: the home copy, the configured file, neither', async () => {
+    const { resolveFrameFile } = await import('../packages/backend/src/services/frame-file.ts');
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), 'doctor-frame-')));
+    try {
+      const cwd = path.join(root, 'home');
+      const configured = path.join(root, 'prompts', 'companion-claude.md');
+      const same = () => expect(frameResolution(cwd, configured)).toEqual(resolveFrameFile(cwd, configured));
+      same();
+      expect(frameResolution(cwd, configured).source).toBe('none');
+      put(configured, 'x\n', 0o644);
+      same();
+      expect(frameResolution(cwd, configured).source).toBe('configured');
+      put(path.join(cwd, 'config', 'companion-claude.md'), 'x\n', 0o644);
+      same();
+      expect(frameResolution(cwd, configured).source).toBe('home');
+    } finally { cleanup(root); }
+  });
+});
+
 describe('doctor: the command', () => {
   it('--json prints the same report, and the exit code follows the FAILs', () => {
     const root = app();
@@ -190,7 +256,7 @@ describe('doctor: the command', () => {
       const text = run();
       expect(text.stdout).toMatch(/^Config\n/);
       expect(text.status).toBe(0);
-      fs.rmSync(path.join(root, 'packages', 'frontend', 'build', '.build-id'));
+      fs.rmSync(path.join(root, 'packages', 'frontend', 'build'), { recursive: true });
       const bad = run('--json');
       expect(bad.status).toBe(1);
       expect(JSON.parse(bad.stdout).ok).toBe(false);
