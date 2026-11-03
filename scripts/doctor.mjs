@@ -116,7 +116,15 @@ function parseYamlText(text) {
     const loaded = require('js-yaml').load(text);
     if (loaded === undefined || loaded === null) return { cfg: {} };
     return isMap(loaded) ? { cfg: loaded } : { error: 'the file is not a mapping of keys' };
-  } catch (e) { return { error: oneLine(e) }; }
+  } catch (e) { return { error: yamlErrorText(e) }; }
+}
+
+/** A yaml parse error with no value in it: js-yaml puts the offending text in its message (an alias name, a quoted scalar, the snippet), and a value like
+ *  `password: *hunter2` is a secret. Only the reason's own words are kept (anything quoted, or after a colon, is dropped), with the line and column. */
+function yamlErrorText(e) {
+  const reason = String(e?.reason ?? '').replace(/(["'`]).*?\1/g, '').split(':')[0].replace(/\s+/g, ' ').trim();
+  const at = e?.mark && Number.isInteger(e.mark.line) ? ` at line ${e.mark.line + 1}, column ${(Number.isInteger(e.mark.column) ? e.mark.column : 0) + 1}` : '';
+  return `the yaml is not valid${at}${reason ? ` (${reason})` : ''}`;
 }
 
 /** The modes of the secrets in one folder: a file that is group or world readable is a FAIL. `files`: [path, display name]. `refuseLinks` (a tenant
@@ -223,7 +231,8 @@ function checkTenants(r, root, ctx, only) {
   // Clashes across all tenants: boot parks or skips what two tenants share, so none of it is served.
   if (!household) {
     const claims = new Map();
-    for (const [id, t] of info) for (const h of t.hosts) claims.set(h, [...(claims.get(h) ?? []), id]);
+    // One tenant listing a host twice (or in two cases) owns it once: boot reads the list as a set, so only distinct owners clash.
+    for (const [id, t] of info) for (const h of t.hosts) if (!(claims.get(h) ?? []).includes(id)) claims.set(h, [...(claims.get(h) ?? []), id]);
     const dup = [...claims].filter(([, owners]) => owners.length > 1);
     if (dup.length) for (const [h, owners] of dup) r.fail('duplicate host', `host ${h} is claimed by tenants ${owners.join(' and ')}: neither serves it (it answers 503).`);
     else r.ok('duplicate hosts', 'no host is claimed by two tenants.');
@@ -252,7 +261,8 @@ function checkOneTenant(r, { id, dir, root, block, base, household, ctx, checked
   const out = { hosts: [], token: '', bots: {}, wouldSkip: false };
   const fail = (check, message) => { out.wouldSkip = true; note('fail', check, message); };
   const loose = hostsOfFolderLoosely(dir);
-  out.hosts = household ? [] : loose;
+  out.hosts = household ? [] : [...new Set(loose)];
+  if (!household && out.hosts.length < loose.length) note('warn', 'hosts', 'tenant.yaml lists the same host more than once (case aside): boot reads it once, so it is not a clash, but the list can be tidied.');
   if (household && loose.length) note('warn', 'hosts', 'hosts in tenant.yaml are not read in household mode (the companion is served at /c/<id>/).');
 
   const folderBad = tenantFolderProblem(block.dir, dir, root);

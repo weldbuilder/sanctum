@@ -243,7 +243,13 @@ export function tenantsBlockOf(root, processFile, homeDir = homedir()) {
   const t = processFile?.tenants;
   if (t === undefined || t === null) return null;
   if (!isMap(t) || typeof t.dir !== 'string' || !t.dir.trim()) throw new Error('tenants.dir: is required in sanctum.yaml (the folder that holds one folder per tenant)');
-  return { dir: resolve(root, expandHome(t.dir.trim(), homeDir)), inherit: t.inherit !== false, auth: t.auth ?? undefined, default: typeof t.default === 'string' ? t.default : undefined };
+  // The same constraints as parseTenantsBlock (packages/backend/src/tenancy/config.ts); a test keeps the accepted values equal.
+  const own = (k) => t[k] !== undefined && t[k] !== null;
+  if (own('default') && t.default !== '' && !(typeof t.default === 'string' && TENANT_ID_RE.test(t.default))) throw new Error(`tenants.default: ${JSON.stringify(t.default)} is not a tenant id (${TENANT_ID_RE.source})`);
+  if (own('inherit') && typeof t.inherit !== 'boolean') throw new Error('tenants.inherit: must be true or false');
+  if (own('auth') && t.auth !== 'household' && t.auth !== 'per-tenant') throw new Error(`tenants.auth: must be household or per-tenant (got ${JSON.stringify(t.auth)})`);
+  if (own('background_runs') && typeof t.background_runs !== 'boolean') throw new Error('tenants.background_runs: must be true or false');
+  return { dir: resolve(root, expandHome(t.dir.trim(), homeDir)), inherit: t.inherit !== false, auth: t.auth ?? undefined, default: typeof t.default === 'string' && t.default !== '' ? t.default : undefined };
 }
 
 /** An install whose `tenants:` block has NO `auth` key is household by default, which drops hostnames, ignores tenants' own passwords and `tenants.default`, and
