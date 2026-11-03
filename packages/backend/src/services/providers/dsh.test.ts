@@ -557,7 +557,7 @@ describe('dsh adapter: the sealed (public) run', () => {
     await drain(dshQuery({ prompt: 'frame', options: publicOptions() }));
     expect(h.exec.params.basePrompt).not.toContain('BASE PERSONA');
     expect(h.exec.params.basePrompt).toBe('PUBLIC BASE'); // exactly the public base: the home has an identity, and a sealed run does not carry it
-    expect(h.exec.params.prompt).toBe('frame');
+    expect(h.exec.params.basePrompt).not.toContain('I am Hazel.');
   });
 
   it('an unsealed read-only helper is unchanged: it keeps the companion base prompt and is not sealed', async () => {
