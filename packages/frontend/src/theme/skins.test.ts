@@ -161,7 +161,8 @@ describe('generated stylesheet', () => {
     // The room rules every room shares. Changed on purpose: the painting is shown whole (zoomed out to fit, contain) over the
     // same painting covering, blurred, behind it, instead of covering and cropping; both no-repeat, at the room's own position.
     const body = readFileSync(join(FRONTEND, 'src/theme/skins.css'), 'utf8').split('/* ── focus')[0];
-    expect(body).toMatch(/body::after \{[^}]*background-size: contain;/);
+    expect(body).toMatch(/body::after \{[^}]*background-size: cover;/); // changed on purpose: the room is full-bleed on desktop too (was contain)
+    expect(body).not.toMatch(/background-size: contain/);
     expect(body).toMatch(/@media \(max-width: 768px\) \{\s*body::after \{ background-size: cover; \}/); // a phone fills its screen
     expect(body).toMatch(/body::before \{[^}]*background-size: cover;[^}]*filter: blur\(/);
     expect(body).toContain('background-repeat: no-repeat;');
@@ -188,6 +189,16 @@ describe('stylesheet rules for Extra readable and the frame', () => {
   it('Extra readable gives the composer (focus-within) the same 3px ring as every focused control', () => {
     expect(skins).toContain(':root[data-readability="extra"] :focus-visible { outline-width: 3px; }');
     expect(skins).toContain(':root[data-readability="extra"] .composer-inner:focus-within { outline-width: 3px; }');
+  });
+
+  it('drops the outer app-shell frame on every width, phone included (insets 0, frame hidden, shell edge to edge) unless data-outer-frame="on"', () => {
+    // top level, outside any media query, so it holds at phone widths and for Ember too
+    const topLevel = skins.replace(/@media[^{]*\{(?:[^{}]|\{[^{}]*\})*\}/g, '');
+    expect(topLevel).toContain(':root[data-decor="on"]:not([data-outer-frame="on"]) .skin-frame { display: none; }');
+    expect(topLevel).toContain(':root[data-decor="on"]:not([data-outer-frame="on"]) .app-shell { padding: 0; }');
+    expect(topLevel).toMatch(/--skin-inset-x: 0px;[^}]*--skin-inset-top: 0px;[^}]*--skin-inset-bottom: 0px;/);
+    expect(skins).toContain(':root[data-decor="on"][data-outer-frame="on"] .mobile-topbar { padding-top: 0.5rem; }');
+    expect(skins).toContain('max(var(--skin-gutter-y), env(safe-area-inset-top, 0px))'); // the framed shell padding stays
   });
 
   it('sets a desktop frame into the room, except Ember, whose full-window frame instead holds the rail set into it', () => {
@@ -265,5 +276,40 @@ describe('approved material decor, independent of scenery', () => {
     expect(hedge).toContain('--home-sprig-display: none;');
     expect(hedge).toContain('--surface-companion: #faf4e4;');
     expect(hedge).toContain('--surface-user: #CFABAC;');
+  });
+});
+
+describe('Hedgewitch desktop rail wears its solid wood, like its phone drawer', () => {
+  const skins = readFileSync(join(FRONTEND, 'src/theme/skins.css'), 'utf8');
+  const hedge = readFileSync(join(FRONTEND, 'src/theme-hedgewitch.css'), 'utf8');
+  const wood = (name: string) => hedge.match(new RegExp(`${name}: ([^;]+);`))![1];
+
+  it('the rail rule paints the same wood the drawer paints, in the desktop block, and only for Hedgewitch', () => {
+    const rule = skins.match(/:root\[data-material="hedgewitch"\] \.nav-rail \{([^}]*)\}/);
+    expect(rule, 'a Hedgewitch-only .nav-rail rule').not.toBeNull();
+    expect(rule![1]).toContain('background: var(--chrome-rail-bg) !important');
+    // the drawer paints --chrome-bar-bg; the rail's wood must be that same surface
+    expect(wood('--chrome-rail-bg')).toBe(wood('--chrome-bar-bg'));
+    expect(wood('--chrome-rail-bg')).toContain('url(/hedgewitch/wood.webp)');
+    expect(skins.indexOf(rule![0])).toBeGreaterThan(skins.indexOf('@media (min-width: 769px)'));
+    // it sits after the generic translucent fill so it wins, and no other skin is named
+    expect(skins.indexOf(rule![0])).toBeGreaterThan(skins.indexOf(':root .nav-rail {'));
+    expect(skins.match(/data-material="[a-z-]+"\] \.nav-rail \{/g)).toEqual(['data-material="hedgewitch"] .nav-rail {']);
+    expect(skins).toMatch(/:root \.nav-rail \{[^}]*background-image: none !important/);
+  });
+
+  it('the rail ink reads 4.6:1 on the wood\u2019s lightest pixel under the lightest end of its veil', () => {
+    // wood.webp's lightest pixel (#B88266), under the veil's lighter end (rgba(40,24,14,.35))
+    const lightest = mix('#B88266', '#28180E', 0.35);
+    const ink = skins.match(/:root\[data-material="hedgewitch"\] \.nav-rail \.navlink, [^{]*\{ color: (#[0-9a-f]{6}); \}/i)![1];
+    expect(contrastRatio(ink, lightest), `${ink} on ${lightest}`).toBeGreaterThanOrEqual(TEXT_MIN + 0.1);
+    // the hover wash and the active item's plate (the selected wash) over the wood keep the same gate
+    const wash = (rgba: string) => {
+      const m = rgba.match(/rgba\((\d+), (\d+), (\d+), ([\d.]+)\)/)!;
+      return mix(lightest, '#' + [1, 2, 3].map(k => Number(m[k]).toString(16).padStart(2, '0')).join(''), Number(m[4]));
+    };
+    for (const plate of [wash(wood('--surface-chrome-selected')), wash('rgba(239, 228, 208, 0.10)')]) {
+      expect(contrastRatio(ink, plate), `${ink} on ${plate}`).toBeGreaterThanOrEqual(TEXT_MIN + 0.1);
+    }
   });
 });

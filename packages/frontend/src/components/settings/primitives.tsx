@@ -295,6 +295,7 @@ export const PRIMITIVES_CSS = `
   display: flex;
   align-items: baseline;
   justify-content: space-between;
+  gap: 0.75rem;
   margin: 2rem 0 0.625rem;
 }
 /* First eyebrow in a section — reduce top gap */
@@ -723,4 +724,46 @@ select.sp-form-input { cursor: pointer; }
   color: var(--text-primary, #e2dbd0);
 }
 .sp-stat-value.warn { color: var(--status-warning-text, #d4a843); }
+
+/* Desktop: real page type. Phone sizes above are untouched. */
+@media (min-width: 769px) {
+  .settings-view .sp-eyebrow-label { font-size: 1.25rem; }
+  .settings-view .sp-eyebrow-sub { font-size: 14px; }
+  .settings-view .sp-field-row,
+  .settings-view .sp-toggle-row { padding: 0.8125rem 0; gap: 1.5rem; align-items: center; }
+  .settings-view .sp-field-label,
+  .settings-view .sp-field-value,
+  .settings-view .sp-toggle-label,
+  .settings-view .sp-form-label { font-size: 1rem; }
+  .settings-view .sp-field-value.mono,
+  .settings-view .sp-form-input.mono { font-size: 0.9375rem; }
+  .settings-view .sp-field-sub,
+  .settings-view .sp-field-hint,
+  .settings-view .sp-toggle-hint { font-size: 14px; }
+  .settings-view .sp-form-hint { font-size: 14px; }
+  .settings-view .sp-restart-badge { font-size: 12px; }
+  .settings-view .sp-pill,
+  .settings-view .sp-status-badge { font-size: 12px; }
+  .settings-view .sp-btn.small { font-size: 14px; }
+  .settings-view .sp-save-indicator,
+  .settings-view .sp-sub-divider-label { font-size: 12px; }
+  .settings-view .sp-stat-label { font-size: 13px; }
+  .settings-view .sp-btn.sp-btn-muted,
+  .settings-view .sp-empty-text,
+  .settings-view .hsel-trigger-text,
+  .settings-view .hsel-trigger.mono .hsel-trigger-text { font-size: 14px; }
+  .settings-view .hsel-trigger-glyph { font-size: 12px; }
+  /* Sweep: remaining sub-14px body text in the sections (badges/pills/counts stay 12-13px). */
+  .settings-view .tg-warn-text, .settings-view .tg-warn-text code, .settings-view .tg-status-text, .settings-view .tg-msg, .settings-view .tg-err,
+  .settings-view .mcp-detail-name, .settings-view .mcp-detail-error, .settings-view .mcp-detail-tools, .settings-view .mcp-tool-server,
+  .settings-view .sysprompt-hint, .settings-view .sysprompt-path, .settings-view .prefs-save-error, .settings-view .raw-cfg-warning,
+  .settings-view .raw-cfg-path, .settings-view .raw-cfg-textarea, .settings-view .raw-cfg-error,
+  .settings-view .ss-orch-label, .settings-view .ss-orch-status, .settings-view .ss-skill-trigger,
+  .settings-view .sch-summary-text, .settings-view .pend-empty, .settings-view .pend-step-btn,
+  .settings-view .mind-key-fingerprint, .settings-view .mind-key-replace, .settings-view .mind-test-result, .settings-view .mind-err,
+  .settings-view .gs-service-label, .settings-view .usage-bar-date, .settings-view .usage-bar-val { font-size: 14px; }
+  .settings-view .mcp-detail-scope, .settings-view .mcp-tool-count, .settings-view .ss-ws-badge { font-size: 12px; }
+  .settings-view .sp-form-input,
+  .settings-view .sp-form-textarea { font-size: 1rem; padding: 0.5625rem 0.875rem; }
+}
 `;

@@ -375,7 +375,15 @@ export function NotesHome({ notes, loaded, onOpen, onCreate }: NotesHomeProps) {
         @media (max-width: 768px) {
           .nt-root { padding: 0 0.6rem calc(env(safe-area-inset-bottom, 0px) + 3rem); gap: 0.8rem; }
           .nt-head { padding: 1rem 0.25rem 0.25rem; align-items: stretch; }
-          .nt-title { font-size: 2.1rem; }
+          .nt-title { font-size: 1.9rem; }
+          .nt-sub { font-size: 0.92rem; margin-top: 0.15rem; }
+          .nt-quiet { padding: 0 0.25rem; font-size: 0.95rem; line-height: 1.5; }
+          .nt-input, .nt-select { font-size: 16px; }
+          .nt-create { padding: 0.75rem 0.85rem; max-width: none; }
+          .nt-card-open { padding: 0.8rem 0.9rem 0.7rem; gap: 0.4rem; }
+          .nt-card-title { font-size: 1.15rem; }
+          .nt-card-excerpt { font-size: 0.86rem; line-height: 1.45; -webkit-line-clamp: 3; }
+          .nt-card-time { font-size: 0.78rem; }
           .nt-tools { width: 100%; }
           .nt-search { flex: 1; width: auto; }
           .nt-new { padding: 0.5rem 0.85rem; }

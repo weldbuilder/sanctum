@@ -26,6 +26,8 @@ const actualRouteLayer = (m: MaterialDef, d: Record<string, string>): TextureLay
 
 describe('chrome route panels use the substrate their live descendant ink is paired with', () => {
   for (const m of MATERIAL_LIST.filter(m => m.roles)) it(`${m.id}: Files metadata and Command metadata remain readable on actual route texture bounds`, () => {
+    // Changed on purpose: a light textured material (the Library) draws its route panels as its parchment (the Home cards' plate), not the wood.
+    const paper = m.scheme === 'light' && !!m.texture, sub = paper ? m.texture!.card : m.texture!.chrome, base = paper ? m.roles!.panel : m.roles!.chrome;
     for (const state of [{}, { decorations: false }, { readability: 'extra' as const }]) {
       const r = root(m.id, state);
       // Changed on purpose: the Files page was rebuilt (places, recent cards, the folder); every surface on it is one plate.
@@ -33,18 +35,18 @@ describe('chrome route panels use the substrate their live descendant ink is pai
       const command = node('cmd-panel', node('cmd-view', node('app-content', r, { attrs: { 'data-route': 'command' } })));
       for (const [housing, descendant] of [[files, 'fl-meta'], [command, 'cmd-panel-meta']] as const) {
         const d = declarations(housing), ink = declarations(node(descendant, housing)).color;
-        const backgrounds = 'decorations' in state || 'readability' in state ? [m.roles!.chrome] : textureComposites(m.roles!.chrome, actualRouteLayer(m, d));
+        const backgrounds = 'decorations' in state || 'readability' in state ? [(state as { readability?: string }).readability ? m.roles!.chrome : base] : textureComposites(base, actualRouteLayer(m, d));
         for (const bg of backgrounds) expect(contrastRatio(ink, bg), `${descendant}: ${ink} on ${bg}`).toBeGreaterThanOrEqual(4.6);
         if (!Object.keys(state).length) {
           // Changed on purpose: a framed route panel (Celestial's Command panels, the owner's choice) wears the Home card's
           // fittings first; under them the veil and texture, and so the ink's composite, are the plain route plate's.
           const framed = (FRAMED_ROUTE_PANELS[m.id] ?? []).includes(housing === command ? '.cmd-panel' : '.fl-plate');
           const corner = `${m.texture!.relief?.cornerPx}px ${m.texture!.relief?.cornerPx}px`;
-          expect(d['background-image']).toContain(m.texture!.chrome.url);
+          expect(d['background-image']).toContain(sub.url);
           if (framed) for (const c of Object.values(m.texture!.relief!.corners)) expect(d['background-image']).toContain(c);
-          expect(d['background-size']).toBe([...(framed ? Array(4).fill(corner) : []), 'auto', `${m.texture!.chrome.tilePx}px ${m.texture!.chrome.tilePx}px`].join(', '));
-          expect(actualRouteLayer(m, d).alpha).toBeCloseTo(m.texture!.chrome.alpha, 8);
-          expect(d['background-blend-mode'] ?? 'normal, normal').toBe([...(framed ? Array(4).fill('normal') : []), 'normal', m.texture!.chrome.blend ?? 'normal'].join(', '));
+          expect(d['background-size']).toBe([...(framed ? Array(4).fill(corner) : []), 'auto', `${sub.tilePx}px ${sub.tilePx}px`].join(', '));
+          expect(actualRouteLayer(m, d).alpha).toBeCloseTo(sub.alpha, 8);
+          expect(d['background-blend-mode'] ?? 'normal, normal').toBe([...(framed ? Array(4).fill('normal') : []), 'normal', sub.blend ?? 'normal'].join(', '));
         }
       }
     }
@@ -67,7 +69,7 @@ describe('chrome route panels use the substrate their live descendant ink is pai
     const canvas = panel(r, 'canvas', 'cve-header');
     const title = declarations(node('cve-title', canvas, { tag: 'input' }));
     expect(title.background).toBe('transparent');
-    for (const bg of textureComposites(m.roles!.chrome, actualRouteLayer(m, declarations(canvas)))) expect(contrastRatio(title.color, bg)).toBeGreaterThanOrEqual(4.6);
+    for (const bg of textureComposites(m.roles!.panel, actualRouteLayer(m, declarations(canvas)))) expect(contrastRatio(title.color, bg)).toBeGreaterThanOrEqual(4.6);
     // Root material aliases keep their defining pair despite route-local legacy remaps.
     expect(input['--surface-input']).toBe('#E6CAA1');
     expect(input['--surface-input-text']).toBe('#24190F');
@@ -84,7 +86,7 @@ describe('Home phone cards keep their title room and the complete bottom-local m
       const s = declarations(scroll, width), g = declarations(grid, width), c = declarations(card, width), t = declarations(title, width);
       expect(g['grid-template-columns']).toBe('1fr');
       const rootPx = cssPixels(declarations(r, width)['font-size']);
-      expect(rootPx).toBe(15);
+      expect(rootPx).toBe(17);
       const cardWidth = width - 2 * cssPixels(declarations(r, width)['--skin-gutter-x']) - cssPixels(s['padding-left']) - cssPixels(s['padding-right']);
       const contentWidth = cardWidth - cssPixels(c['padding-left']) - cssPixels(c['padding-right']);
       expect(cssPixels(t['font-size'])).toBe(15); // no font shrink
@@ -181,5 +183,24 @@ describe('live-source editable field pair contracts (not runtime editor verifica
         }
       }
     }
+  });
+});
+
+describe('Library icons are ink on parchment; Ember Notes cards are navy leather', () => {
+  it('Library icons on Home and Files wear the icon ink, not the brown trim/link', () => {
+    const r = root('mounted-paper');
+    expect(declarations(r)['--skin-icon-ink']).toBe('#2A1F14');
+    const card = node('home-card', node('home-scroll', node('app-content', r, { attrs: { 'data-route': 'home' } })));
+    expect(declarations(node('home-row-icon', card, { tag: 'svg' })).color).toBe('#2A1F14');
+    const plate = node('fl-panel fl-plate', node('fl-scroll', node('fl-root', node('app-content', r, { attrs: { 'data-route': 'files' } }))));
+    expect(declarations(node('fl-upload', plate)).color).toBeDefined();
+    expect(buildSkinsCss()).toMatch(/\[data-material="mounted-paper"\][^{]*\.fl-section-head svg[^{]*\{ color: var\(--skin-icon-ink\)/);
+  });
+  it('Ember Notes cards use the navy leather, its other route panels keep the black', () => {
+    const m = MATERIALS['smoked-copper'], r = root(m.id), notes = declarations(panel(r, 'notes', 'nt-card')), cmd = declarations(panel(r, 'command', 'cmd-panel'));
+    expect(m.texture!.user!.url).toBe('/skins/ember/ember-navy-leather.webp');
+    expect(notes['background-image']).toContain('ember-navy-leather.webp');
+    expect(notes['background-image']).not.toContain('ember-black-leather.webp');
+    expect(cmd['background-image']).toContain('ember-black-leather.webp');
   });
 });

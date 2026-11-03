@@ -183,6 +183,9 @@ const TimelineBody = memo(function TimelineBody({ entries, isLive }: TimelineBod
       {entries.map((entry, i) => {
         if (entry.kind === 'thinking') {
           const e = entry as ThinkingEntry;
+          if (e.narration) {
+            return <p key={e.id} className="ta-narration">{e.content}</p>;
+          }
           return (
             <ThinkingRow
               key={e.id}
@@ -220,10 +223,10 @@ function pillLabel(entries: TimelineEntry[], isLive: boolean): string {
   const toolCount = entries.filter(e => e.kind === 'tool').length;
   const thinkCount = entries.filter(e => e.kind === 'thinking').length;
 
-  if (entries.length === 0) return isLive ? 'thinking…' : 'thinking';
+  if (entries.length === 0) return 'Thinking';
+  void thinkCount; void isLive;
 
-  const parts: string[] = [];
-  if (thinkCount > 0) parts.push(isLive ? 'thinking' : 'reasoned');
+  const parts: string[] = ['Thinking'];
   if (toolCount > 0) parts.push(`${toolCount} tool${toolCount !== 1 ? 's' : ''}`);
   return parts.join(' · ');
 }
@@ -238,7 +241,6 @@ export function LiveThinkingAccordion({ entries }: LiveThinkingAccordionProps) {
   // Track whether the user has manually toggled — if so, honour their choice.
   const userActedRef = useRef(false);
   const [open, setOpen] = useState(false);
-  const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const toggle = useCallback(() => {
     userActedRef.current = true;
@@ -247,37 +249,8 @@ export function LiveThinkingAccordion({ entries }: LiveThinkingAccordionProps) {
 
   // Determine if any entry is still streaming (incomplete)
   const anyRunning = entries.some(e => !e.isComplete);
-  // Whether all entries are now complete (stream just finished)
-  const allComplete = entries.length > 0 && !anyRunning;
 
-  // Auto-open while thinking is streaming; auto-collapse a beat after completion.
-  // Respect user's manual override throughout.
-  const prevAnyRunningRef = useRef(false);
-  useEffect(() => {
-    const wasRunning = prevAnyRunningRef.current;
-    prevAnyRunningRef.current = anyRunning;
-
-    if (entries.length === 0) return;
-
-    if (anyRunning && !wasRunning && !userActedRef.current) {
-      // Thinking just started — auto-open
-      setOpen(true);
-    }
-
-    if (!anyRunning && wasRunning && !userActedRef.current) {
-      // Thinking just completed — auto-collapse after a beat
-      if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current);
-      collapseTimerRef.current = setTimeout(() => {
-        if (!userActedRef.current) {
-          setOpen(false);
-        }
-      }, 800);
-    }
-
-    return () => {
-      if (collapseTimerRef.current) clearTimeout(collapseTimerRef.current);
-    };
-  }, [anyRunning, allComplete, entries.length]);
+  // Collapsed by default, also while streaming: the pill shows a quiet spinner instead of opening itself.
 
   // Reset user-acted state when entries reset (new stream)
   const prevLengthRef = useRef(entries.length);
@@ -299,7 +272,9 @@ export function LiveThinkingAccordion({ entries }: LiveThinkingAccordionProps) {
         aria-label={open ? 'Collapse thinking timeline' : 'Expand thinking timeline'}
         type="button"
       >
-        <span className="ta-pill-glyph" aria-hidden="true">⬡</span>
+        {anyRunning
+          ? <span className="ta-spinner ta-pill-spinner" aria-hidden="true" />
+          : <span className="ta-pill-glyph" aria-hidden="true">⬡</span>}
         <span className="ta-pill-label">{pillLabel(entries, true)}</span>
         <span className="ta-pill-chevron" aria-hidden="true">{open ? '▾' : '▸'}</span>
       </button>
@@ -323,6 +298,7 @@ function segmentsToEntries(segments: MessageSegment[]): TimelineEntry[] {
         id: `seg-${entries.length}`,
         content: seg.content,
         summary: seg.summary,
+        narration: seg.narration,
         textOffset,
         isComplete: true,
       } as ThinkingEntry);
@@ -361,9 +337,10 @@ export const PersistedThinkingAccordion = memo(function PersistedThinkingAccordi
 
   const allEntries = segmentsToEntries(segments);
   // Gate: when showThinking is OFF, only show tool entries
+  // Narration is the reply's own text moved out of the way, so it stays whatever the toggle says.
   const visibleEntries = showThinking
     ? allEntries
-    : allEntries.filter(e => e.kind === 'tool');
+    : allEntries.filter(e => e.kind === 'tool' || (e.kind === 'thinking' && e.narration));
 
   if (visibleEntries.length === 0) return null;
 
@@ -444,6 +421,17 @@ const ACCORDION_STYLES = (
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+    .ta-pill-spinner { width: 0.5625rem; height: 0.5625rem; flex-shrink: 0; }
+    .ta-narration {
+      margin: 0 0 0.375rem;
+      font-family: var(--font-body, inherit);
+      font-style: italic;
+      font-size: 0.8125rem;
+      line-height: 1.5;
+      color: var(--text-secondary, #a09689);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
     }
     .ta-pill-chevron {
       font-size: 0.5rem;

@@ -379,7 +379,7 @@ export function HearthSelect({
           padding: 0.4375rem 0.625rem;
           border-radius: 0.5rem;
           font-family: var(--font-body, 'Inter', sans-serif);
-          font-size: 0.875rem;
+          font-size: 1rem;
           color: var(--text-secondary, #a09689);
           cursor: pointer;
           user-select: none;
@@ -402,7 +402,7 @@ export function HearthSelect({
           white-space: nowrap;
         }
         .hsel-opt-sub {
-          font-size: 0.6875rem;
+          font-size: 0.8rem;
           color: var(--text-muted, #6a6258);
           overflow: hidden;
           text-overflow: ellipsis;
@@ -424,7 +424,7 @@ export function HearthSelect({
         @media (max-width: 600px) {
           .hsel-trigger { font-size: 1rem; }
           .hsel-opt { font-size: 1rem; padding: 0.5625rem 0.75rem; }
-          .hsel-opt-sub { font-size: 0.8125rem; }
+          .hsel-opt-sub { font-size: 0.8rem; }
         }
       `}</style>
     </div>

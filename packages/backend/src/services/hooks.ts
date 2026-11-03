@@ -1256,6 +1256,9 @@ function scanSkillSummaries(): string {
 // (SessionStart hooks don't fire in V1 query(), so we inject directly)
 // ---------------------------------------------------------------------------
 
+import { mealWatchersActive } from './meal-watchers.js';
+export { mealWatchersActive };
+
 export async function buildOrientationContext(
   ctx: HookContext,
   mode: 'turn' | 'session' = 'turn',
@@ -1335,8 +1338,13 @@ export async function buildOrientationContext(
           // Once per gap, never once per turn: the first turn of a day with no
           // meal logged may raise it; after that the line says it has been
           // raised, and the companion's job is to log when told, not to ask again.
+          // Respect the Automations toggle: the meal ask is the meal watchers'
+          // twin, so with every meal watcher paused (or none left) say nothing
+          // and leave meal.nudge_date alone.
           const todayKey = dayIn(now);
-          if (getConfig('meal.nudge_date') !== todayKey) {
+          if (!mealWatchersActive()) {
+            // silent: the user turned the meal asks off
+          } else if (getConfig('meal.nudge_date') !== todayKey) {
             setConfig('meal.nudge_date', todayKey);
             bits.push('no meal logged (not yet raised today: you may ask once, lightly)');
           } else {

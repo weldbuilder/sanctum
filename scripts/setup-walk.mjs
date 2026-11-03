@@ -39,7 +39,7 @@ async function askStep(step, r, v, io) {
 }
 
 /** Walk the plan, asking in the terminal's words, then write everything. Returns what applySetup returns. */
-export async function runSetup({ root, io, processEnv, homeDir, codexInstalled, tenant, create }) {
+export async function runSetup({ root, io, processEnv, homeDir, codexInstalled, timezoneDefault, tenant, create }) {
   // `--tenant <id>`: the same plan against <tenants.dir>/<id>/, which must exist unless `--create` says to make it.
   let tenantDir = '';
   if (tenant !== undefined) {
@@ -78,7 +78,7 @@ export async function runSetup({ root, io, processEnv, homeDir, codexInstalled, 
     io.say();
   }
 
-  const env = gatherSetupEnv(root, { processEnv, homeDir, codexInstalled, ...(tenantDir ? { tenantDir, tenantId: tenant, operator: true } : {}) });
+  const env = gatherSetupEnv(root, { processEnv, homeDir, codexInstalled, ...(timezoneDefault ? { timezoneDefault } : {}), ...(tenantDir ? { tenantDir, tenantId: tenant, operator: true } : {}) });
   const plan = setupPlan(env.existing, env);
   const v = {};
   for (const step of plan) {

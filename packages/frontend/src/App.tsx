@@ -208,7 +208,7 @@ function NavRail() {
   return (
     <nav className="nav-rail" aria-label="Primary navigation">
       <div className="nav-brand">
-        <img className="nav-logo" src="/logo.png" alt="Sanctum" width={64} height={64} />
+        <img className="nav-logo" src="/logo.png" alt="Sanctum" aria-label="Sanctum" width={64} height={64} />
         {/* The logo already names the house for a screen reader; the word is for the eye. */}
         <span className="nav-wordmark" aria-hidden="true">Sanctum</span>
       </div>
@@ -682,15 +682,18 @@ function AppShell() {
           display: flex;
           flex-direction: column;
           align-items: stretch;
-          gap: 0.4rem;
-          padding: 1.5rem 0.875rem 1rem;
-          /* Woodgrain cut from the kitchen's own table, darkened so the labels read. */
-          background: var(--chrome-rail-bg);
-          border-right: 1px solid var(--chrome-bar-border);
-          box-shadow: 4px 0 18px rgba(10, 5, 2, 0.35), inset -6px 0 12px rgba(0, 0, 0, 0.35);
+          gap: 8px;
+          padding: 1.25rem 0.625rem 1rem;
+          /* Sits on the room: the skin's chrome ink at ~60% with a light blur (the skins.css rail rule paints it on every skin),
+             one gold hairline on its right edge, no plate frame. */
+          background: color-mix(in srgb, var(--plate-bg, var(--surface-chrome, #1a1410)) 60%, transparent);
+          -webkit-backdrop-filter: blur(6px);
+          backdrop-filter: blur(6px);
+          border-right: 1px solid color-mix(in oklab, var(--skin-chrome-trim, var(--skin-trim, var(--gold, #c4a872))) 40%, transparent);
+          box-shadow: none;
           flex-shrink: 0;
           /* Wide on a desktop: the mark and the house's name, each room a row. Compact below 1100px. */
-          width: 13rem;
+          width: 164px;
           height: 100dvh;
           position: sticky;
           top: 0;
@@ -704,10 +707,10 @@ function AppShell() {
            sprigs); a skin with neither paints nothing. Gone when the rail is compact or too short to keep it clear of Settings. */
         .nav-rail {
           --skin-orn: var(--skin-rail-orn, var(--skin-orn-0-upright-left, none)) !important;
-          --plate-orn-size: 195px !important;
+          --plate-orn-size: 0px !important;
           --plate-orn-position: 0 100% !important;
         }
-        @media (max-width: 1100px), (max-height: 780px) {
+        @media (max-width: 1099px), (max-height: 780px) {
           .nav-rail { --plate-orn-size: 0px !important; }
         }
         .nav-brand {
@@ -715,11 +718,13 @@ function AppShell() {
           flex-direction: column;
           align-items: center;
           gap: 0.4rem;
-          margin-bottom: 1.75rem;
+          margin-bottom: 1.25rem;
           flex-shrink: 0;
         }
+        /* The desktop rail carries the mark alone (the logo keeps its aria-label); the phone drawer keeps the word. */
+        .nav-rail .nav-wordmark { display: none; }
         .nav-wordmark {
-          font: 600 2.1rem/1 'Cormorant Garamond', 'EB Garamond', Georgia, serif;
+          font: 600 1.75rem/1 'Cormorant Garamond', 'EB Garamond', Georgia, serif;
           letter-spacing: 0.01em;
           color: var(--menu-mark, var(--surface-chrome-text, #efe4d0));
         }
@@ -773,20 +778,22 @@ function AppShell() {
           display: flex;
           flex-direction: row;
           align-items: center;
-          gap: 0.95rem;
+          gap: 0.7rem;
           width: 100%;
-          padding: 0.75rem 0.95rem;
+          padding: 0 0.75rem;
+          min-height: 50px;
           border: 1px solid transparent;
           border-radius: 10px;
           flex-shrink: 0;
         }
-        .navlink-rail.active { border-color: var(--skin-chrome-trim, var(--skin-trim, var(--surface-chrome-muted))); }
+        /* Only the current room wears a plate: the skin's selected fill with a thin gold edge. The rest are icon + text. */
+        .navlink-rail.active { border-color: color-mix(in oklab, var(--skin-chrome-trim, var(--skin-trim, var(--gold, #c4a872))) 75%, transparent); }
         /* The frame marks the current room on the rail, so its label needs no underline (the drawer keeps one). */
         .navlink-rail.active .navlink-label { text-decoration: none; }
-        .navlink-rail .navlink-icon svg { width: 24px; height: 24px; }
+        .navlink-rail .navlink-icon svg { width: 22px; height: 22px; }
         .navlink-rail .navlink-label {
           font-family: var(--font-serif, 'Lora', Georgia, serif);
-          font-size: 1.08rem;
+          font-size: 16px;
           color: var(--menu-ink, var(--surface-chrome-text, #efe4d0));
           line-height: 1.2;
         }
@@ -800,14 +807,14 @@ function AppShell() {
         }
 
         /* Compact rail between the phone breakpoint and 1100px: icon over label, as before, so the page keeps its width. */
-        @media (max-width: 1100px) {
+        @media (max-width: 1099px) {
           .nav-rail { width: 80px; gap: 0.375rem; padding: 1rem 0.5rem; }
           .nav-brand { margin-bottom: 0.75rem; }
           .nav-wordmark, .nav-divider { display: none; }
           .nav-logo { width: 44px; height: 44px; }
-          .navlink-rail { flex-direction: column; gap: 0.3rem; padding: 0.55rem 0.25rem 0.45rem; }
+          .navlink-rail { min-height: 0; flex-direction: column; gap: 0.3rem; padding: 0.55rem 0.25rem 0.45rem; }
           .navlink-rail .navlink-icon svg { width: 20px; height: 20px; }
-          .navlink-rail .navlink-label { font-size: 0.72rem; line-height: 1.1; }
+          .navlink-rail .navlink-label { font-size: 12px; line-height: 1.1; }
         }
 
         /* Drawer variant — icon + label rows */
@@ -890,7 +897,7 @@ function AppShell() {
           left: 0;
           bottom: 0;
           z-index: 201;
-          width: min(86vw, 20rem);
+          width: min(86vw, 300px);
           display: flex;
           flex-direction: column;
           background: var(--chrome-bar-bg);

@@ -10,7 +10,7 @@
  * the viewport's own orientation — and never preloads the rest.
  */
 import { CORNER_CSS_PX, MOBILE_BREAKPOINT_PX, ROOM_LIST, ROOMS, flippedCornerDataUri, type RoomDef, type SceneAsset } from './rooms';
-import { BORDERED_PILLS, CHIPS, NAV_SURFACES, ROUTE_BARE, ROUTE_PANELS, FRAMED_ROUTE_PANELS, EDITOR_FIELDS, MATERIAL_LIST, MOUNT_BACKING_PX, MOUNT_PLATES, PLATES, CLEAR_COMPOSER_FIELD, ORNAMENT_SLOTS, materialVars, ornamentVariants, skinVars, HEDGEWITCH_SUBSTRATE, HEDGEWITCH_PAPER_PLATES, HEDGEWITCH_PAPER_OVERLAYS, hedgewitchPaperOf, type MaterialDef, type PlateDef } from './materials';
+import { BORDERED_PILLS, CHIPS, NAV_SURFACES, ROUTE_BARE, ROUTE_PANELS, FRAMED_ROUTE_PANELS, EDITOR_FIELDS, MATERIAL_LIST, MOUNT_BACKING_PX, MOUNT_PLATES, PLATES, CLEAR_COMPOSER_FIELD, ORNAMENT_SLOTS, ICON_INK, ROUTE_PANEL_SUBSTRATE, materialVars, ornamentVariants, skinVars, HEDGEWITCH_SUBSTRATE, HEDGEWITCH_PAPER_PLATES, HEDGEWITCH_PAPER_OVERLAYS, hedgewitchPaperOf, type MaterialDef, type PlateDef } from './materials';
 import type { Orientation } from './types';
 
 const q = (u: string) => `url("${u}")`;
@@ -145,19 +145,49 @@ function routePanelsCss(): string[] {
   const panels = ROUTE_PANELS.join(', ');
   for (const m of MATERIAL_LIST.filter(m => m.roles)) {
     const on = `:root[data-material="${m.id}"]:not([data-readability="extra"])`;
-    out.push(`${on} :is(${panels}) { background-color: var(--surface-chrome); box-shadow: inset 0 0 0 1px var(--skin-trim); }`);
+    // A light material (the Library) draws these panels as its parchment, the same plate as its Home cards and Settings, with the paper's ink;
+    // the dark materials draw them in their chrome (the pair the route's remapped ink is drawn for).
+    const paper = m.scheme === 'light' && !!m.texture;
+    const fill = paper ? '--card-bg' : '--surface-chrome';
+    const kind = paper ? 'card' : 'chrome';
+    const blend = (paper ? m.texture?.card.blend : m.texture?.chrome.blend) ?? 'normal';
+    out.push(`${on} :is(${panels}) { background-color: var(${fill}); box-shadow: inset 0 0 0 1px var(--skin-trim); }`);
     out.push(`${on} :is(${ROUTE_BARE.join(', ')}) { background: transparent; }`);
-    const veil = 'color-mix(in srgb, var(--surface-chrome) var(--skin-veil-chrome), transparent)';
-    out.push(`${on}[data-surface-decor="on"] :is(${panels}) { background-image: linear-gradient(${veil}, ${veil}), var(--skin-tex-chrome, none); background-size: auto, var(--skin-tex-chrome-size); background-repeat: no-repeat, repeat; background-blend-mode: normal, ${m.texture?.chrome.blend ?? 'normal'}; }`);
-    // Framed route panels wear the Home card's frame (fittings, rim, relief, its small radius) over the same chrome substrate.
+    const veil = `color-mix(in srgb, var(${fill}) var(--skin-veil-${kind}), transparent)`;
+    out.push(`${on}[data-surface-decor="on"] :is(${panels}) { background-image: linear-gradient(${veil}, ${veil}), var(--skin-tex-${kind}, none); background-size: auto, var(--skin-tex-${kind}-size); background-repeat: no-repeat, repeat; background-blend-mode: normal, ${blend}; }`);
+    // Panels the material draws on another substrate (Ember's Notes cards on the navy leather): fill, texture and veil of that substrate, the frame below follows.
+    const alt = Object.keys(ROUTE_PANEL_SUBSTRATE[m.id] ?? {});
+    const altKind = 'user', altFill = '--surface-user', altBlend = m.texture?.user?.blend ?? 'normal';
+    const altVeil = `color-mix(in srgb, var(${altFill}) var(--skin-veil-${altKind}), transparent)`;
+    if (alt.length && m.texture?.user && !paper) {
+      out.push(`${on} :is(${alt.join(', ')}) { background-color: var(${altFill}); }`);
+      out.push(`${on}[data-surface-decor="on"] :is(${alt.join(', ')}) { background-image: linear-gradient(${altVeil}, ${altVeil}), var(--skin-tex-${altKind}, none); background-size: auto, var(--skin-tex-${altKind}-size); background-repeat: no-repeat, repeat; background-blend-mode: normal, ${altBlend}; }`);
+    }
+    // Framed route panels wear the Home card's frame (fittings, rim, relief, its small radius) over the same substrate.
     const framed = FRAMED_ROUTE_PANELS[m.id];
     const relief = m.texture?.relief;
     if (framed?.length && relief) {
-      const f = `:root[data-material="${m.id}"][data-surface-decor="on"]:not([data-readability="extra"]) :is(${framed.join(', ')})`;
       const corners = ['tl', 'tr', 'br', 'bl'].map(c => `var(--skin-fitting-${c}, none)`);
-      const radius = PLATES.find(p => p.selector === '.home-card')!.radius;
-      out.push(`${f} { --plate-corner: ${relief.cornerPx ?? 18}px; border-color: transparent; border-radius: ${radius}px; outline: 1px solid var(--skin-trim); outline-offset: -1px; box-shadow: var(--skin-plate-relief); background-origin: border-box; background-image: ${[...corners, `linear-gradient(${veil}, ${veil})`, 'var(--skin-tex-chrome, none)'].join(', ')}; background-position: 0 0, 100% 0, 100% 100%, 0 100%, 0 0, 0 0; background-size: ${corners.map(() => 'var(--plate-corner) var(--plate-corner)').join(', ')}, auto, var(--skin-tex-chrome-size); background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, repeat; background-blend-mode: normal, normal, normal, normal, normal, ${m.texture?.chrome.blend ?? 'normal'}; }`);
-      out.push(`@media (max-width: 768px) { ${f} { --plate-corner: ${relief.cornerMobilePx ?? relief.cornerPx ?? 18}px; } }`);
+      const radius = m.flat?.radius ?? PLATES.find(p => p.selector === '.home-card')!.radius; // flat materials (smoked copper) keep their own near-square card radius
+      const useAlt = alt.length > 0 && !!m.texture?.user && !paper;
+      const groups: [string[], string, string, string, string][] = [
+        [useAlt ? framed.filter(x => !alt.includes(x)) : framed, kind, blend, veil, ''],
+        ...(useAlt ? [[framed.filter(x => alt.includes(x)), altKind, altBlend, altVeil, ''] as [string[], string, string, string, string]] : []),
+      ];
+      for (const [sels, k, bl, vl] of groups) {
+        if (!sels.length) continue;
+        const f = `:root[data-material="${m.id}"][data-surface-decor="on"]:not([data-readability="extra"]) :is(${sels.join(', ')})`;
+        out.push(`${f} { --plate-corner: ${relief.cornerPx ?? 18}px; border-color: transparent; border-radius: ${radius}px; outline: 1px solid var(--skin-trim); outline-offset: -1px; box-shadow: var(--skin-plate-relief); background-origin: border-box; background-image: ${[...corners, `linear-gradient(${vl}, ${vl})`, `var(--skin-tex-${k}, none)`].join(', ')}; background-position: 0 0, 100% 0, 100% 100%, 0 100%, 0 0, 0 0; background-size: ${corners.map(() => 'var(--plate-corner) var(--plate-corner)').join(', ')}, auto, var(--skin-tex-${k}-size); background-repeat: no-repeat, no-repeat, no-repeat, no-repeat, no-repeat, repeat; background-blend-mode: normal, normal, normal, normal, normal, ${bl}; }`);
+        out.push(`@media (max-width: 768px) { ${f} { --plate-corner: ${relief.cornerMobilePx ?? relief.cornerPx ?? 18}px; } }`);
+      }
+    }
+    if (paper && ICON_INK[m.id]) {
+      // Icons on the parchment (Home's rows and card titles, Files' search/upload/section/button glyphs) wear the material's icon ink, not its brown trim/link.
+      out.push(`${on} :is(.home-row-icon, .home-row-chev, .home-card-title svg, .fl-search svg, .fl-upload svg, .fl-section-head svg, .fl-btn:not(.fl-btn-danger) svg) { color: var(--skin-icon-ink); }`);
+    }
+    if (paper) {
+      // The page's text sits on the room in the chrome ink; on its parchment panels it goes back to the paper's own ink.
+      out.push(`${on} :is(${panels}) { color: var(--settings-ink); --text-primary: var(--settings-ink); --text-secondary: var(--settings-ink-2); --text-muted: var(--settings-ink-3); --amber: var(--settings-ink); --amber-bright: var(--settings-ink); --amber-dim: var(--settings-ink-3); --lavender: var(--settings-ink); --lavender-bright: var(--settings-ink); --lavender-dim: var(--settings-ink-3); --link: var(--settings-ink); --bg-primary: var(--card-bg); --bg-secondary: var(--card-bg); --bg-tertiary: var(--card-bg); --bg-surface: var(--card-bg); --bg-input: var(--settings-field-bg); --focus-ring: var(--field-border-focus); --status-error-text: var(--settings-error); }`);
     }
   }
   out.push('');

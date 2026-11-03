@@ -50,6 +50,8 @@ export interface ThinkingEntry {
   summary: string;
   textOffset: number;
   isComplete: boolean;
+  /** Assistant text that preceded a tool call: narration, not provider reasoning. */
+  narration?: boolean;
 }
 
 export interface ToolEntry {
@@ -202,6 +204,13 @@ function scheduleTimelineFlush(entries: TimelineEntry[]) {
       _pendingTimeline = null;
     }
   });
+}
+
+// Timeline events build their next snapshot from the latest one, which is the pending snapshot when a flush has not
+// run yet. Building from the store alone would drop whatever arrived earlier in the same frame (sealed narration,
+// then its tool event).
+function pendingOrCurrentTimeline(): TimelineEntry[] {
+  return _pendingTimeline ?? useChatStore.getState().timelineEntries;
 }
 
 // ─── Token rate-smoothing buffer ─────────────────────────────────────────────
@@ -431,7 +440,11 @@ export const useChatStore = create<ChatStore>((set, get) => {
       case 'stream_token':
         // CRITICAL: token is CUMULATIVE — assign, not append
         if (get().streamingMessageId === m.messageId) {
-          set({ streamingTokens: m.token });
+          // The drip loop only ever appends. When the server restarts the reply (it sends '' once pre-tool
+          // narration is sealed into the Thinking disclosure, then the post-tool reply), the new text is not an
+          // extension of what is on screen, so drop the displayed text and let the drip start over.
+          const restarted = !m.token.startsWith(get().displayedTokens);
+          set(restarted ? { streamingTokens: m.token, displayedTokens: '' } : { streamingTokens: m.token });
           // Update the buffer and kick off the drip loop (idempotent if already running)
           _tokenBuffer = m.token;
           scheduleTokenFlush();
@@ -498,7 +511,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
           });
 
           // 2. Upsert into the unified timeline — RAF-coalesced
-          const currentEntries = get().timelineEntries;
+          const currentEntries = pendingOrCurrentTimeline();
           const tidx = currentEntries.findIndex(e => e.kind === 'thinking' && e.id === m.id);
           let nextEntries: TimelineEntry[];
           if (tidx >= 0) {
@@ -516,6 +529,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
               summary: m.summary,
               textOffset: m.textOffset,
               isComplete: m.isComplete,
+              narration: m.narration,
             };
             nextEntries = [...currentEntries, entry].sort((a, b) => a.textOffset - b.textOffset);
           }
@@ -548,7 +562,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
           // Also upsert into unified timeline
           const textOffset = m.textOffset ?? get().streamingTokens.length;
-          const currentEntries = get().timelineEntries;
+          const currentEntries = pendingOrCurrentTimeline();
           const tidx = currentEntries.findIndex(e => e.kind === 'tool' && e.toolId === m.toolId);
           let nextEntries: TimelineEntry[];
           if (tidx >= 0) {
@@ -586,7 +600,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
           }));
 
           // Mirror into timeline
-          const currentEntries = get().timelineEntries;
+          const currentEntries = pendingOrCurrentTimeline();
           const tidx = currentEntries.findIndex(e => e.kind === 'tool' && e.toolId === m.toolId);
           if (tidx >= 0) {
             const nextEntries = currentEntries.map((e, i) =>
@@ -611,7 +625,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
           }));
 
           // Mirror elapsed into timeline
-          const currentEntries = get().timelineEntries;
+          const currentEntries = pendingOrCurrentTimeline();
           const tidx = currentEntries.findIndex(e => e.kind === 'tool' && e.toolId === m.toolId);
           if (tidx >= 0) {
             const nextEntries = currentEntries.map((e, i) =>
