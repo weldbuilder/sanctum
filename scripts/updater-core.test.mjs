@@ -1,5 +1,5 @@
 // The update steps (scripts/updater-core.mjs) against a fake repo in a temp folder: no network (GitHub is a stub), no real app.
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { execFileSync, spawn } from 'node:child_process';
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
@@ -37,6 +37,8 @@ const fakeFetch = (version, tarball) => async (url) => {
 /** A real swap on Windows can wait on git, antivirus and indexers for a while: 20 s there; Linux keeps vitest's defaults. */
 const SLOW_MS = process.platform === 'win32' ? 20_000 : undefined;
 const SLOW = { timeout: SLOW_MS };
+// Every real-git test here is slow on a loaded Windows runner (the cut-swap recoveries sit right at vitest's 5 s default), so the whole file takes the Windows budget.
+if (SLOW_MS) vi.setConfig({ testTimeout: SLOW_MS });
 let tmp;
 const settings = { repo: 'echo/sanctum', branch: 'main', cwd: '.', dbPath: './data/sanctum.db' };
 beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), 'updater-core-')); });
