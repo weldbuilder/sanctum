@@ -14,7 +14,7 @@
     "build": "node scripts/build.mjs",
     "build:stamp": "node scripts/write-build-id.mjs",
     "prompts:build": "node scripts/build-prompts.mjs",
-    "start": "node scripts/update.mjs --recover && npm run start --workspace=packages/backend",
+    "start": "node scripts/update.mjs --recover --boot && npm run start --workspace=packages/backend",
     "check": "npm run build --workspace=packages/shared && npm run check --workspaces --if-present",
     "test": "vitest run",
     "update": "node scripts/update.mjs",

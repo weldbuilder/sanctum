@@ -1,7 +1,7 @@
 // The in-app updater: the restart sequence with its spawn and health poll stubbed (the test process never restarts), and a whole job on a fake folder.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -28,7 +28,7 @@ describe('performRestart', () => {
     const calls: string[] = [];
     const r = await performRestart({
       supervised: true, ctl: ctlStub(calls), log: (l) => calls.push(`log:${l.split(':')[0]}`),
-      spawnChild: () => { calls.push('spawn'); return { exited: () => false }; },
+      spawnChild: () => { calls.push('spawn'); return { exited: () => false, terminate: async () => {} }; },
       waitHealthy: async () => { calls.push('wait'); return true; },
     });
     expect(r).toBe('stopping');
@@ -39,7 +39,7 @@ describe('performRestart', () => {
     const calls: string[] = [];
     const r = await performRestart({
       supervised: false, ctl: ctlStub(calls), log: () => {},
-      spawnChild: () => { calls.push('spawn'); return { exited: () => false }; },
+      spawnChild: () => { calls.push('spawn'); return { exited: () => false, terminate: async () => {} }; },
       waitHealthy: async (url, ms) => { calls.push(`wait:${url}:${ms}`); return true; },
     });
     expect(r).toBe('stopping');
@@ -50,7 +50,7 @@ describe('performRestart', () => {
     const calls: string[] = [];
     const r = await performRestart({
       supervised: false, ctl: ctlStub(calls), log: () => {}, healthTimeoutMs: 5,
-      spawnChild: () => { calls.push('spawn'); return { exited: () => false }; },
+      spawnChild: () => { calls.push('spawn'); return { exited: () => false, terminate: async () => {} }; },
       waitHealthy: async () => { calls.push('wait'); return false; },
     });
     expect(r).toBe('failed');
@@ -60,14 +60,39 @@ describe('performRestart', () => {
   it('hands the job file over before the replacement exists, and takes it back if the replacement never answers', async () => {
     const calls: string[] = [];
     const deps = { ctl: ctlStub(calls), log: () => {}, flush: () => calls.push('flush'), handOver: (on: boolean) => calls.push(`handover:${on}`) };
-    await performRestart({ ...deps, supervised: false, spawnChild: () => { calls.push('spawn'); return { exited: () => false }; }, waitHealthy: async () => true });
+    await performRestart({ ...deps, supervised: false, spawnChild: () => { calls.push('spawn'); return { exited: () => false, terminate: async () => {} }; }, waitHealthy: async () => true });
     expect(calls).toEqual(['flush', 'close', 'handover:true', 'spawn', 'stop']);
     calls.length = 0;
-    await performRestart({ ...deps, supervised: false, spawnChild: () => { calls.push('spawn'); return { exited: () => false }; }, waitHealthy: async () => false });
+    await performRestart({ ...deps, supervised: false, spawnChild: () => { calls.push('spawn'); return { exited: () => false, terminate: async () => {} }; }, waitHealthy: async () => false });
     expect(calls).toEqual(['flush', 'close', 'handover:true', 'spawn', 'handover:false', 'relisten']);
     calls.length = 0;
-    await performRestart({ ...deps, supervised: true, spawnChild: () => ({ exited: () => false }), waitHealthy: async () => true });
+    await performRestart({ ...deps, supervised: true, spawnChild: () => ({ exited: () => false, terminate: async () => {} }), waitHealthy: async () => true });
     expect(calls).toEqual(['flush', 'handover:true', 'stop']); // supervised: flushed (synchronously) before the stop
+  });
+
+  it('respawn, the replacement never comes up: it is terminated (and awaited) BEFORE this process listens again', async () => {
+    const calls: string[] = [];
+    let terminated = false;
+    const r = await performRestart({
+      supervised: false, ctl: ctlStub(calls), log: () => {}, healthTimeoutMs: 5,
+      spawnChild: () => ({ exited: () => false, terminate: async () => { calls.push('terminate:start'); await new Promise((res) => setTimeout(res, 30)); terminated = true; calls.push('terminate:done'); } }),
+      waitHealthy: async () => false,
+    });
+    expect(r).toBe('failed');
+    expect(terminated).toBe(true);
+    expect(calls).toEqual(['close', 'terminate:start', 'terminate:done', 'relisten']);
+  });
+
+  it('a replacement that cannot be stopped is logged, and this process still listens again', async () => {
+    const calls: string[] = [];
+    const logs: string[] = [];
+    const r = await performRestart({
+      supervised: false, ctl: ctlStub(calls), log: (l) => logs.push(l),
+      spawnChild: () => ({ exited: () => false, terminate: async () => { throw new Error('EPERM'); } }), waitHealthy: async () => false,
+    });
+    expect(r).toBe('failed');
+    expect(calls).toEqual(['close', 'relisten']);
+    expect(logs.join('\n')).toMatch(/could not stop the replacement: EPERM/);
   });
 
   it('respawn, the spawn itself throws: listen again', async () => {
@@ -115,7 +140,7 @@ describe('an update job', () => {
   afterEach(() => { vi.unstubAllGlobals(); _setUpdaterEnv(null); _resetUpdateBlock(); setRestartControl(null); rmSync(tmp, { recursive: true, force: true }); });
 
   it('replacement never comes up: state failed, the previous files are back, the listener is re-opened, the log says why', async () => {
-    _setRestartOverrides({ spawnChild: () => ({ exited: () => false }), waitHealthy: async () => false });
+    _setRestartOverrides({ spawnChild: () => ({ exited: () => false, terminate: async () => {} }), waitHealthy: async () => false });
     startUpdate();
     await _jobDone();
     const j = getJob()!;
@@ -128,9 +153,23 @@ describe('an update job', () => {
     expect(JSON.parse(readFileSync(join(data, 'update-job.json'), 'utf-8')).state).toBe('failed');
   });
 
+  it('replacement never comes up: it is terminated while the NEW files are still in place, and only then are the previous files put back and the listener re-opened', async () => {
+    const seen: string[] = [];
+    _setRestartOverrides({
+      spawnChild: () => ({ exited: () => false, terminate: async () => { seen.push(`terminate: package.json ${readFileSync(join(root, 'package.json'), 'utf-8').includes('1.1.0') ? '1.1.0' : '1.0.0'}`); calls.push('terminate'); } }),
+      waitHealthy: async () => false,
+    });
+    startUpdate();
+    await _jobDone();
+    expect(seen).toEqual(['terminate: package.json 1.1.0']);
+    expect(calls).toEqual(['close', 'terminate', 'relisten']);
+    expect(readFileSync(join(root, 'package.json'), 'utf-8')).toContain('"1.0.0"');
+    expect(getJob()!.state).toBe('failed');
+  });
+
   it('replacement comes up: restarting is on disk before the stop, and the next process reads it as done', async () => {
     let onDisk = '';
-    _setRestartOverrides({ spawnChild: () => ({ exited: () => false }), waitHealthy: async () => true });
+    _setRestartOverrides({ spawnChild: () => ({ exited: () => false, terminate: async () => {} }), waitHealthy: async () => true });
     setRestartControl({ ...ctlStub(calls), gracefulStop: async () => { calls.push('stop'); onDisk = JSON.parse(readFileSync(join(data, 'update-job.json'), 'utf-8')).state; } });
     const started = startUpdate();
     expect(started.state).toBe('checking');
@@ -151,7 +190,7 @@ describe('an update job', () => {
   it('the old process writes nothing once the replacement exists: the replacement\'s `done` is not overwritten with `restarting`', async () => {
     const file = join(data, 'update-job.json');
     _setRestartOverrides({
-      spawnChild: () => ({ exited: () => false }),
+      spawnChild: () => ({ exited: () => false, terminate: async () => {} }),
       waitHealthy: async () => { // (the replacement boots, settles the job file as done, and only then answers the health poll)
         const j = JSON.parse(readFileSync(file, 'utf-8')); j.state = 'done'; j.finished_at = '2026-11-03T12:00:00.000Z'; writeFileSync(file, JSON.stringify(j));
         return true;
@@ -195,13 +234,101 @@ describe('an update job', () => {
     expect(getJob()).toMatchObject({ state: 'done', error: null });
   });
 
-  it('boot: a swap the pre-boot recovery already put back (its marker is in the stage) says so, even though nothing is left to recover', async () => {
+  it('boot: a swap the pre-boot recovery already put back (its result file is in the app folder) says so, even though nothing is left to recover', async () => {
     mkdirSync(join(root, '.update-stage'), { recursive: true });
-    writeFileSync(join(root, '.update-stage', '.recovered'), 'x');
+    writeFileSync(join(root, '.update-recovery.json'), JSON.stringify({ changed: true, outcome: 'restored', phase: 'swapping', detail: 'the previous version was put back' }));
     put(data, 'update-job.json', JSON.stringify({ id: 'x', kind: 'update', state: 'restarting', from: '1.0.0', to: '1.1.0', started_at: 'z', finished_at: null, error: null, log: [] }));
     await initUpdater();
     expect(getJob()).toMatchObject({ state: 'failed', error: 'The update did not finish; the previous version was put back.' });
     expect(existsSync(join(root, '.update-stage'))).toBe(false);
+  });
+
+  describe('boot: what a job reads as, from what the recovery found', () => {
+    const restarting = (extra: Record<string, unknown> = {}) => put(data, 'update-job.json', JSON.stringify({ id: 'x', kind: 'update', state: 'restarting', from: '1.0.0', to: '1.1.0', started_at: '2026-11-03T00:00:00Z', finished_at: null, error: null, log: [], ...extra }));
+    const result = (r: Record<string, unknown>) => writeFileSync(join(root, '.update-recovery.json'), JSON.stringify({ changed: false, detail: '', ...r }));
+    const keptCopy = (created_at: string) => put(root, '.update-rollback/1.0.0/manifest.json', JSON.stringify({ version: '1.0.0', toVersion: '1.1.0', mode: 'tarball', phase: 'swapped', created_at, entries: [] }));
+
+    it('the swap finished and the process died before the stage was removed (the new version is running): done, "restarted on <new version>; the stage was cleaned up at boot"', async () => {
+      put(root, 'package.json', pkg('1.1.0'));
+      keptCopy('2026-11-03T00:00:05Z'); // made by this job (after it started)
+      mkdirSync(join(root, '.update-stage', 'node_modules'), { recursive: true });
+      restarting();
+      await initUpdater();
+      expect(existsSync(join(root, '.update-stage'))).toBe(false);
+      const j = getJob()!;
+      expect(j).toMatchObject({ state: 'done', error: null });
+      expect(j.log.map((l) => l.line)).toContain('restarted on 1.1.0; the stage was cleaned up at boot');
+      expect(JSON.parse(readFileSync(join(data, 'update-job.json'), 'utf-8')).state).toBe('done');
+    });
+    it('a stage and an OLD kept copy (from an earlier update) is not a finished swap: failed, nothing was changed', async () => {
+      keptCopy('2026-10-01T00:00:00Z');
+      mkdirSync(join(root, '.update-stage'), { recursive: true });
+      restarting();
+      await initUpdater();
+      expect(getJob()).toMatchObject({ state: 'failed', error: 'The update did not finish; nothing was changed.' });
+    });
+    it('a swap that had finished but whose copy was not yet adopted (boot adopted it): done', async () => {
+      put(root, 'package.json', pkg('1.1.0'));
+      result({ outcome: 'adopted', toVersion: '1.1.0' });
+      mkdirSync(join(root, '.update-stage'), { recursive: true });
+      restarting();
+      await initUpdater();
+      expect(getJob()).toMatchObject({ state: 'done', error: null });
+      expect(getJob()!.log.map((l) => l.line)).toContain('restarted on 1.1.0; the stage was cleaned up at boot');
+    });
+    it('a roll back that recovery completed is `rolled_back`, not failed', async () => {
+      result({ outcome: 'restored', phase: 'rolling_back', changed: true });
+      restarting({ kind: 'rollback', to: '1.0.0', from: '1.1.0' });
+      await initUpdater();
+      expect(getJob()).toMatchObject({ state: 'rolled_back', error: null });
+      expect(getJob()!.finished_at).toEqual(expect.any(String));
+    });
+    it('a swap put back (or an update whose own failed swap was being put back) is failed with the previous version put back', async () => {
+      result({ outcome: 'restored', phase: 'swapping', changed: true });
+      restarting();
+      await initUpdater();
+      expect(getJob()).toMatchObject({ state: 'failed', error: 'The update did not finish; the previous version was put back.' });
+      result({ outcome: 'restored', phase: 'rolling_back', changed: true });
+      restarting();
+      await initUpdater();
+      expect(getJob()).toMatchObject({ state: 'failed', error: 'The update did not finish; the previous version was put back.' }); // (an UPDATE job: its swap failed and was being put back)
+    });
+    it('a manifest that could not be read: failed "could not read the update state; nothing was removed", with the command to run', async () => {
+      result({ outcome: 'refused', detail: 'could not read the update state; nothing was removed' });
+      restarting();
+      await initUpdater();
+      expect(getJob()).toMatchObject({ state: 'failed', error: 'could not read the update state; nothing was removed. Run: npm run update -- --recover' });
+    });
+    it('a restore that failed (git missing): failed with git\'s reason and no "put back" claim', async () => {
+      result({ outcome: 'failed', detail: 'git reset --hard 1234abcd failed: spawnSync git ENOENT. The copy was kept. Run: npm run update -- --recover' });
+      restarting();
+      await initUpdater();
+      const j = getJob()!;
+      expect(j.state).toBe('failed');
+      expect(j.error).toMatch(/git reset --hard/);
+      expect(j.error).not.toMatch(/previous version was put back/);
+    });
+    it('a recovery that found nothing to do changes no message: a restarting job is done, an earlier one failed as before', async () => {
+      restarting();
+      await initUpdater();
+      expect(getJob()).toMatchObject({ state: 'done', error: null });
+      put(data, 'update-job.json', JSON.stringify({ id: 'y', kind: 'update', state: 'building', from: '1.0.0', to: null, started_at: 'z', finished_at: null, error: null, log: [] }));
+      await initUpdater();
+      expect(getJob()).toMatchObject({ state: 'failed', error: 'The update did not finish; nothing was changed.' });
+    });
+    it.skipIf(process.platform === 'win32')('a symlinked stage is never followed, deleted or reported as done: the job is failed and what it points at is untouched', async () => {
+      const elsewhere = join(tmp, 'elsewhere');
+      put(elsewhere, 'keep.txt', 'mine');
+      symlinkSync(elsewhere, join(root, '.update-stage'));
+      put(root, 'package.json', pkg('1.1.0'));
+      keptCopy('2026-11-03T00:00:05Z'); // (even with a completed-looking swap)
+      restarting();
+      await initUpdater();
+      const j = getJob()!;
+      expect(j.state).toBe('failed');
+      expect(j.error).toMatch(/\.update-stage is a symbolic link/);
+      expect(readFileSync(join(elsewhere, 'keep.txt'), 'utf-8')).toBe('mine');
+    });
   });
 
   it('a job caught mid-way by a process exit reads as failed (interrupted) and keeps its log', () => {
@@ -245,7 +372,7 @@ describe('an update job: the pause, the boot check and the failure reason', () =
     });
     _setUpdaterEnv({ root, dataDir: () => data, busy: () => false, supervised: () => false });
     setRestartControl(ctlStub(calls));
-    _setRestartOverrides({ spawnChild: () => ({ exited: () => false }), waitHealthy: async () => true });
+    _setRestartOverrides({ spawnChild: () => ({ exited: () => false, terminate: async () => {} }), waitHealthy: async () => true });
   });
   afterEach(() => { vi.unstubAllGlobals(); _setUpdaterEnv(null); _resetUpdateBlock(); setRestartControl(null); rmSync(tmp, { recursive: true, force: true }); });
 

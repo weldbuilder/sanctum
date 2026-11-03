@@ -172,8 +172,9 @@ export const useUpdateStore = create<UpdateStore>((set, get) => {
         set({ snapshot, unavailable: false });
         if (snapshot.job?.state === 'restarting') set({ waiting: true });
         if (jobActive(snapshot.job)) schedule(snapshot.job!.state === 'restarting' ? 1500 : 2000);
-        else if (snapshot.job?.state === 'done' && snapshot.job.kind === 'update' && checkedDone !== snapshot.job.id) {
-          // The update finished (whether or not this page ever saw `restarting`): look at /api/version once. A new build id reloads the page.
+        else if ((snapshot.job?.state === 'done' || snapshot.job?.state === 'rolled_back') && checkedDone !== snapshot.job.id) {
+          // The update or the roll back finished (whether or not this page ever saw `restarting`): look at /api/version once. A changed build id reloads the page
+          // (a roll back serves the previous build, so its id differs from the page's the same way).
           checkedDone = snapshot.job.id;
           set({ waiting: true }); // (the line below schedules the check)
         }

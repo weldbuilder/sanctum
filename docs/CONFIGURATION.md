@@ -591,26 +591,46 @@ in `/proc/<pid>/stat` still match, so a pid reused after a reboot is never kille
 "The update did not finish; nothing was changed." A `.update-stage` that is a symbolic link is never followed, read or deleted through: the update refuses it.
 
 **If the app dies during the swap, the previous version is put back before anything of the app loads, and the app starts over.** A swap cut short leaves the folder
-part new and part old, so the booting code could be the new backend on whatever `node_modules` came with it. `packages/backend/src/update-recover.ts` is therefore the
-**first import of `server.ts`** and imports nothing of the app (only `scripts/updater-core.mjs`, which uses node's own modules); `npm start` and `npm run update` run the
-same recovery first (`scripts/update.mjs --recover`, which also works when `dist` is missing). It reads the manifest in `.update-rollback.next/` (or `.update-rollback/`):
+part new and part old, so the booting code could be the new backend on whatever `node_modules` came with it. The app's entry point is therefore **`packages/backend/dist/boot.js`**
+(`npm start`, pm2, systemd and Docker all run it, and so does the updater's own respawn; `dist/server.js` still imports on its own but recovers nothing). Node links a program's whole
+import graph before it evaluates any of it, so a recovery that was merely the first import of `server.js` could not run first: with `node_modules` moved aside, `import 'dotenv'` failed
+before it. `boot.js` imports nothing but node's own modules and carries its **own, vendored copy of the recovery** (`packages/backend/src/boot-recover.ts`; it never imports
+`scripts/updater-core.mjs`, so a new version's code can never run an old version's recovery). It recovers, and only then loads the app with a dynamic `import('./server.js')`.
+`npm start` also runs the same recovery first from `scripts/boot-recover.mjs` (a generated copy of that file; `scripts/update.mjs --recover --boot`), which still works when `dist` is missing
+(killed between moving it aside and moving the new one in), and `npm run update` runs it before anything else.
 
-- `swapping` (or `rolling_back`): each directory is renamed back (the current one set aside first, so each is in exactly one place at every instant, and a crash in the
-  recovery itself is simply run again), and on a git checkout `git reset --hard <manifest sha>` runs **whenever HEAD is not that sha**, whatever the manifest says about a
-  merge (the merge runs as a child; a kill during it leaves no flag).
-- `swapped` in `.update-rollback.next/`: the swap had succeeded; its copy is moved over the previous one.
+The recovery reads the manifest in `.update-rollback.next/` (or `.update-rollback/`). Every manifest carries its `format` (1) and a description of its own states, and is written
+atomically (a temp file, then a rename). The states:
+
+- `swapping` (or `rolling_back`): **restore**. On a git checkout `git reset --hard <manifest sha>` and `git checkout -- .` run **always**, even when HEAD already is that sha (a power cut in
+  the middle of the fast-forward's checkout leaves a half-written tree); then each moved directory is renamed back (the current one set aside first, so each is in exactly one place at every
+  instant, a directory is never deleted without its replacement in hand, and a crash in the recovery itself is simply run again), and then the copy is removed. A directory the swap had not
+  reached yet stays as it is.
+- `swapped` in `.update-rollback.next/`: the swap had succeeded; its copy is moved over the previous one (the job reads `done`: "restarted on <new version>; the stage was cleaned up at boot").
 - `rolled_back`: only the set-aside copies are left to delete.
+- `recovery_failed`: an earlier recovery could not finish (the reason is in the manifest). A boot only says so; `npm run update -- --recover` tries again.
 
-If the recovery changed anything the process **re-execs**: without a supervisor it spawns `node <the same arguments>` with the output shared, passes `SIGINT`/`SIGTERM` on to it
-and exits with its exit code, so what serves is the restored code (the waiting parent loads nothing else); under pm2 or `SANCTUM_SUPERVISED=1` it exits with code **75** and
-the supervisor starts it again. It cannot loop (the child is told it is the restart). The job then reads `failed`: "The update did not finish; the previous version was put
-back." If `packages/backend/dist` is itself missing (killed between moving it aside and moving the new one in), the app cannot start: `npm start` and `npm run update` run the recovery
-first, which brings it back.
+**What it refuses, and what it never does.** A manifest that cannot be read (truncated, not JSON, not shaped like a manifest), whose `format` is newer than the code knows, or whose state is
+unknown is **never acted on**: nothing is deleted or moved, `.update-rollback.next` and the stage stay, the app boots as it is, the job is marked `failed` ("could not read the update state;
+nothing was removed. Run: npm run update -- --recover"), and the log says why. A failed `git reset --hard` (git missing, a held `index.lock`) moves the directories back where it can (a rename; nothing is
+deleted), keeps the copy, marks it `recovery_failed` and reports git's error, with no "previous version was put back" claim. A copy that lacks one of its directories restores the others, leaves
+the live directory of the missing one where it is, keeps the copy and names what is missing. After a restore it checks HEAD, the three directories and the lockfile against the restored version
+(`node_modules/.package-lock.json` against `package-lock.json`) and says precisely what does not match; the job then reads `failed` with that text. A swap that is cut short again does not
+start another update over it: the updater refuses to overwrite a copy that is not settled, and says to run `npm run update -- --recover`.
+
+If the recovery changed anything the process **starts over**: without a supervisor it spawns `process.execPath` with its own node arguments (minus any `--inspect*` flag, which the idle parent
+would otherwise keep holding the inspector port for) and the same script, passes `SIGINT`/`SIGTERM`/`SIGHUP` on to it and exits with its exit code, so what serves is the restored code;
+under pm2 or `SANCTUM_SUPERVISED=1` (in the environment or in `.env`) it exits with code **75** and the supervisor starts it again. It cannot loop: the child is told it is the restart, and
+the supervised exit has a **loop guard**: `.update-recover.count` in the app folder is incremented at every such exit, a recovery number 4 within 10 minutes is refused (it is logged, the
+supervisor is not asked to restart again, and the app boots as it is), and the count is cleared once a boot has stayed up for 30 seconds. The restart must be allowed on exit 75 (pm2 does it; systemd needs
+`Restart=always` or `on-failure`, Docker `restart: always` or `on-failure`). The outcome is written to `.update-recovery.json` and read once by the updater at boot to word the job: a swap put
+back reads `failed` ("the previous version was put back"), a roll back the recovery finished reads `rolled_back`, a swap that had completed reads `done`, and a recovery that found nothing to do
+changes no message. A `.update-stage` that is a symbolic link is never reported as `done`.
 
 A failure while installing or building deletes the stage and marks the job `failed` with the reason: from the last 60 lines of the failing step, the first line that looks
 like an error (`error`, `ERR!`, `TS1234`, `Error:`; `npm warn` lines are skipped) and the two after it, else the last three lines. The app keeps running the old build.
 
-**Roll back** (crash-safe the same way: the current directories are renamed aside first, the old ones moved back, the manifest set to `rolled_back`, and only then the
+**Roll back** (crash-safe the same way, by the same code: the current directories are renamed aside first, the old ones moved back, the manifest set to `rolled_back`, and only then the
 set-aside copies deleted; the pre-boot recovery finishes one that was cut short) moves the previous `node_modules`, `dist` and build back (and runs `git reset --hard <previous commit>` on a git checkout, which must be
 clean and still on the commit the update left), so `node_modules` comes back with the code (an install runs only when the copy has no `node_modules` and
 the lockfile differs). It also happens at restart time, after the turn fence, then restarts. It is offered only while a copy exists, and the copy is spent
@@ -619,7 +639,7 @@ by it. `npm run update -- --rollback` does the same from a terminal and needs no
 **Two restart modes.**
 
 - *Supervised*: when `pm_id` (pm2) or `SANCTUM_SUPERVISED=1` is in the environment, the app writes the job file (synchronously, so the swap and restart lines are kept), stops gracefully and exits 0, and the supervisor starts it again. The supervisor must restart on exit 0 (pm2 does; systemd needs `Restart=always`, Docker `restart: always`). Set `SANCTUM_SUPERVISED=1` for anything that is not pm2.
-- *Respawn* (the default): the app closes its listener, starts a detached replacement (`node packages/backend/dist/server.js`, same folder and environment, output in `<data dir>/update-restart.log`), waits up to 60 seconds for it to answer `/api/health` on the same port, then stops. From the moment the replacement is started this process writes nothing more to `update-job.json`, so its last words cannot land on top of the `done` the replacement writes at its boot (it writes again only if the replacement fails). If it never answers the app listens again, the previous files are put back, and the job is `failed`. For those seconds the replacement and the old process both run (a Discord or Telegram connection may complain once).
+- *Respawn* (the default): the app closes its listener, starts a detached replacement (`node packages/backend/dist/boot.js`, same folder and environment, output in `<data dir>/update-restart.log`), waits up to 60 seconds for it to answer `/api/health` on the same port, then stops. From the moment the replacement is started this process writes nothing more to `update-job.json`, so its last words cannot land on top of the `done` the replacement writes at its boot (it writes again only if the replacement fails). If it never answers it is stopped (SIGTERM, SIGKILL after five seconds, and awaited) before anything else happens, then the app listens again, the previous files are put back, and the job is `failed`. For those seconds the replacement and the old process both run (a Discord or Telegram connection may complain once).
 
 The page reconnects until `/api/version` reports a new build, then reloads.
 
@@ -630,6 +650,7 @@ The page reconnects until `/api/version` reports a new build, then reloads.
 
 **Folders in the app folder** (all are git-ignored; an older checkout's `.git/info/exclude` gets them too):
 
+- `.update-recovery.json` and `.update-recover.count` (files): the last recovery's outcome (read once at boot) and the loop guard's count.
 - `.update-stage/`: where the new version is built while an update runs. Safe to delete when none is running; it is deleted at every boot.
 - `.update-rollback.next/<version>/`: the copy of a swap in progress (see above); it exists only while one runs or after one was cut short, and the next boot settles it.
 - `.update-rollback/<version>/`: the previous `node_modules`, `dist` and frontend build (moved, not copied) and, on a downloaded folder, the files the update replaced, with a `manifest.json` (version, mode, commits, every item, whether it was moved or copied or did not exist). It lives in the app folder, not the data folder, so the swap is a rename on one filesystem.

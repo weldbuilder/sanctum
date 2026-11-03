@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   UpdateError, applyStaged, archivePlan, clearRollback, discardStage, killAllChildren, killProcessGroup, makeRollbackCopy, miniYaml, protectedPaths, readRollback,
-  recoverInterruptedSwap, rollbackNow, errorTail, procStartTime, rollbackNextRoot, takeRecoveredMarker, resolveRepo, rollbackInfo, run, runRollback, runUpdate, selfUpdateSupport, stageDir, stageUpdate,
+  recoverInterruptedSwap, rollbackNow, errorTail, procStartTime, rollbackNextRoot, takeRecoveryResult, resolveRepo, rollbackInfo, run, runRollback, runUpdate, selfUpdateSupport, stageDir, stageUpdate,
 } from './updater-core.mjs';
 
 const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 'Sam', GIT_AUTHOR_EMAIL: 'sam@example.test', GIT_COMMITTER_NAME: 'Sam', GIT_COMMITTER_EMAIL: 'sam@example.test', GIT_CONFIG_GLOBAL: '/dev/null' };
@@ -36,7 +36,8 @@ const fakeFetch = (version, tarball) => async (url) => {
 let tmp;
 const settings = { repo: 'echo/sanctum', branch: 'main', cwd: '.', dbPath: './data/sanctum.db' };
 beforeEach(() => { tmp = mkdtempSync(join(tmpdir(), 'updater-core-')); });
-afterEach(() => { rmSync(tmp, { recursive: true, force: true }); });
+// (On Windows a worktree's files may be held for a moment after git exits: retry the removal with a backoff, as discardStage does.)
+afterEach(() => { rmSync(tmp, { recursive: true, force: true, maxRetries: process.platform === 'win32' ? 20 : 3, retryDelay: 250 }); });
 
 describe('git checkout', () => {
   let origin, app;
@@ -203,7 +204,9 @@ describe('git checkout', () => {
     release('1.1.0');
     await runUpdate({ root: app, settings, fetchFn: fakeFetch('1.1.0') });
     const rb = readRollback(app);
+    // (the previous version had no node_modules at all: the entry is `absent`; a directory the copy LOST is another case, tested below)
     rmSync(join(rb.dir, 'files', 'node_modules'), { recursive: true });
+    writeFileSync(join(rb.dir, 'manifest.json'), JSON.stringify({ ...rb.manifest, entries: rb.manifest.entries.map((e) => (e.path === 'node_modules' ? { ...e, kind: 'absent' } : e)) }));
     const lines = [];
     await runRollback({ root: app, log: (l) => lines.push(l) });
     expect(read(app, 'package-lock.json')).toContain('"1.0.0"');
@@ -274,6 +277,7 @@ describe('git checkout', () => {
       const moved = rb.manifest.entries.filter((e) => e.how === 'moved');
       moved.forEach((e, i) => {
         if (i < kept) return;
+        e.step = 'pending'; // (the swap had not reached it: the manifest says so)
         if (e.kind === 'dir') { rmSync(join(app, e.path), { recursive: true, force: true }); mkdirSync(dirname(join(app, e.path)), { recursive: true }); copyDir(join(rb.dir, 'files', e.path), join(app, e.path)); rmSync(join(rb.dir, 'files', e.path), { recursive: true, force: true }); }
       });
       if (!merged) git(app, 'reset', '--hard', before);
@@ -305,8 +309,8 @@ describe('git checkout', () => {
       expect(read(app, 'package.json')).toContain('"1.0.0"');
       expect(existsSync(rollbackNextRoot(app))).toBe(false);
       expect(lines.join('\n')).toMatch(/cut short/);
-      expect(takeRecoveredMarker(app)).toBe(true); // the booting app words its job from this
-      expect(takeRecoveredMarker(app)).toBe(false);
+      expect(takeRecoveryResult(app)).toMatchObject({ outcome: 'restored', phase: 'swapping' }); // the booting app words its job from this
+      expect(takeRecoveryResult(app)).toBe(null);
       expect(await recoverInterruptedSwap(app)).toBe(false); // and a second run finds nothing
     });
 
@@ -415,7 +419,7 @@ describe('git checkout', () => {
     // a rollback refuses a checkout that moved on, so start from the state the update left: reset the settings commit away
     git(app, 'reset', '-q', '--hard', 'HEAD~1');
     mkdirSync(join(app, 'scripts'), { recursive: true });
-    for (const f of ['update.mjs', 'updater-core.mjs']) copyFileSync(join(__dirname, f), join(app, 'scripts', f));
+    for (const f of ['update.mjs', 'updater-core.mjs', 'boot-recover.mjs']) copyFileSync(join(__dirname, f), join(app, 'scripts', f));
     appendFileSync(join(app, '.git', 'info', 'exclude'), 'scripts/\n'); // (in the real repo scripts/ is tracked)
     rmSync(join(app, 'node_modules'), { recursive: true, force: true }); // js-yaml (and everything else) is gone; the rollback copy holds the old modules
     expect(existsSync(join(app, 'node_modules', 'js-yaml'))).toBe(false);
@@ -572,6 +576,7 @@ describe('settings without js-yaml', () => {
     const lonely = join(tmp, 'lonely');
     mkdirSync(join(lonely, 'scripts'), { recursive: true });
     copyFileSync(join(__dirname, 'updater-core.mjs'), join(lonely, 'scripts', 'updater-core.mjs'));
+    copyFileSync(join(__dirname, 'boot-recover.mjs'), join(lonely, 'scripts', 'boot-recover.mjs'));
     write(lonely, 'package.json', pkg('1.0.0').replace('{', '{"repository":"github:echo/sanctum",'));
     write(lonely, 'sanctum.yaml', 'updates:\n  branch: stable\nagent:\n  cwd: ./home\nserver:\n  db_path: ./var/x.db\n');
     const core = await import(pathToFileURL(join(lonely, 'scripts', 'updater-core.mjs')).href);
@@ -580,14 +585,32 @@ describe('settings without js-yaml', () => {
 });
 
 describe('build children are their own process group', () => {
-  it('killProcessGroup signals the whole group (-pid), falling back to the pid', () => {
+  it('killProcessGroup (posix) signals the whole group (-pid), falling back to the pid', () => {
     const calls = [];
-    expect(killProcessGroup(4242, 'SIGTERM', (...a) => { calls.push(a); })).toBe(true);
+    expect(killProcessGroup(4242, 'SIGTERM', (...a) => { calls.push(a); }, 'linux')).toBe(true);
     expect(calls).toEqual([[-4242, 'SIGTERM']]);
     const again = [];
-    expect(killProcessGroup(4242, 'SIGKILL', (pid, sig) => { again.push([pid, sig]); if (pid < 0) throw new Error('ESRCH'); })).toBe(true);
+    expect(killProcessGroup(4242, 'SIGKILL', (pid, sig) => { again.push([pid, sig]); if (pid < 0) throw new Error('ESRCH'); }, 'linux')).toBe(true);
     expect(again).toEqual([[-4242, 'SIGKILL'], [4242, 'SIGKILL']]);
     expect(killProcessGroup(0)).toBe(false);
+  });
+
+  it('killProcessGroup on Windows never sends a negative pid: `taskkill /PID <pid> /T /F`, and process.kill(pid) when that fails', () => {
+    const calls = [], tk = [];
+    expect(killProcessGroup(4242, 'SIGTERM', (...a) => { calls.push(a); }, 'win32', (pid) => { tk.push(pid); return { status: 0 }; })).toBe(true);
+    expect(tk).toEqual([4242]);
+    expect(calls).toEqual([]); // taskkill took the tree
+    expect(killProcessGroup(4242, 'SIGKILL', (...a) => { calls.push(a); }, 'win32', () => ({ status: 128 }))).toBe(true); // (taskkill found nothing / is missing)
+    expect(killProcessGroup(4242, 'SIGKILL', (...a) => { calls.push(a); }, 'win32', () => { throw new Error('ENOENT'); })).toBe(true);
+    expect(calls).toEqual([[4242], [4242]]);
+    expect(calls.flat().every((n) => n > 0)).toBe(true);
+    expect(killProcessGroup(4242, 'SIGKILL', () => { throw new Error('ESRCH'); }, 'win32', () => ({ status: 1 }))).toBe(false);
+  });
+
+  it('the default platform is this one: on Windows the real function uses taskkill, elsewhere the group', () => {
+    const calls = [];
+    killProcessGroup(4242, 'SIGTERM', (...a) => { calls.push(a); }, undefined, () => ({ status: 1 }));
+    expect(calls).toEqual(process.platform === 'win32' ? [[4242]] : [[-4242, 'SIGTERM']]);
   });
 
   it.skipIf(process.platform === 'win32')('aborting a run kills the child AND its grandchildren (the npm -> node -> tsc chain)', async () => {

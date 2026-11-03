@@ -12,11 +12,12 @@
 //
 // Restart, two modes (docs/CONFIGURATION.md, "Updating"):
 //   supervised   `pm_id` (pm2) or SANCTUM_SUPERVISED=1 is in the environment: the app stops gracefully and exits 0; the supervisor starts it again.
-//   respawn      anything else: close the listener, start a detached replacement (`node dist/server.js`, same cwd and environment, output in
+//   respawn      anything else: close the listener, start a detached replacement (`node dist/boot.js`, same cwd and environment, output in
 //                <data dir>/update-restart.log), wait for it to answer /api/health on the same port, then stop and exit. If it never answers,
-//                this process listens again and the job is `failed` (the previous version's files are put back).
+//                the replacement is stopped (SIGTERM, then SIGKILL after five seconds, and awaited), this process listens again and the job
+//                is `failed` (the previous version's files are put back).
 import { spawn } from 'node:child_process';
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { PROJECT_ROOT, getSanctumConfig } from '../config.js';
 import { backgroundRunsInFlight, setUpdateBlocking } from './update-block.js';
@@ -25,8 +26,8 @@ import { householdMode, houseCompanionIds } from '../tenancy/house.js';
 import { isInteractiveAgentBusy } from './agent.js';
 import { checkForUpdate, clearUpdateCache, type UpdateStatus } from './update-check.js';
 import {
-  UpdateError, applyStaged, clearRollback, discardStage, killAllChildren, readEnvFile, readUpdateSettings, recoverInterruptedSwap, rollbackInfo, rollbackNow,
-  runRollback, selfUpdateSupport, stageUpdate, takeRecoveredMarker, type RollbackInfo, type SelfUpdateSupport, type StagedPlan,
+  UpdateError, applyStaged, clearRollback, discardStage, killAllChildren, killProcessGroup, readEnvFile, readRollback, readUpdateSettings, recoverInterruptedSwap, rollbackInfo, rollbackNow,
+  runRollback, selfUpdateSupport, stageDir, stageUpdate, takeRecoveryResult, type RecoveryResult, type RollbackInfo, type SelfUpdateSupport, type StagedPlan,
 } from '../../../../scripts/updater-core.mjs';
 
 export type JobState = 'checking' | 'fetching' | 'installing' | 'building' | 'restarting' | 'done' | 'failed' | 'rolled_back';
@@ -109,8 +110,9 @@ let abort: AbortController | null = null;
 /** Set once a replacement process (or the supervisor's) has been handed the job file: from then on this process writes nothing more to it, so its last
  *  words ("the replacement answered") cannot land on top of what the new process wrote (`done`). Cleared again if the hand-over fails. */
 let handedOver = false;
-/** What boot cleanup found (initUpdater): a stage left behind, or a swap that was cut short and put back. */
-let bootFinding: { stage: boolean; swap: boolean } | null = null;
+/** What boot cleanup found (initUpdater): a stage left behind (`link`: it is a symbolic link, which is never followed), and what the recovery did (dist/boot.js ran it before the app
+ *  loaded, or initUpdater's own call did): its result file is read once. */
+let bootFinding: { stage: boolean; link: boolean; recovery: RecoveryResult | null } | null = null;
 const jobFile = () => join(env.dataDir(), 'update-job.json');
 
 function writeJob(): void {
@@ -141,10 +143,40 @@ function persist(force = true): void {
 }
 
 function interruptedText(kind: UpdateJob['kind']): string {
-  if (bootFinding?.swap) return `The ${kind === 'rollback' ? 'roll back' : 'update'} did not finish; the previous version was put back.`;
+  const rec = bootFinding?.recovery;
+  if (rec?.outcome === 'restored') return `The ${kind === 'rollback' ? 'roll back' : 'update'} did not finish; the previous version was put back.`;
   return kind === 'rollback'
     ? 'The roll back did not finish. The rollback copy is still there; try again, or run: npm run update -- --rollback'
     : 'The update did not finish; nothing was changed.';
+}
+const RECOVER_POINTER = 'Run: npm run update -- --recover';
+/** Did this job's swap complete (the new version is what is on disk) even though the process went away before it said so? The kept copy in .update-rollback was made by this job. */
+function swapCompleted(j: UpdateJob): boolean {
+  if (j.kind !== 'update') return false;
+  try {
+    const rb = readRollback(env.root);
+    return !!rb && rb.manifest.phase === 'swapped' && Date.parse(String(rb.manifest.created_at)) >= Date.parse(j.started_at) - 1000;
+  } catch { return false; }
+}
+/** How a job that was still active when its process went away ended, from what boot found: [state, error, log line] (the first that applies), or null for a job that is simply `restarting`
+ *  and left nothing behind. A symlinked stage is never reported `done`. */
+function settleActive(j: UpdateJob): { state: JobState; error: string | null; line: string } | null {
+  const f = bootFinding;
+  const rec = f?.recovery;
+  if (f?.link) return { state: 'failed', error: '.update-stage is a symbolic link, which the updater never follows, so it could not be checked whether the swap finished. Remove it (rm .update-stage), then check the app and try again.', line: '.update-stage is a symbolic link; it was left alone' };
+  if (rec?.outcome === 'refused') return { state: 'failed', error: `${rec.detail}. ${RECOVER_POINTER}`, line: rec.detail };
+  if (rec?.outcome === 'failed') return { state: 'failed', error: rec.detail, line: rec.detail };
+  if (rec?.outcome === 'restored') {
+    if (j.kind === 'rollback' && rec.phase === 'rolling_back') return { state: 'rolled_back', error: null, line: 'the roll back was finished at boot' };
+    return { state: 'failed', error: interruptedText(j.kind), line: 'the previous version was put back at boot' };
+  }
+  if (j.kind === 'update' && (rec?.outcome === 'adopted' || (f?.stage && swapCompleted(j)))) {
+    return { state: 'done', error: null, line: `restarted on ${readFromVersion()}; the stage was cleaned up at boot` };
+  }
+  if (j.state === 'restarting' && !f?.stage) {
+    return { state: j.kind === 'rollback' ? 'rolled_back' : 'done', error: null, line: j.kind === 'rollback' ? 'restarted on the previous version' : 'restarted on the new version' };
+  }
+  return null;
 }
 
 function load(): void {
@@ -154,34 +186,32 @@ function load(): void {
     const j = JSON.parse(readFileSync(jobFile(), 'utf-8')) as UpdateJob;
     if (!j || typeof j.state !== 'string') return;
     job = { ...j, dirty: j.dirty ?? null, restart_pending: !!j.restart_pending };
-    // `restarting` written by another process than this one (its predecessor), with no stage left and no cut-short swap: the swap finished and this is
-    // the process that replaced it. A `restarting` this very process wrote is still in progress, and a job already `done` is never touched.
+    // A job that was still active when its process went away is settled from what boot found (settleActive): `restarting` written by another process than this one (its
+    // predecessor) with nothing left behind is the swap having finished; one this very process wrote is still in progress, and a job already `done` is never touched.
     const me = env.self();
     const mine = j.pid === me.pid && j.boot_at === me.boot_at;
     if (job.state === 'restarting' && mine) { /* in progress here */ }
-    else if (job.state === 'restarting' && !bootFinding?.stage && !bootFinding?.swap) {
-      job.state = job.kind === 'rollback' ? 'rolled_back' : 'done';
+    else if (ACTIVE.includes(job.state)) {
+      const s = settleActive(job) ?? { state: 'failed' as JobState, error: interruptedText(job.kind), line: '' };
+      job.state = s.state;
+      job.error = s.error;
       job.finished_at = env.now().toISOString();
-      addLine(job.kind === 'rollback' ? 'restarted on the previous version' : 'restarted on the new version');
-      persist();
-    } else if (ACTIVE.includes(job.state)) {
-      job.state = 'failed';
-      job.error = interruptedText(job.kind);
-      job.finished_at = env.now().toISOString();
+      if (s.line) addLine(s.line);
       persist();
     }
   } catch { /* no job yet */ }
 }
 
-/** At boot, before the listener opens: put a cut-short swap back, delete a stage a crash left (and any build it left running), and settle the
- *  job file (`restarting` becomes `done`, with `finished_at` set now; anything earlier becomes `failed`: nothing was changed). */
+/** At boot, before the listener opens: put a cut-short swap back (if dist/boot.js did not already), delete a stage a crash left (and any build it left running), and settle the
+ *  job file from what was found (settleActive: `done` when the new version is what runs, `rolled_back` for a roll back that was finished, `failed` otherwise). */
 export async function initUpdater(): Promise<void> {
   loaded = false; job = null;
-  const finding = { stage: false, swap: false };
-  // (The pre-boot recovery, src/update-recover.ts, has normally put a cut-short swap back already, before this process loaded the app, and left a marker in the
-  // stage; the call here is for a swap that was cut short in this very process's life.)
-  try { finding.swap = takeRecoveredMarker(env.root); } catch { /* no marker */ }
-  try { finding.swap = (await recoverInterruptedSwap(env.root, console.log)) || finding.swap; } catch (err) { console.warn('[updater] could not check for a cut-short swap:', (err as Error).message); }
+  const finding: NonNullable<typeof bootFinding> = { stage: false, link: false, recovery: null };
+  // (The pre-boot recovery, dist/boot.js, has normally put a cut-short swap back already, before this process loaded the app, and left its result in .update-recovery.json; the
+  // call here is for a swap that was cut short in this very process's life, whose result is written the same way.)
+  try { await recoverInterruptedSwap(env.root, console.log); } catch (err) { console.warn('[updater] could not check for a cut-short swap:', (err as Error).message); }
+  try { finding.recovery = takeRecoveryResult(env.root); } catch { /* none */ }
+  try { finding.link = lstatSync(stageDir(env.root)).isSymbolicLink(); } catch { /* no stage */ }
   try { finding.stage = await discardStage(env.root, console.log); } catch (err) { console.warn('[updater] could not remove the update stage:', (err as Error).message); }
   bootFinding = finding;
   load();
@@ -223,11 +253,12 @@ export function setRestartControl(c: RestartControl | null): void { control = c;
 let restartOverrides: Partial<Pick<RestartDeps, 'spawnChild' | 'waitHealthy' | 'healthTimeoutMs'>> = {};
 export function _setRestartOverrides(o: typeof restartOverrides): void { restartOverrides = o; }
 
+export interface ReplacementChild { exited(): boolean; terminate(): Promise<void> }
 export interface RestartDeps {
   supervised: boolean;
   ctl: RestartControl;
-  /** Start the replacement; `exited()` says whether it already died. */
-  spawnChild(): { exited(): boolean };
+  /** Start the replacement; `exited()` says whether it already died, `terminate()` stops it (SIGTERM, SIGKILL after five seconds) and resolves once it is gone. */
+  spawnChild(): ReplacementChild;
   /** Resolves true when `url` answers 200 within `ms`, false when it does not (or when the child died). */
   waitHealthy(url: string, ms: number, childExited: () => boolean): Promise<boolean>;
   log(line: string): void;
@@ -249,7 +280,7 @@ export async function performRestart(d: RestartDeps): Promise<'stopping' | 'fail
   d.log('restarting: closing the listener and starting a replacement');
   d.flush?.();
   await d.ctl.closeListener();
-  let child: { exited(): boolean };
+  let child: ReplacementChild;
   d.handOver?.(true); // (before the replacement exists: it settles the job file at its own boot, and nothing of this process may land on top of that)
   try { child = d.spawnChild(); } catch (err) {
     d.handOver?.(false);
@@ -259,8 +290,11 @@ export async function performRestart(d: RestartDeps): Promise<'stopping' | 'fail
   }
   const ok = await d.waitHealthy(d.ctl.healthUrl, d.healthTimeoutMs ?? 60_000, child.exited);
   if (!ok) {
+    // The replacement must be gone before this process listens again (it may hold the port, and it must not touch the files that are about to be put back).
+    d.log('the replacement did not answer in time; stopping it');
+    try { await child.terminate(); } catch (err) { d.log(`could not stop the replacement: ${(err as Error).message}`); }
     d.handOver?.(false);
-    d.log('the replacement did not answer in time; this process listens again');
+    d.log('this process listens again');
     d.ctl.relisten();
     return 'failed';
   }
@@ -282,18 +316,28 @@ async function waitHealthy(url: string, ms: number, childExited: () => boolean):
   return false;
 }
 
-function spawnReplacement(): { exited(): boolean } {
-  const entry = join(PROJECT_ROOT, 'packages', 'backend', 'dist', 'server.js');
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+function spawnReplacement(): ReplacementChild {
+  const dist = join(PROJECT_ROOT, 'packages', 'backend', 'dist');
+  const entry = existsSync(join(dist, 'boot.js')) ? join(dist, 'boot.js') : join(dist, 'server.js');
   const script = existsSync(entry) ? entry : process.argv[1];
   mkdirSync(env.dataDir(), { recursive: true });
   const fd = openSync(join(env.dataDir(), 'update-restart.log'), 'a');
   try {
     const child = spawn(process.execPath, [script], { cwd: process.cwd(), env: process.env, detached: true, stdio: ['ignore', fd, fd] });
     let done = false;
-    child.on('exit', () => { done = true; });
-    child.on('error', () => { done = true; });
+    const gone = new Promise<void>((res) => { child.once('exit', () => { done = true; res(); }); child.once('error', () => { done = true; res(); }); });
     child.unref();
-    return { exited: () => done };
+    return {
+      exited: () => done,
+      terminate: async () => {
+        if (done || !child.pid) return;
+        killProcessGroup(child.pid, 'SIGTERM'); // (its own process group: boot.js and the app it started over go together)
+        if (await Promise.race([gone.then(() => true), sleep(5000).then(() => false)])) return;
+        killProcessGroup(child.pid, 'SIGKILL');
+        await Promise.race([gone, sleep(5000)]);
+      },
+    };
   } finally { closeSync(fd); }
 }
 

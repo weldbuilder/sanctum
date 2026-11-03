@@ -52,12 +52,15 @@ export function rollbackInfo(root: string): RollbackInfo;
 export function readRollback(root: string): { dir: string; manifest: Record<string, any> } | null;
 export function rollbackRoot(root: string): string;
 export function rollbackNextRoot(root: string): string;
-export function takeRecoveredMarker(root: string): boolean;
+export interface RecoveryResult { changed: boolean; outcome: 'nothing' | 'restored' | 'adopted' | 'failed' | 'refused'; detail: string; phase?: string; version?: string; toVersion?: string; at?: string }
+export function takeRecoveryResult(root: string): RecoveryResult | null;
+export function recoverDetailed(root: string, opts?: { log?: (line: string) => void; retry?: boolean }): RecoveryResult;
+export function recoverRetry(root: string, log?: (line: string) => void): Promise<RecoveryResult>;
 export function procStartTime(pid: number): string;
 export function errorTail(lines: string[]): string[];
 export function clearRollback(root: string): void;
 export function makeRollbackCopy(opts: { root: string; version: string; mode: string; branch: string; sha?: string | null; entries?: string[] }): Promise<Record<string, any>>;
 export function protectedPaths(root: string, cwd?: string): string[];
-export function killProcessGroup(pid: number, signal?: string, kill?: (pid: number, signal?: string) => unknown): boolean;
+export function killProcessGroup(pid: number, signal?: string, kill?: (pid: number, signal?: string) => unknown, platform?: string, taskkill?: (pid: number) => { status: number | null } | undefined): boolean;
 export function killAllChildren(signal?: string, kill?: (pid: number, signal?: string) => unknown): void;
 export function miniYaml(text: string): Record<string, any>;

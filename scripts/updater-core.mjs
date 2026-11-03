@@ -19,14 +19,17 @@
 //
 // A crash, a kill or a failed install or build before the swap leaves the running folder exactly as it was (the stage is
 // deleted at the next start). A failure during the swap puts everything back, and a swap cut short is put back by recoverInterruptedSwap before the app
-// loads (packages/backend/src/update-recover.ts, `npm start`, `npm run update`). A rollback moves the previous copies back
+// loads (dist/boot.js, whose vendored recovery is scripts/boot-recover.mjs, which this file builds its restore on; also `npm start` and `npm run update`). A rollback moves the previous copies back
 // (and `git reset --hard <sha>` on a git checkout), so node_modules comes back with the code.
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync, lstatSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync, lstatSync } from 'node:fs';
 import { cp, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+// The restore, the manifest and the recovery after a crash are the vendored, dependency-free module (the same rules the app's own dist/boot.js follows).
+import { MANIFEST_FORMAT, ensureExcluded, recover, restoreCopy, restoreFiles, takeRecoveryResult, unsettled, verifyRestored, writeManifest } from './boot-recover.mjs';
+export { restoreFiles, takeRecoveryResult, recover as recoverDetailed };
 
 const noop = () => {};
 
@@ -180,11 +183,13 @@ export function childEnv(base = process.env) {
 }
 
 const liveGroups = new Set();
-/** Signal a child's whole process group (the child is spawned as its own group leader), so npm's node, tsc and vite go with it. `kill` is injectable. */
-export function killProcessGroup(pid, signal = 'SIGTERM', kill = process.kill.bind(process)) {
+/** Signal a child's whole process group (the child is spawned as its own group leader), so npm's node, tsc and vite go with it. `kill`, `platform` and `taskkill` are injectable.
+ *  Windows has no negative-pid group signals: `taskkill /PID <pid> /T /F` ends the process and its children, and `process.kill(pid)` is the fallback. */
+export function killProcessGroup(pid, signal = 'SIGTERM', kill = process.kill.bind(process), platform = process.platform, taskkill = (p) => spawnSync('taskkill', ['/PID', String(p), '/T', '/F'], { stdio: 'ignore' })) {
   if (!pid) return false;
-  if (process.platform === 'win32') {
-    try { spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' }); return true; } catch { return false; }
+  if (platform === 'win32') {
+    try { if (taskkill(pid)?.status === 0) return true; } catch { /* no taskkill: fall back */ }
+    try { kill(pid); return true; } catch { return false; }
   }
   try { kill(-pid, signal); return true; } catch { /* not a group leader, or gone */ }
   try { kill(pid, signal); return true; } catch { return false; }
@@ -265,20 +270,6 @@ const sha256 = (p) => { try { return createHash('sha256').update(readFileSync(p)
 const safeName = (v) => String(v).replace(/[^A-Za-z0-9._-]/g, '_') || 'unknown';
 const exists = (p) => { try { lstatSync(p); return true; } catch { return false; } };
 
-/** Keep the two folders out of `git status` on checkouts whose .gitignore predates them (this checkout's own exclude file; never tracked). */
-function ensureExcluded(root) {
-  try {
-    const r = spawnSync('git', ['rev-parse', '--git-path', 'info/exclude'], { cwd: root, encoding: 'utf-8' });
-    if (r.status !== 0) return;
-    const file = resolve(root, String(r.stdout).trim());
-    const have = existsSync(file) ? readFileSync(file, 'utf-8') : '';
-    const add = ['.update-stage/', '.update-rollback/', '.update-rollback.next/'].filter(p => !have.split(/\r?\n/).includes(p));
-    if (!add.length) return;
-    mkdirSync(dirname(file), { recursive: true });
-    appendFileSync(file, `${have && !have.endsWith('\n') ? '\n' : ''}${add.join('\n')}\n`);
-  } catch { /* the .gitignore is the main route */ }
-}
-
 /** The directories a swap moves, relative to the app: node_modules, packages/<x>/dist, packages/<x>/node_modules and the frontend build,
  *  wherever either the live folder or the stage has them. */
 async function swapDirNames(root, stage) {
@@ -296,7 +287,6 @@ async function swapDirNames(root, stage) {
   return [...out].sort();
 }
 
-async function writeManifest(dir, manifest) { await writeFile(join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2)); }
 
 /** The latest rollback copy, or null: { dir, manifest }. */
 export function readRollback(root) {
@@ -314,7 +304,7 @@ export function readRollback(root) {
 export function updateRollbackManifest(root, patch) {
   const rb = readRollback(root);
   if (!rb) return;
-  writeFileSync(join(rb.dir, 'manifest.json'), JSON.stringify({ ...rb.manifest, ...patch }, null, 2));
+  writeManifest(rb.dir, { ...rb.manifest, ...patch });
 }
 export function clearRollback(root) { rmSync(rollbackRoot(root), { recursive: true, force: true }); }
 /** Is there a rollback copy? { available, version, created_at, mode } */
@@ -340,56 +330,9 @@ export async function makeRollbackCopy({ root, version, mode, branch, sha = null
     await cp(src, dest, { recursive: true, force: true });
     entries.push({ path: rel, kind: lstatSync(src).isDirectory() ? 'dir' : 'file', how: 'copied' });
   }
-  const manifest = { version, mode, branch, sha, toSha: null, toVersion: null, created_at: now().toISOString(), lockfile_sha256: sha256(join(root, 'package-lock.json')), phase: 'swapped', entries };
-  await writeManifest(dir, manifest);
+  const manifest = { format: MANIFEST_FORMAT, version, mode, branch, sha, toSha: null, toVersion: null, created_at: now().toISOString(), lockfile_sha256: sha256(join(root, 'package-lock.json')), phase: 'swapped', entries: entries.map((e) => ({ ...e, step: 'moved' })) };
+  writeManifest(dir, manifest);
   return manifest;
-}
-
-/** Put the rollback copy back, crash-safely: for every directory the copy holds, the CURRENT one is first renamed aside (<copy>/aside/...), then the old
- *  one is renamed back, so at every instant each is in exactly one place and a second run (the pre-boot recovery after a crash) simply carries on. An entry that
- *  did not exist then is moved aside too. A copied file is copied back over the live one. An entry whose copy is not there (the swap stopped before it, or it was
- *  put back already) is left alone. Files only; git and npm are the caller's, and so is deleting `aside` (beginRestore / finishRestore). */
-export async function restoreFiles({ root, dir, manifest }) {
-  const aside = join(dir, 'aside');
-  for (const e of manifest.entries) {
-    const target = join(root, e.path);
-    const asideP = join(aside, e.path);
-    if (e.kind === 'absent' || e.gone) { // (`gone`: the copy of a finished swap lacks it, so the live one is the new version's)
-      if (!exists(target)) continue;
-      if (e.how === 'moved') {
-        await mkdir(dirname(asideP), { recursive: true });
-        if (exists(asideP)) await rm(target, { recursive: true, force: true }); else await rename(target, asideP);
-      } else await rm(target, { recursive: true, force: true });
-      continue;
-    }
-    const src = join(dir, 'files', e.path);
-    if (!exists(src)) continue;
-    if (e.how === 'moved') {
-      if (exists(target)) {
-        await mkdir(dirname(asideP), { recursive: true });
-        if (exists(asideP)) await rm(target, { recursive: true, force: true }); else await rename(target, asideP);
-      }
-      await mkdir(dirname(target), { recursive: true });
-      await rename(src, target);
-    } else {
-      await mkdir(dirname(target), { recursive: true });
-      await cp(src, target, { recursive: true, force: true });
-    }
-  }
-}
-/** The manifest says a restore is under way (the pre-boot recovery finishes one it finds), before anything is touched. */
-async function beginRestore(dir, manifest) {
-  // From a finished swap, a directory the copy does not hold was not there before: the live one is the new version's and goes aside. (Marked now, once,
-  // so a second run after a crash does not take a directory it has already put back for one of these.)
-  if (manifest.phase === 'swapped') for (const e of manifest.entries) if (e.how === 'moved' && e.kind !== 'absent' && !exists(join(dir, 'files', e.path))) e.gone = true;
-  manifest.phase = 'rolling_back';
-  await writeManifest(dir, manifest);
-}
-/** The restore is complete: write that down, and only then delete the copies that were set aside. */
-async function finishRestore(dir, manifest) {
-  manifest.phase = 'rolled_back';
-  await writeManifest(dir, manifest);
-  await rm(join(dir, 'aside'), { recursive: true, force: true });
 }
 
 // ---- dependencies and build ---------------------------------------------------------
@@ -430,7 +373,7 @@ const within = (base, p) => { const rel = relative(base, p); return rel === '' |
  *  (companion-home/ is the shipped home, plus an agent.cwd that points at another folder inside the app). Paths are compared after
  *  realpath, so a home that is a symlink inside the app (or reached through one) is protected too. */
 export function protectedPaths(root, cwd) {
-  const out = ['.git', '.env', 'sanctum.yaml', 'sanctum.yml', 'resonant.yaml', 'resonant.yml', '.mcp.json', 'data', 'node_modules', '.update-stage', '.update-rollback', '.update-rollback.next'];
+  const out = ['.git', '.env', 'sanctum.yaml', 'sanctum.yml', 'resonant.yaml', 'resonant.yml', '.mcp.json', 'data', 'node_modules', '.update-stage', '.update-rollback', '.update-rollback.next', '.update-recovery.json', '.update-recover.count'];
   const realRoot = realOrLexical(root);
   const lexical = resolve(root, cwd || '.');
   const realCwd = realOrLexical(lexical);
@@ -516,79 +459,25 @@ export async function discardStage(root, log = noop) {
       }
     } catch { /* no pid list */ }
   }
-  // (async rm: a stage holds a whole node_modules, and a synchronous removal would stall the running app. `git worktree prune` then forgets it.)
-  await rm(stage, { recursive: true, force: true, maxRetries: 3 });
+  // (async rm: a stage holds a whole node_modules, and a synchronous removal would stall the running app. `git worktree prune` forgets it.)
+  // On Windows the worktree's files may still be held for a moment (git, an indexer, antivirus): prune first, then retry the removal with a backoff (about five seconds).
+  if (had && installMode(root) === 'git' && process.platform === 'win32') spawnSync('git', ['worktree', 'prune'], { cwd: root, stdio: 'ignore' });
+  await rm(stage, { recursive: true, force: true, maxRetries: process.platform === 'win32' ? 20 : 3, retryDelay: process.platform === 'win32' ? 250 : 100 });
   if (installMode(root) === 'git') spawnSync('git', ['worktree', 'prune'], { cwd: root, stdio: 'ignore' });
   return had;
 }
 
-const RECOVERED = '.recovered';
-/** Did the pre-boot recovery put a swap back? Reads (and consumes the marker in) the stage; the updater service asks at boot to word the job's error. */
-export function takeRecoveredMarker(root) {
-  const p = join(stageDir(root), RECOVERED);
-  if (isLink(stageDir(root))) return false;
-  const had = existsSync(p);
-  if (had) { try { rmSync(p, { force: true }); } catch { /* the stage is deleted next anyway */ } }
-  return had;
-}
-function headOf(root) {
-  const r = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf-8' });
-  return r.status === 0 ? String(r.stdout).trim() : '';
-}
-/** Every copy under a rollback folder that has a manifest: [{ dir, manifest }]. */
-function copiesIn(base) {
-  const out = [];
-  let list = [];
-  try { list = readdirSync(base, { withFileTypes: true }); } catch { return out; }
-  for (const d of list) {
-    if (!d.isDirectory() || d.name.startsWith('.')) continue;
-    try { out.push({ dir: join(base, d.name), manifest: JSON.parse(readFileSync(join(base, d.name, 'manifest.json'), 'utf-8')) }); } catch { /* not a copy */ }
-  }
-  return out;
-}
-
-/** The pre-boot recovery (packages/backend/src/update-recover.ts runs it before anything of the app loads; `npm run update` runs it first too). A swap or a roll back
- *  that was cut short is finished from its manifest:
- *    swapping / rolling_back   the files are put back (each current directory renamed aside, the old one renamed back), and on a git checkout `git reset --hard <sha>`
- *                              whenever HEAD is not the manifest's sha (the merge runs as a child; a kill during it leaves no flag). The copy is then removed.
- *    rolled_back               only the set-aside copies were left to delete.
- *    swapped, in .update-rollback.next   the swap had succeeded; the new copy is moved over the previous one.
- *  A swap writes its copy to .update-rollback.next, so the previous .update-rollback is still whole when the swap is put back.
- *  Returns true when the code or the files on disk changed (the caller must then start over, so what runs is what was restored). */
+/** The pre-boot recovery (dist/boot.js runs the same code, vendored in scripts/boot-recover.mjs / packages/backend/src/boot-recover.ts, before anything of the app loads; `npm start`
+ *  and `npm run update` run it first too). A swap or a roll back that was cut short is finished from its manifest, by the rules in that file's header: swapping / rolling_back
+ *  are put back (git reset --hard and checkout always, the directories renamed back, the copy removed), a swap that had finished in .update-rollback.next is adopted, a manifest
+ *  that cannot be read is never acted on. Returns true when the code or the files on disk changed (the caller must then start over, so what runs is what was restored).
+ *  `recoverDetailed` (exported above) returns the whole result; it is also written to <app>/.update-recovery.json for the updater service to word its job from. */
 export async function recoverInterruptedSwap(root, log = noop) {
-  const next = rollbackNextRoot(root);
-  const main = rollbackRoot(root);
-  let changed = false;
-  for (const base of [next, main]) {
-    for (const { dir, manifest } of copiesIn(base)) {
-      const phase = manifest.phase;
-      if (phase === 'swapping' || phase === 'rolling_back') {
-        log(phase === 'swapping' ? 'a swap was cut short: putting the previous version back' : 'a roll back was cut short: finishing it');
-        if (manifest.mode === 'git' && manifest.sha && headOf(root) !== manifest.sha) {
-          const r = spawnSync('git', ['reset', '--hard', manifest.sha], { cwd: root, stdio: 'ignore' });
-          if (r.status !== 0) log(`warning: git reset --hard ${String(manifest.sha).slice(0, 8)} failed`);
-        }
-        await restoreFiles({ root, dir, manifest });
-        await rm(base, { recursive: true, force: true });
-        changed = true;
-      } else if (phase === 'rolled_back') {
-        await rm(base, { recursive: true, force: true }); // (a roll back consumes its copy)
-      }
-    }
-  }
-  // A swap that was written down as complete but not yet moved over the previous copy.
-  if (exists(next)) {
-    const done = copiesIn(next).find((c) => c.manifest.phase === 'swapped');
-    if (done) {
-      log('finishing a swap: keeping its rollback copy');
-      await rm(main, { recursive: true, force: true });
-      renameSync(next, main);
-    } else await rm(next, { recursive: true, force: true }); // (no usable manifest: the swap never began)
-  }
-  if (changed && !isLink(stageDir(root))) {
-    try { mkdirSync(stageDir(root), { recursive: true }); writeFileSync(join(stageDir(root), RECOVERED), new Date().toISOString()); } catch { /* the log line says it */ }
-  }
-  return changed;
+  return recover(root, { log }).changed;
+}
+/** `--recover`: also retries a copy an earlier recovery marked `recovery_failed`. */
+export async function recoverRetry(root, log = noop) {
+  return recover(root, { log, retry: true });
 }
 
 // ---- staging an update ----------------------------------------------------------------
@@ -708,17 +597,19 @@ export async function applyStaged({ root, plan, log = noop }) {
   }
   // The new copy is written beside the previous one (.update-rollback.next); the previous one is deleted only once the swap has fully succeeded.
   const base = rollbackNextRoot(root);
+  const held = unsettled(base); // (never delete the only copy of the directories an earlier cut-short update moved aside)
+  if (held) throw new UpdateError(`${held}, so nothing was changed. Run: npm run update -- --recover`);
   await rm(base, { recursive: true, force: true });
   const dir = join(base, safeName(from));
   await mkdir(join(dir, 'files'), { recursive: true });
   const dirs = await swapDirNames(root, stage);
-  const entries = dirs.map(p => ({ path: p, kind: exists(join(root, p)) ? 'dir' : 'absent', how: 'moved' }));
-  for (const rel of plan.files) entries.push(exists(join(root, rel)) ? { path: rel, kind: 'file', how: 'copied' } : { path: rel, kind: 'absent' });
+  const entries = dirs.map(p => ({ path: p, kind: exists(join(root, p)) ? 'dir' : 'absent', how: 'moved', step: 'pending' }));
+  for (const rel of plan.files) entries.push(exists(join(root, rel)) ? { path: rel, kind: 'file', how: 'copied', step: 'pending' } : { path: rel, kind: 'absent' });
   const manifest = {
-    version: from, mode, branch, sha, toSha: plan.toSha, toVersion: plan.to, created_at: new Date().toISOString(),
+    format: MANIFEST_FORMAT, version: from, mode, branch, sha, toSha: plan.toSha, toVersion: plan.to, created_at: new Date().toISOString(),
     lockfile_sha256: sha256(join(root, 'package-lock.json')), phase: 'swapping', merged: false, entries,
   };
-  await writeManifest(dir, manifest);
+  writeManifest(dir, manifest);
   try {
     for (const e of entries) { // the files this will replace, copied (before anything moves)
       if (e.how !== 'copied') continue;
@@ -730,7 +621,7 @@ export async function applyStaged({ root, plan, log = noop }) {
       log(`git merge --ff-only ${plan.toSha.slice(0, 8)}`);
       if (await run('git', ['merge', '--ff-only', plan.toSha], { cwd: root, log }) !== 0) throw new UpdateError('git merge --ff-only failed: this checkout has commits the branch does not have. Nothing was changed.');
       manifest.merged = true;
-      await writeManifest(dir, manifest);
+      writeManifest(dir, manifest);
     }
     for (const e of entries) {
       if (e.how !== 'moved') continue;
@@ -738,6 +629,8 @@ export async function applyStaged({ root, plan, log = noop }) {
       if (e.kind === 'dir') { await mkdir(dirname(join(dir, 'files', e.path)), { recursive: true }); await rename(live, join(dir, 'files', e.path)); }
       const staged = join(stage, e.path);
       if (exists(staged)) { await mkdir(dirname(live), { recursive: true }); await rename(staged, live); }
+      e.step = 'moved'; // (written down: a recovery can tell a directory the swap never reached from one that was lost)
+      writeManifest(dir, manifest);
     }
     if (mode === 'tarball') {
       for (const rel of plan.files) {
@@ -746,20 +639,24 @@ export async function applyStaged({ root, plan, log = noop }) {
         await rename(join(stage, rel), live);
       }
     }
+    for (const e of entries) if (e.step) e.step = 'moved';
     manifest.phase = 'swapped';
-    await writeManifest(dir, manifest);
+    writeManifest(dir, manifest);
     await rm(rollbackRoot(root), { recursive: true, force: true });
     await rename(base, rollbackRoot(root));
   } catch (err) {
     log(`the swap failed (${err.message}): putting the previous version back`);
     let restored = false;
     try {
-      await beginRestore(dir, manifest);
-      if (mode === 'git' && gitHead(root) !== sha) await run('git', ['reset', '--hard', sha], { cwd: root, log });
-      await restoreFiles({ root, dir, manifest });
-      await finishRestore(dir, manifest);
-      await rm(base, { recursive: true, force: true }); // (the previous .update-rollback was never touched, so it is still the rollback copy)
-      restored = true;
+      manifest.phase = 'rolling_back';
+      writeManifest(dir, manifest);
+      const r = restoreCopy({ root, dir, manifest, log });
+      if (r.ok) {
+        await rm(base, { recursive: true, force: true }); // (the previous .update-rollback was never touched, so it is still the rollback copy)
+        const problems = verifyRestored(root, manifest);
+        restored = problems.length === 0;
+        if (!restored) log(`the previous version was put back, but this is inconsistent: ${problems.join('; ')}`);
+      } else log(`could not put the previous version back: ${r.detail}. The copy was kept in .update-rollback.next; run: npm run update -- --recover`);
     } catch (e2) { log(`could not put the previous version back: ${e2.message}`); }
     await discardStage(root, log).catch(() => {});
     throw new UpdateError(err.message, { restored, dirty: err.dirty });
@@ -783,16 +680,19 @@ export async function rollbackNow({ root, log = noop, force = false }) {
       if (dirty.length) throw new UpdateError(`This folder has local changes, so it was not rolled back. Commit or discard them, then try again:\n${dirty.join('\n')}`, { dirty });
       if (manifest.toSha && gitHead(root) !== manifest.toSha) throw new UpdateError('This checkout has moved on since the update (new commits), so it was not rolled back.');
     }
-    const before = manifest.phase;
-    await beginRestore(rb.dir, manifest);
-    log(`git reset --hard ${manifest.sha.slice(0, 8)}`);
-    if (await run('git', ['reset', '--hard', manifest.sha], { cwd: root, log }) !== 0) {
-      manifest.phase = before; await writeManifest(rb.dir, manifest); // (nothing was touched: the copy must not look like a roll back under way)
-      throw new UpdateError('git reset failed');
-    }
-  } else await beginRestore(rb.dir, manifest);
-  await restoreFiles({ root, dir: rb.dir, manifest });
-  await finishRestore(rb.dir, manifest);
+  }
+  const before = manifest.phase;
+  manifest.phase = 'rolling_back';
+  writeManifest(rb.dir, manifest);
+  log(manifest.mode === 'git' && manifest.sha ? `git reset --hard ${manifest.sha.slice(0, 8)}, then the moved directories back` : 'putting the moved directories and files back');
+  const r = restoreCopy({ root, dir: rb.dir, manifest, log, gitFirst: true });
+  if (!r.ok) {
+    if (!r.touched) { manifest.phase = before; delete manifest.failure; delete manifest.restored_from; writeManifest(rb.dir, manifest); } // (nothing was touched: the copy must not look like a roll back under way)
+    throw new UpdateError(`${r.detail}. ${r.touched ? 'The copy was kept; run: npm run update -- --recover' : 'Nothing was changed.'}`);
+  }
+  await rm(join(rb.dir, 'aside'), { recursive: true, force: true });
+  const problems = verifyRestored(root, manifest);
+  if (problems.length) log(`warning: ${problems.join('; ')}`);
   log(`restored ${manifest.entries.length} items from the ${manifest.version} copy`);
   const modules = manifest.entries.find(e => e.path === 'node_modules');
   const modulesBack = !!modules && modules.kind !== 'absent' && existsSync(join(root, 'node_modules'));

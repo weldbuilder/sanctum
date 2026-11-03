@@ -121,7 +121,9 @@ npm start
 - **Under a process manager (e.g. `pm2`), by hand:** stop the process, rebuild, then
   start it again — and note two hard-won cautions:
   - **Prefer delete-and-start over restart.** `pm2 delete sanctum && pm2 start
-    <your ecosystem file>` (or `pm2 start "npm start" --name sanctum`) reliably
+    <your ecosystem file>` (or `pm2 start "npm start" --name sanctum`, or `pm2 start
+    packages/backend/dist/boot.js --name sanctum`; the entry is `dist/boot.js`, which puts back the
+    previous version after a cut-short update and exits 75 so pm2 starts it again) reliably
     picks up the new build and a fresh environment. A bare `pm2 restart` can
     leave stale state behind.
   - **Never use `pm2 restart --update-env`.** PM2 freezes the environment at

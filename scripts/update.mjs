@@ -25,7 +25,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { UpdateError, discardStage, killAllChildren, readEnvFile, readUpdateSettings, readVersion, recoverInterruptedSwap, rollbackInfo, runRollback, runUpdate } from './updater-core.mjs';
+import { UpdateError, discardStage, killAllChildren, readEnvFile, readUpdateSettings, readVersion, recoverDetailed, rollbackInfo, runRollback, runUpdate } from './updater-core.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const force = process.argv.includes('--force');
@@ -47,11 +47,22 @@ function mindLine() {
 // ---- main ---------------------------------------------------------------------
 readEnvFile(root);
 // First of all: a swap or a roll back that an earlier run was cut short in (kill, power cut) is finished from its manifest, so this run starts from a whole folder.
-// `--recover` does only that and is what `npm start` runs before the app (it also works when packages/backend/dist is missing, which a swap cut short can cause).
+// `--recover` does only that. `npm start` runs it as `--recover --boot` before the app (it works when packages/backend/dist is missing, which a swap cut short can cause, and it
+// never fails the start: dist/boot.js runs the same recovery and the app's update job says what was found). A plain `--recover` also retries a recovery an earlier attempt could not
+// finish (git missing, a lock file) and exits 1 when it still cannot; `--boot` does not retry.
+const recoverOnly = process.argv.includes('--recover');
+const booting = process.argv.includes('--boot');
+let recovered = null;
 try {
-  if (await recoverInterruptedSwap(root, say)) say('the files an interrupted update had changed are back as they were.');
+  recovered = recoverDetailed(root, { log: say, retry: recoverOnly && !booting });
+  if (recovered.outcome === 'restored') say('the files an interrupted update had changed are back as they were.');
+  else if (recovered.outcome === 'adopted') say('an update that had finished was settled: its rollback copy is kept.');
+  else if (recovered.outcome === 'failed' || recovered.outcome === 'refused') say(`recovery: ${recovered.detail}`);
 } catch (err) { say(`could not check for an interrupted update: ${err.message}`); }
-if (process.argv.includes('--recover')) process.exit(0);
+if (recoverOnly) {
+  if (!booting && recovered?.outcome === 'nothing') say('nothing to recover.');
+  process.exit(!booting && (recovered?.outcome === 'failed' || recovered?.outcome === 'refused') ? 1 : 0);
+}
 // Ctrl+C stops the npm/tsc/vite children too (they are their own process groups) and deletes the stage: nothing in the app was changed.
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { killAllChildren(); discardStage(root).finally(() => process.exit(130)); });
 if (process.argv.includes('--rollback')) {

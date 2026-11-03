@@ -1,6 +1,4 @@
-// Pre-boot recovery (src/update-recover.ts): a swap that was cut short is put back, and the process started over, before any other module of the app loads.
-// It must stay the FIRST import of this file.
-import './update-recover.js';
+// (A swap that was cut short is put back by dist/boot.js, the entry point, before this module is loaded: src/boot.ts. This file does no recovery.)
 // Node version guard — must run before any other imports that load native addons
 const _nodeVersion = process.versions.node;
 const _nodeMajor = parseInt(_nodeVersion.split('.')[0], 10);

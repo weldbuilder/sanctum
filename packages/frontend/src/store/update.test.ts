@@ -116,4 +116,30 @@ describe('after a finished update the page checks /api/version, whether or not i
       expect(useUpdateStore.getState().waiting).toBe(false);
     } finally { vi.useRealTimers(); }
   });
+
+  it('a roll back that finished (`rolled_back`) is checked the same way: one /api/version look, a changed build id reloads, once per job', async () => {
+    const reload = vi.fn();
+    vi.stubGlobal('window', { location: { reload } });
+    vi.stubGlobal('__BUILD_ID__', 'new-2');
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', async (url: string) => {
+      urls.push(url);
+      if (url.includes('/api/version')) return { ok: true, json: async () => ({ buildId: 'old-1' }) }; // the previous build is serving again
+      return { ok: true, status: 200, json: async () => snap({ update_available: false, job: job('rolled_back', { kind: 'rollback', to: '1.3.0' }) }) };
+    });
+    vi.useFakeTimers();
+    try {
+      await useUpdateStore.getState().refresh();
+      expect(useUpdateStore.getState().waiting).toBe(true);
+      await vi.advanceTimersByTimeAsync(1600);
+      expect(urls.filter((u) => u.includes('/api/version'))).toHaveLength(1);
+      expect(reload).toHaveBeenCalledTimes(1);
+      reload.mockClear();
+      useUpdateStore.setState({ waiting: false });
+      await useUpdateStore.getState().refresh(); // the same finished job again: not checked a second time
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(urls.filter((u) => u.includes('/api/version'))).toHaveLength(1);
+      expect(reload).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
 });

@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js",
+    "start": "node dist/boot.js",
     "check": "tsc --noEmit",
     "db:init": "tsx src/db-init.ts"
   },
