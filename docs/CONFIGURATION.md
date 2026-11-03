@@ -212,8 +212,10 @@ exists, else the file named by `agent.codex.base_instructions_file` or
 `agent.dsh.base_instructions_file`, else the mind's stock prompt. **The home's copy
 always wins over the shipped fallback**, so an existing home keeps the prompt it
 has until you copy the new one into its `config/`. The starter home
-(`companion-home/config/`) ships all three files. On Codex the built base rides
-every message (roughly 2,000 tokens per turn). Details are in `docs/DSH.md` and `FORK_NOTES.md`.
+(`companion-home/config/`) ships all three files. On all three minds the identity is in the system
+slot, after the harness (Codex: one file passed as `model_instructions_file`; dsh: the persona), as on Claude, not in the
+message; the message carries memory, the summary, the history and what was said. The harness and the
+identity ride every run (roughly 2,000 tokens per turn for the harness). Details are in `docs/DSH.md` and `FORK_NOTES.md`.
 
 ### Which one do I edit?
 

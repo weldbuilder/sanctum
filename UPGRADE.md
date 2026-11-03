@@ -184,3 +184,36 @@ until you want it to. To take the new harness there, copy the files from this st
 `companion-home/config/` into your home's `config/` (replacing the Codex one), or delete
 your home's copy to use the shipped fallback. Check any edits you made first: the new file
 replaces them. The Codex base now rides every message at roughly 2,000 tokens a turn.
+
+---
+
+# Codex and dsh: the identity moved into the system prompt
+
+On Claude the identity has always ridden in the system prompt, after the harness. Codex and dsh
+now do the same. Before, the identity files were put in front of your message (every turn, or the
+first message of a thread). Now:
+
+- **Codex:** the harness base and your identity are written together into one file that is the
+  run's `model_instructions_file`. The file is in `<data>/harness/codex-base` (the folder of
+  `server.db_path`, or the tenant's data folder), in every mode, made owner-only (not the system temp
+  folder: the sandboxed child can write there). A change to the identity makes a new file,
+  so it reaches the next run, a resumed thread included; files older than an hour are pruned.
+- **dsh:** the identity follows the harness in the run's persona. Helper runs (digest, handoff,
+  outlook) are unchanged: they never carried the identity. The public Discord lane now hands its
+  identity to the system slot as well (dsh: after the fixed public base prompt; Claude as before;
+  Codex is refused there), instead of in the message as a `[System]` block.
+- **Threads started before this change** carry the identity in their stored first message as well as
+  in the slot, until that thread is replaced by a new one.
+- **The message** now carries only the memory block, the rolling summary, the `[Context]`
+  orientation, the history and what was said. History lines say who spoke (`Sam:` and `Echo:`, your
+  names from `identity`) under a line naming which of them is the companion, on all three minds.
+
+**`agent.codex.identity_every_turn` and `agent.dsh.identity_every_turn` are gone.** The identity is
+in the system prompt on every run, so there is nothing to switch. If your `sanctum.yaml` sets either,
+delete the line; left in, it is ignored.
+
+If you keep a Codex home with no `config/codex-base-prompt.md` and no
+`agent.codex.base_instructions_file` (`base_instructions_file: ""`), Codex's own prompt still runs
+unchanged, with its tool and `apply_patch` guidance: the identity is added through Codex's
+`developer_instructions`, which prepends it to the developer message. Keep a base file if you want
+the harness there instead.

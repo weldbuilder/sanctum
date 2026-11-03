@@ -42,8 +42,7 @@
         "base_url": "",
         "home": "",
         "sandbox_mode": "workspace-write",
-        "base_instructions_file": "<ROOT>/prompts/dsh-base-prompt.md",
-        "identity_every_turn": true
+        "base_instructions_file": "<ROOT>/prompts/dsh-base-prompt.md"
       },
       "codex": {
         "model": "",
@@ -52,8 +51,7 @@
         "sandbox_mode": "workspace-write",
         "network_access": true,
         "additional_directories": [],
-        "base_instructions_file": "<ROOT>/prompts/codex-base-prompt.md",
-        "identity_every_turn": true
+        "base_instructions_file": "<ROOT>/prompts/codex-base-prompt.md"
       },
       "rolling": {
         "claude": true,
@@ -233,8 +231,7 @@
         "base_url": "",
         "home": "",
         "sandbox_mode": "workspace-write",
-        "base_instructions_file": "<ROOT>/prompts/dsh-base-prompt.md",
-        "identity_every_turn": true
+        "base_instructions_file": "<ROOT>/prompts/dsh-base-prompt.md"
       },
       "codex": {
         "model": "",
@@ -243,8 +240,7 @@
         "sandbox_mode": "workspace-write",
         "network_access": true,
         "additional_directories": [],
-        "base_instructions_file": "<ROOT>/prompts/codex-base-prompt.md",
-        "identity_every_turn": true
+        "base_instructions_file": "<ROOT>/prompts/codex-base-prompt.md"
       },
       "rolling": {
         "claude": true,

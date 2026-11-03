@@ -18,7 +18,7 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('../../config.js', () => ({
-  getSanctumConfig: () => ({ identity: h.identityCfg, agent: { cwd: h.agentHome, dsh: { command: 'dsh', model: h.models.model, model_autonomous: h.models.model_autonomous, model_provider: h.provider, api_key_env: h.keyEnv, base_url: '', home: h.home, sandbox_mode: 'workspace-write', base_instructions_file: '/repo/prompts/dsh-base-prompt.md', identity_every_turn: true }, rolling: { history_max_chars: 24000, history_max_turns: 30, claude: false, codex: false, dsh: true, ...h.rollingCfg } } }),
+  getSanctumConfig: () => ({ identity: h.identityCfg, agent: { cwd: h.agentHome, dsh: { command: 'dsh', model: h.models.model, model_autonomous: h.models.model_autonomous, model_provider: h.provider, api_key_env: h.keyEnv, base_url: '', home: h.home, sandbox_mode: 'workspace-write', base_instructions_file: '/repo/prompts/dsh-base-prompt.md' }, rolling: { history_max_chars: 24000, history_max_turns: 30, claude: false, codex: false, dsh: true, ...h.rollingCfg } } }),
 }));
 vi.mock('./dsh-exec.js', () => ({
   runDshExec: (p: any) => {
@@ -233,13 +233,13 @@ describe('dsh adapter', () => {
     expect(h.exec.params.senderIsOwner).toBe(false);
   });
 
-  it('joins the three layers: persona as base prompt, identity ahead of the message', async () => {
+  it('joins the layers in the system slot: the persona first, then the identity; the message stays bare', async () => {
     await drain(dshQuery({ prompt: 'hi', options: { systemPrompt: { type: 'preset', preset: 'claude_code', append: 'You are Hazel.' } } as any }));
     const p = h.exec.params;
-    expect(p.basePrompt).toBe('BASE PERSONA');
-    expect(p.prompt.startsWith('# Companion Identity')).toBe(true);
-    expect(p.prompt.indexOf('## Companion Narrative')).toBeGreaterThan(p.prompt.indexOf('Companion: Hazel'));
-    expect(p.prompt.endsWith('[Current message]\n\nhi')).toBe(true);
+    expect(p.basePrompt.startsWith('BASE PERSONA\n\n# Companion Identity')).toBe(true);
+    expect(p.basePrompt.indexOf('## Companion Narrative')).toBeGreaterThan(p.basePrompt.indexOf('Companion: Hazel'));
+    expect(p.basePrompt.endsWith('I am Hazel.')).toBe(true);
+    expect(p.prompt).toBe('hi'); // no identity, no head sections: just the person's words
     expect(p.prompt).not.toContain('You are Hazel.');
     expect(p.sandboxMode).toBe('workspace-write');
     expect(p.ephemeral).toBe(false);
@@ -249,11 +249,12 @@ describe('dsh adapter', () => {
   it('the identity block is read from the home identity folder: every file in it, edits live on the next turn', async () => {
     realFs.writeFileSync(realPath.join(h.agentHome, 'identity', 'notes.md'), 'HOUSE NOTES');
     await drain(dshQuery({ prompt: 'hi', options: {} as any }));
-    expect(h.exec.params.prompt).toContain('Companion: Hazel');
-    expect(h.exec.params.prompt).toContain('## notes.md\n\nHOUSE NOTES');
+    expect(h.exec.params.basePrompt).toContain('Companion: Hazel');
+    expect(h.exec.params.basePrompt).toContain('## notes.md\n\nHOUSE NOTES');
+    expect(h.exec.params.prompt).toBe('hi');
     realFs.writeFileSync(realPath.join(h.agentHome, 'identity', 'companion.md'), 'I am Hazel, edited.');
     await drain(dshQuery({ prompt: 'again', options: {} as any }));
-    expect(h.exec.params.prompt).toContain('I am Hazel, edited.');
+    expect(h.exec.params.basePrompt).toContain('I am Hazel, edited.');
   });
 
   it('boots on the ratified identity while a change waits, and says so', async () => {
@@ -262,15 +263,17 @@ describe('dsh adapter', () => {
     ratifyIdentity(h.agentHome, { ledgerDir, trustStat: false }, { by: 'person' });
     realFs.writeFileSync(realPath.join(h.agentHome, 'identity', 'companion.md'), 'HOSTILE REWRITE');
     await drain(dshQuery({ prompt: 'hi', options: {} as any }));
-    expect(h.exec.params.prompt).toContain('I am Hazel.');
-    expect(h.exec.params.prompt).not.toContain('HOSTILE REWRITE');
-    expect(h.exec.params.prompt).toContain('A change to companion.md is waiting for the person to ratify it; this run uses the ratified version.');
+    expect(h.exec.params.basePrompt).toContain('I am Hazel.');
+    expect(h.exec.params.basePrompt).not.toContain('HOSTILE REWRITE');
+    expect(h.exec.params.basePrompt).toContain('A change to companion.md is waiting for the person to ratify it; this run uses the ratified version.');
   });
 
-  it('resumes a real dsh session and resends identity (identity_every_turn)', async () => {
+  it('resumes a real dsh session; identity rides the system slot again and the message stays bare', async () => {
     await drain(dshQuery({ prompt: 'again', options: { resume: 'session-1' } as any }));
     expect(h.exec.params.sessionId).toBe('session-1');
-    expect(h.exec.params.prompt.startsWith('# Companion Identity')).toBe(true);
+    expect(h.exec.params.basePrompt.startsWith('BASE PERSONA')).toBe(true);
+    expect(h.exec.params.basePrompt).toContain('I am Hazel.');
+    expect(h.exec.params.prompt).toBe('again');
   });
 
   it('a failed turn becomes an error result carrying code and message', async () => {
@@ -358,19 +361,45 @@ describe('dsh adapter', () => {
       h.rolling.serve = { covered: 2, segments: 1, block: 'ROLLING-BLOCK', render: (d: number) => (d ? `ROLLING-BLOCK dropped=${d}` : 'ROLLING-BLOCK') };
     });
 
-    it('is an ephemeral fresh run: identity, memory, summary, tail, then the message', async () => {
+    it('is an ephemeral fresh run: memory, summary, tail, then the message; identity rides in the system slot', async () => {
       await drain(dshQuery({ prompt: 'raw hello', options: so() }));
       const p = h.exec.params;
       const i = (x: string) => p.prompt.indexOf(x);
       expect(p.ephemeral).toBe(true);
       expect(p.sessionId).toBeUndefined();
-      expect(i('# Companion Identity')).toBe(0);
-      expect(i('[Memory]')).toBeGreaterThan(i('I am Hazel.'));
+      expect(p.basePrompt.startsWith('BASE PERSONA\n\n# Companion Identity')).toBe(true);
+      expect(p.basePrompt.endsWith('I am Hazel.')).toBe(true);
+      expect(p.prompt).not.toContain('# Companion Identity');
+      expect(p.prompt).not.toContain('I am Hazel.');
+      expect(i('[Memory]')).toBe(0);
       expect(i('ROLLING-BLOCK')).toBeGreaterThan(i('Miso'));
-      expect(i('[Conversation so far]\nUSER: mid u\nASSISTANT: mid a')).toBeGreaterThan(i('ROLLING-BLOCK'));
+      expect(i('[Conversation so far]\nPat: mid u\nHazel: mid a')).toBeGreaterThan(i('ROLLING-BLOCK'));
+      expect(p.prompt).toContain('Prior turns of this conversation. Lines marked Hazel: are your own earlier words.\n\n[Conversation so far]');
       expect(p.prompt.endsWith('[Current message]\nraw hello')).toBe(true);
       expect(p.prompt).not.toContain('old u');
       expect(h.rolling.compact).toBe(1);
+    });
+
+    it('puts the [Context] orientation above the conversation; [Current message] is only the person\'s words', async () => {
+      const ctx = '[Context]\nORIENT\n[/Context]';
+      await drain(dshQuery({ prompt: `${ctx}\n\nraw hello`, options: so({ sanctum: { threadId: 'T1', userContent: 'raw hello', contextBlock: ctx } }) }));
+      const p: string = h.exec.params.prompt;
+      expect(p.indexOf('[Context]')).toBeGreaterThan(-1);
+      expect(p.indexOf('[Context]')).toBeLessThan(p.indexOf('[Conversation so far]'));
+      expect(p.indexOf('[Context]')).toBe(0); // context first, above memory and the summary, as on Claude
+      expect(p.indexOf('ROLLING-BLOCK')).toBeGreaterThan(p.indexOf('[/Context]'));
+      expect(p.slice(p.indexOf('[Current message]'))).toBe('[Current message]\nraw hello');
+    });
+
+    it('the [Context] block also comes out of the message when rolling is off: first, above memory, never inside [Current message]', async () => {
+      h.rollingCfg = { dsh: false };
+      h.recall = '- a memory';
+      const ctx = '[Context]\nORIENT\n[/Context]';
+      await drain(dshQuery({ prompt: `${ctx}\n\nraw hello`, options: so({ sanctum: { threadId: 'T1', userContent: 'raw hello', contextBlock: ctx } }) }));
+      const p: string = h.exec.params.prompt;
+      expect(p.startsWith(ctx)).toBe(true);
+      expect(p.indexOf('[Memory]')).toBeGreaterThan(p.indexOf('[/Context]'));
+      expect(p.endsWith('[Current message]\n\nraw hello')).toBe(true);
     });
 
     it('uses the stable rolling session id and ignores resume; ingests once', async () => {
@@ -539,6 +568,16 @@ describe('dsh adapter: the sealed (public) run', () => {
   it("never sends the companion's own dsh-base-prompt as the persona: it sends the fixed public base prompt", async () => {
     await drain(dshQuery({ prompt: 'frame', options: publicOptions() }));
     expect(h.exec.params.basePrompt).not.toContain('BASE PERSONA');
+    // the persona is the public base, then the identity the lane built (its systemPrompt) in the same slot: not the home's identity files
+    expect(h.exec.params.basePrompt).toBe('PUBLIC BASE\n\nIDENTITY OF HAZEL');
+    expect(h.exec.params.basePrompt).not.toContain('I am Hazel.');
+  });
+
+  it("the lane's identity is in the system slot and no longer in the message as a [System] block; no systemPrompt leaves the base exactly as it is", async () => {
+    await drain(dshQuery({ prompt: 'frame', options: publicOptions() }));
+    expect(h.exec.params.prompt).toBe('frame');
+    expect(h.exec.params.prompt).not.toContain('IDENTITY OF HAZEL');
+    await drain(dshQuery({ prompt: 'frame', options: publicOptions({ systemPrompt: undefined }) }));
     expect(h.exec.params.basePrompt).toBe('PUBLIC BASE');
   });
 
@@ -546,7 +585,7 @@ describe('dsh adapter: the sealed (public) run', () => {
     await drain(dshQuery({ prompt: 'digest', options: { tools: [] } as any }));
     expect(h.exec.params.sealed).toBeFalsy();
     expect(h.exec.params.maxSteps).toBeUndefined();
-    expect(h.exec.params.basePrompt).toBe('BASE PERSONA');
+    expect(h.exec.params.basePrompt).toBe('BASE PERSONA'); // the home has an identity; a helper is a job, not the self, so it is not added
   });
 
   it('a run the runner cut short at its step limit is a failed result with a max_turns subtype, never a reply', async () => {
