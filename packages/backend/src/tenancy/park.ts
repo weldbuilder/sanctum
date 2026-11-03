@@ -16,6 +16,8 @@ import { reconcileRevienOnReload } from './revien.js';
 import { housePassword, householdMode } from './house.js';
 import { mountPluginsFor } from './plugin-mount.js';
 import { registry } from '../services/ws.js';
+import { isOutlookAuthorRunning } from '../services/outlook-author.js';
+import { isHandoffRunning } from '../services/handoff.js';
 import type { AgentService } from '../services/agent.js';
 
 export type TenantState = 'running' | 'parked' | 'failed';
@@ -29,11 +31,13 @@ export class ParkRefusal extends Error {
 /** How long a park waits for the running turn to end after asking it to stop (ms), before it closes the database anyway. */
 export const parkWait = { ms: 30_000, pollMs: 50 };
 
-/** The runtime's turn is still going: the agent is processing, or its harness query (the child) is still open. */
+/** The runtime's turn is still going: the agent is processing, or its harness query (the child) is still open, or an Outlook author pass or a handoff run
+ *  (model calls outside the agent queue) is in flight. */
 function turnRunning(rt: TenantRuntime): boolean {
   const agent = rt.services.agentService as Partial<AgentService> | undefined;
-  if (!agent) return false;
-  try { return runInTenant(rt, () => !!agent.isProcessing?.() || !!agent.hasActiveQuery?.()); } catch { return false; }
+  try {
+    return runInTenant(rt, () => !!agent?.isProcessing?.() || !!agent?.hasActiveQuery?.() || isOutlookAuthorRunning() || isHandoffRunning());
+  } catch { return false; }
 }
 
 /** The websocket close code a parked companion's clients get: 1013, try again later (the page reconnects and is answered 503 until the revive). */
@@ -83,6 +87,8 @@ export async function parkTenant(id: string): Promise<TenantStatus> {
     republishTenants(l);
     // A turn in flight is asked to stop and its sockets are closed, inside the tenant (its own registry, its own agent).
     runInTenant(rt, () => {
+      // quiesce first: queued turns are rejected and none starts (a turn between its queue and its provider call stops at the fence), then the active one is interrupted.
+      try { (rt.services.agentService as Partial<AgentService> | undefined)?.quiesce?.(); } catch { /* best effort */ }
       try { (rt.services.agentService as AgentService | undefined)?.stopGeneration(); } catch { /* best effort */ }
       try { registry.closeAll(PARK_CLOSE_CODE, 'companion parked'); } catch { /* best effort */ }
     });

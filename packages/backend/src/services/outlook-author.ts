@@ -380,6 +380,7 @@ function normalizeAuthored(parsed: unknown, updatedAt: string): AuthoredOutput {
  *  throws — the caller's lifecycle stays resilient. */
 export async function authorOutlook(): Promise<boolean> {
   if (backgroundRunsOff()) return false; // the operator's switch: no model run for this tenant
+  if (authorLocal.get().stopped) return false; // stopped (a park): no model call
   // Hale #1 (2026-07-02): never fire a concurrent query() while the user's live
   // turn is in flight — same subscription, same rate limit; the interactive
   // turn is the one that must not bounce. Defer to the next cycle.
@@ -454,6 +455,7 @@ export async function authorOutlook(): Promise<boolean> {
     return false;
   }
 
+  if (authorLocal.get().stopped) { console.log('[outlook-author] stopped during the pass — nothing stored'); return false; }
   const authored = normalizeAuthored(parsed, new Date().toISOString());
 
   // Store the three authored slices into config KV for the logistics poller.
@@ -548,7 +550,13 @@ export function readAuthoredNeedsYou(): OutlookNeedsYouItem[] {
 // --- Author lifecycle (its OWN rhythm, NOT the poller's tick) ---------------
 
 // Per tenant (tenantLocal): each tenant has its own author timer and its own in-flight guard; tenancy off, the one module value as before.
-const authorLocal = tenantLocal<{ timer: NodeJS.Timeout | null; authoring: boolean }>(() => ({ timer: null, authoring: false }));
+// `stopped` is the fence a stop leaves: an author pass already in flight neither reschedules, nor starts a model call, nor stores after it (a park closes the database).
+const authorLocal = tenantLocal<{ timer: NodeJS.Timeout | null; authoring: boolean; stopped: boolean }>(() => ({ timer: null, authoring: false, stopped: false }));
+
+/** An author pass is in flight (the timer's, or a manual one). It runs outside the agent queue, so a park counts it as a running turn. */
+export function isOutlookAuthorRunning(): boolean {
+  return authorLocal.get().authoring;
+}
 
 /** Force a re-author NOW (manual path, behind POST /api/outlook/reauthor).
  *  Deduplicates against an in-flight run. Returns whether output was stored. */
@@ -570,6 +578,7 @@ export async function authorOutlookNow(): Promise<boolean> {
 export function startOutlookAuthor(): void {
   const st = authorLocal.get();
   if (st.timer) return;
+  st.stopped = false;
 
   const runOnce = async () => {
     let ok = false;
@@ -581,10 +590,12 @@ export function startOutlookAuthor(): void {
       console.error('[outlook-author] run faulted:', err instanceof Error ? err.message : err);
       ok = false;
     }
+    if (st.stopped) return; // stop() came while the pass ran: no new timer for a retired runtime
     schedule(ok ? OUTLOOK_AUTHOR_INTERVAL_MS : AUTHOR_BACKOFF_MS);
   };
 
   const schedule = (delayMs: number) => {
+    if (st.stopped) return;
     if (st.timer) clearTimeout(st.timer);
     // Tenant mode: the run happens as the tenant that started the loop (bindCurrentTenant is the function itself with tenancy off).
     const timer = setTimeout(bindCurrentTenant(() => { void runOnce(); }), delayMs);
@@ -604,6 +615,7 @@ export function startOutlookAuthor(): void {
 /** Stop the author loop (graceful shutdown). */
 export function stopOutlookAuthor(): void {
   const st = authorLocal.get();
+  st.stopped = true;
   if (st.timer) {
     clearTimeout(st.timer);
     st.timer = null;

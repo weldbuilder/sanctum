@@ -52,6 +52,9 @@ export interface HoldOptions {
 /** A held turn (Discord) that failed. It carries a short class and nothing else: never the provider's message,
  *  a path or a stack, so it is safe to show the owner and to log. A held turn never returns an error as its
  *  reply: the web shows `[Agent error: ...]` to the owner, but a Discord reply goes out to a room. */
+/** Thrown inside a turn that a park caught before its provider call; the turn's own catch turns it into a quiet end, never an error line. */
+class ParkedBeforeQuery extends Error { constructor() { super('tenant parked'); this.name = 'ParkedBeforeQuery'; } }
+
 export class AgentTurnError extends Error {
   constructor(readonly kind: string) {
     super(`agent turn failed (${kind})`);
@@ -173,6 +176,16 @@ interface QueueEntry {
 class QueryQueue {
   private queue: QueueEntry[] = [];
   private running = false;
+  /** Set by close() (a park): nothing new is accepted and nothing queued starts. */
+  private closed = false;
+
+  /** Close the queue and reject everything still waiting with `err` (the running entry is left to end by its own interrupt). */
+  close(err: () => Error): void {
+    this.closed = true;
+    const waiting = this.queue;
+    this.queue = [];
+    for (const e of waiting) e.reject(err());
+  }
 
   get isProcessing(): boolean {
     return this.running;
@@ -183,6 +196,7 @@ class QueryQueue {
   }
 
   async enqueue(priority: number, execute: () => Promise<string>, opts: { rejectInsteadOfReply?: boolean } = {}): Promise<string> {
+    if (this.closed) throw new AgentTurnError('tenant_parked');
     // If idle, run immediately
     if (!this.running && this.queue.length === 0) {
       this.running = true;
@@ -210,6 +224,7 @@ class QueryQueue {
   }
 
   private async processNext(): Promise<void> {
+    if (this.closed) return;
     // Prune timed-out entries
     const now = Date.now();
     this.queue = this.queue.filter(entry => {
@@ -258,6 +273,8 @@ interface AgentState {
   abort: AbortController | null;
   activeQuery: Query | null;
   queue: QueryQueue;
+  /** quiesce() ran: this companion is being parked and starts no new turn. */
+  parked: boolean;
   /** Cached MCP server status (refreshed on each query). */
   mcpStatus: McpServerInfo[];
   /** Active streaming message id per thread. Set when a turn's stream begins and cleared when the turn ends, so out-of-band callers (the
@@ -267,7 +284,7 @@ interface AgentState {
 }
 const stateLocal = tenantLocal<AgentState>(() => ({
   initialized: false, claudeMd: '', systemPromptFile: '', agentCwd: '', mcpServers: {}, presence: 'offline', contextTokens: 0, contextWindow: 0,
-  abort: null, activeQuery: null, queue: new QueryQueue(), mcpStatus: [], activeMessage: new Map(),
+  abort: null, activeQuery: null, queue: new QueryQueue(), parked: false, mcpStatus: [], activeMessage: new Map(),
 }));
 const st = (): AgentState => stateLocal.get();
 
@@ -444,6 +461,21 @@ export class AgentService {
     return st().queue.isProcessing;
   }
 
+  /** A park (tenancy/park.ts): from here no turn starts. Everything queued is rejected with a `tenant_parked` AgentTurnError, a turn that has not yet reached the
+   *  provider call stops there, and new work is refused. The turn already inside the provider call is stopped by stopGeneration(), which a park calls next. */
+  quiesce(): void {
+    const state = st();
+    state.parked = true;
+    state.queue.close(() => new AgentTurnError('tenant_parked'));
+  }
+
+  /** True once this companion is being parked (quiesce) or its runtime is leaving/parked. */
+  private fenced(): boolean {
+    if (st().parked) return true;
+    const rt = currentTenant();
+    return !!(rt && (rt.leaving || rt.parked));
+  }
+
   /** A harness query (its child process) is open for the running turn. A park waits for this, and a revive is refused while it is true. */
   hasActiveQuery(): boolean {
     return st().activeQuery !== null;
@@ -586,6 +618,7 @@ export class AgentService {
     }
 
     return st().queue.enqueue(priority, async () => {
+      if (this.fenced()) throw new AgentTurnError('tenant_parked'); // a turn that was queued when the park began never starts
       st().presence = 'waking';
       registry.broadcast({ type: 'presence', status: 'waking' });
       return this._processQuery(threadId, content, false, threadMeta, opts);
@@ -608,6 +641,7 @@ export class AgentService {
   }
 
   private async _processQuery(threadId: string, content: string, isAutonomous = false, threadMeta?: { name: string; type: 'daily' | 'named' }, platformOpts?: { platform?: 'web' | 'discord' | 'telegram' | 'api'; platformContext?: string; senderIsOwner?: boolean; images?: AgentImageInput[]; hold?: HoldOptions; memory?: 'none' }, modelOverride?: string): Promise<string> {
+    if (this.fenced()) throw new AgentTurnError('tenant_parked'); // parked: no new turn, whatever queued it
     ensureInit();
     const noMemory = platformOpts?.memory === 'none';
     const thread = getThread(threadId);
@@ -941,6 +975,10 @@ export class AgentService {
             `[Current message]\n${content}`,
           ].filter(Boolean).join('\n\n')
         : `${contextBlock}\n\n${content}`) + attachmentNote;
+
+      // A park that began while this turn was still getting ready (before it had a query to interrupt) ends it here: no provider call. No await sits between this
+      // check and query() below, so a park is either seen here or finds the query it must interrupt.
+      if (this.fenced()) throw new ParkedBeforeQuery();
 
       // Abort controller for stop_generation support
       const abort = new AbortController();
@@ -1301,9 +1339,14 @@ export class AgentService {
       }
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
+      if (error instanceof ParkedBeforeQuery) {
+        wasInterrupted = true; // ended by a park before any provider call: no error bubble, nothing persisted
+        console.log('[Agent] turn ended before its provider call: the companion is being parked');
+      } else {
       console.error('Agent query error:', errMsg, error);
       if (hold) turnError = errorClass(error);
       else fullResponse = fullResponse || `[Agent error: ${errMsg}]`;
+      }
     } finally {
       // Clean up active query tracking
       st().abort = null;
