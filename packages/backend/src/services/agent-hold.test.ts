@@ -37,7 +37,7 @@ vi.mock('./rolling-context.js', () => ({
   getRolling: () => ({ maybeCompact: async () => {}, readTurns: async () => [] }),
   rollingEnabledForActiveProvider: () => h.rolling,
 }));
-vi.mock('./rolling-history.js', () => ({ assembleRollingHistory: async () => { h.histories++; return ({ summary: '', notice: '', lines: [], turns: 0, segments: 0 }); } }));
+vi.mock('./rolling-history.js', async (orig) => ({ ...(await orig<typeof import('./rolling-history.js')>()), assembleRollingHistory: async () => { h.histories++; return ({ summary: '', notice: '', lines: [], turns: 0, segments: 0 }); } }));
 vi.mock('../middleware/internal-token.js', () => ({ getInternalToken: () => 't' }));
 vi.mock('./revien.js', () => ({
   MEMORY_HEADER: '[memory]',

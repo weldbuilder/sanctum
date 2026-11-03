@@ -20,6 +20,9 @@ const h = vi.hoisted(() => ({
   recalls: [] as string[],
   prefetches: 0,
   histories: 0,
+  historyOpts: [] as any[],
+  historyLines: [] as string[],
+  prompts: [] as any[],
   queryThrows: null as null | Error,
   events: null as null | any[],
   gate: null as null | Promise<void>,
@@ -32,7 +35,7 @@ vi.mock('./providers/index.js', () => ({
   AbortError: class AbortError extends Error {},
   listSessions: async () => [],
   query: (p: any) => {
-    h.options = p.options;
+    h.options = p.options; h.prompts.push(p.prompt);
     const events = h.events ?? [{ type: 'assistant', session_id: 's1', message: { content: [{ type: 'text', text: h.reply }] } }, { type: 'result', session_id: 's1' }];
     const it = (async function* () { if (h.gate) await h.gate; if (h.queryThrows) throw h.queryThrows; for (const e of events) yield e; })();
     return Object.assign(it, { mcpServerStatus: async () => [], interrupt: async () => {}, close: () => {} });
@@ -43,7 +46,10 @@ vi.mock('./rolling-context.js', () => ({
   getRolling: () => ({ maybeCompact: async () => {}, readTurns: async () => [] }),
   rollingEnabledForActiveProvider: () => h.rolling,
 }));
-vi.mock('./rolling-history.js', () => ({ assembleRollingHistory: async () => { h.histories++; return ({ summary: '', notice: '', lines: [], turns: 0, segments: 0 }); } }));
+vi.mock('./rolling-history.js', async (orig) => ({
+  ...(await orig<typeof import('./rolling-history.js')>()),
+  assembleRollingHistory: async (_t: string, _c: string, _a: boolean, o?: any) => { h.histories++; h.historyOpts.push(o); return ({ summary: '', notice: '', lines: h.historyLines, turns: h.historyLines.length, segments: 0 }); },
+}));
 vi.mock('../middleware/internal-token.js', () => ({ getInternalToken: () => 't' }));
 vi.mock('./revien.js', () => ({
   MEMORY_HEADER: '[memory]',
@@ -94,12 +100,22 @@ const turn = () => new AgentService().processMessage('t1', 'hello', { name: 'T',
 beforeEach(() => {
   h.home = mkdtempSync(join(tmpdir(), 'sanctum-agent-home-'));
   h.ledgerDir = join(mkdtempSync(join(tmpdir(), 'sanctum-agent-ledger-')), 'identity');
-  h.created = []; h.options = null; h.broadcasts = [];
+  h.created = []; h.options = null; h.broadcasts = []; h.prompts = []; h.historyOpts = []; h.historyLines = [];
   h.frameFile = '';
   h.provider = 'claude';
 });
 
 describe('the Claude harness identity', () => {
+  it('the rolling history names its speakers: Name: lines under a preface saying which are the companion\'s own words', async () => {
+    h.historyLines = ['Pat: good morning', 'Echo: morning, Pat'];
+    await turn();
+    expect(h.historyOpts[0]).toMatchObject({ named: true });
+    const p = h.prompts[0] as string;
+    expect(p).toContain('Prior turns of this conversation. Lines marked Echo: are your own earlier words.\n\n[Conversation so far]\nPat: good morning\nEcho: morning, Pat');
+    expect(p.indexOf('[Context]')).toBeLessThan(p.indexOf('[Conversation so far]'));
+    expect(p.indexOf('[Conversation so far]')).toBeLessThan(p.indexOf('[Current message]\nhello'));
+  });
+
   it("carries the home's identity/profile.md and companion.md (not the project root's)", async () => {
     mkdirSync(join(h.home, 'identity'));
     writeFileSync(join(h.home, 'identity', 'profile.md'), 'Hazel lives in the garden.');
