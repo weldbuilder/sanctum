@@ -37,7 +37,7 @@ describe('logEvent', () => {
 
 describe('eventSummary', () => {
   it('is empty before anything happened', () => {
-    expect(eventSummary('discord')).toEqual({ count24h: 0, lastKind: null, lastAt: null });
+    expect(eventSummary('discord')).toEqual({ count24h: 0, lastKind: null, lastAt: null, byKind: {} });
   });
 
   it('counts the last 24 hours of one category, newest kind and time', () => {
@@ -46,11 +46,11 @@ describe('eventSummary', () => {
     logEvent('discord', 'gate_error', { now: t0 });
     logEvent('discord', 'reply_failed', { now: t0 + 2 * H });
     logEvent('other', 'noise', { now: t0 + 3 * H });
-    expect(eventSummary('discord', t0 + 4 * H)).toEqual({ count24h: 2, lastKind: 'reply_failed', lastAt: new Date(t0 + 2 * H).toISOString() });
+    expect(eventSummary('discord', t0 + 4 * H)).toEqual({ count24h: 2, byKind: { gate_error: 1, reply_failed: 1 }, lastKind: 'reply_failed', lastAt: new Date(t0 + 2 * H).toISOString() });
     // 25 hours later the first has aged out, the second has not yet
     expect(eventSummary('discord', t0 + 25 * H).count24h).toBe(1);
     // and later still, none are counted, but the last kind is still known
-    expect(eventSummary('discord', t0 + 30 * H)).toEqual({ count24h: 0, lastKind: 'reply_failed', lastAt: new Date(t0 + 2 * H).toISOString() });
+    expect(eventSummary('discord', t0 + 30 * H)).toEqual({ count24h: 0, byKind: {}, lastKind: 'reply_failed', lastAt: new Date(t0 + 2 * H).toISOString() });
     vi.restoreAllMocks();
   });
 });

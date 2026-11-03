@@ -19,7 +19,8 @@
 //   1. Base prompt = the persona. <agent.cwd>/config/dsh-base-prompt.md, else
 //      agent.dsh.base_instructions_file; sent as the system-prompt personaPrefix
 //      with dsh's own "You are an AI agent powered by DeepSeek Harness" opener off.
-//   2. Identity = the self, prepended to the main conversation's message.
+//   2. Identity = the self. Added after the base prompt in the same personaPrefix (the system slot) on a main run, rolling or not;
+//      read-only helper runs and sealed (public) runs never get it.
 //   3. AGENTS.md = workspace law. dsh-agent-instructions loads it by itself.
 //   Rolling mode (agent.rolling.dsh, main conversation only): every turn is a
 //   fresh ephemeral run; session id is the stable `rolling:<threadId>`.
@@ -33,7 +34,7 @@ import { fileURLToPath } from 'node:url';
 import { getSanctumConfig } from '../../config.js';
 import { runDshExec } from './dsh-exec.js';
 import { routeKeyVar } from './dsh-key.js';
-import { assembleRollingHistory } from '../rolling-history.js';
+import { assembleRollingHistory, conversationBlock, splitContextBlock } from '../rolling-history.js';
 import { recallForPrompt, ingestTurn, MEMORY_HEADER } from '../revien.js';
 import { mindRecallBlock } from '../mind-client.js';
 import { childRunBase } from '../../tenancy/child.js';
@@ -269,7 +270,7 @@ export function dshQuery({ prompt, options }: { prompt: string | AsyncIterable<a
       }
     }
 
-    const sanctum = (opts as any).sanctum as { threadId: string; userContent: string; autonomous?: boolean; senderIsOwner?: boolean; noIngest?: boolean; memory?: 'none'; sealed?: boolean } | undefined;
+    const sanctum = (opts as any).sanctum as { threadId: string; userContent: string; autonomous?: boolean; senderIsOwner?: boolean; noIngest?: boolean; memory?: 'none'; sealed?: boolean; contextBlock?: string } | undefined;
     // memory: 'none' (the public lane): no recall, no ingest, no thread history, no fold.
     const noMemory = sanctum?.memory === 'none';
     const rollingOn = !readOnly && !noMemory && cfg.agent.rolling?.dsh !== false && !!sanctum?.threadId;
@@ -316,6 +317,13 @@ export function dshQuery({ prompt, options }: { prompt: string | AsyncIterable<a
       ...(sealed ? { sealed: true, noProjectDocs: true, maxSteps: typeof opts.maxTurns === 'number' && opts.maxTurns > 0 ? opts.maxTurns : 1 } : {}),
     };
 
+    // A main run (rolling or not) carries the identity in the system slot: the harness base first, then the identity, the same order as
+    // Claude's system prompt. Read-only helpers and sealed (public) runs keep their base prompt exactly as it is.
+    if (!sealed && !readOnly) execBase.basePrompt = [execBase.basePrompt, identityBlock('dsh')].filter((x) => x && x.trim()).join('\n\n');
+    // The public lane (sealed) hands its identity as the systemPrompt: it rides in the same slot, after the fixed public base prompt
+    // (never the companion's own base, never the home's identity files: the lane builds its own text), not in the message.
+    if (sealed) execBase.basePrompt = [execBase.basePrompt, systemText(opts.systemPrompt)].filter((x) => x && x.trim()).join('\n\n');
+
     let input = prompt;
     let fixedSession = false;
     let ephemeral = false;
@@ -327,31 +335,31 @@ export function dshQuery({ prompt, options }: { prompt: string | AsyncIterable<a
       state.sessionId = `rolling:${threadId}`;
       fixedSession = true; ephemeral = true;
       // Fail-soft history assembly (see rolling-history.ts).
-      const history = await assembleRollingHistory(threadId, sanctum!.userContent, !!sanctum!.autonomous);
+      const history = await assembleRollingHistory(threadId, sanctum!.userContent, !!sanctum!.autonomous, { named: true });
       rolling = history.rolling;
       const { summary, notice, lines } = history;
+      // The orientation block comes out of the message and sits first, as it does on Claude (above memory and the summary).
+      const { context, message } = splitContextBlock(prompt, sanctum?.contextBlock);
       input = [
-        identityBlock('dsh'),
+        context,
         memoryBlock,
         mindBlock,
         summary,
         notice,
-        lines.length ? `[Conversation so far]\n${lines.join('\n')}` : '',
-        `[Current message]\n${prompt}`,
+        conversationBlock(lines),
+        `[Current message]\n${message}`,
       ].filter(Boolean).join('\n\n');
     } else if (readOnly) {
-      const taskBrief = !resumeId ? systemText(opts.systemPrompt) : '';
+      const taskBrief = !resumeId && !sealed ? systemText(opts.systemPrompt) : ''; // a sealed run's text is in the persona slot above
       if (taskBrief) input = `[System]\n${taskBrief}\n[/System]\n\n${prompt}`;
       // A one-shot helper leaves no dsh session behind; one that resumes a real session cannot be ephemeral.
       ephemeral = !resumeId;
       sessionId = resumeId;
     } else {
-      const head = [
-        !resumeId || dx.identity_every_turn ? identityBlock('dsh') : '',
-        memoryBlock,
-        mindBlock,
-      ].filter(Boolean);
-      if (head.length) input = `${head.join('\n\n')}\n\n[Current message]\n\n${prompt}`;
+      // Not rolling: the orientation block still comes out of the message, first, so it never sits inside [Current message].
+      const { context, message } = splitContextBlock(prompt, sanctum?.contextBlock);
+      const head = [context, memoryBlock, mindBlock].filter(Boolean);
+      if (head.length) input = `${head.join('\n\n')}\n\n[Current message]\n\n${message}`;
       sessionId = resumeId;
     }
 

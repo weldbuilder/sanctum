@@ -140,7 +140,7 @@ export function buildOverlay(p: DshExecParams, ephemeralRoot?: string): any[] {
   }
   if (ephemeralRoot) {
     // Everything dsh persists for a session: the log, and the projection cache
-    // under storages/ (which holds the first prompt, i.e. identity and memory).
+    // under storages/ (which holds the first prompt, i.e. recalled memory and the conversation).
     rows.push({ id: 'session-persistence-jsonl', config: { root: join(ephemeralRoot, 'sessions') } });
     rows.push({ id: 'storage-json', config: { root: join(ephemeralRoot, 'storages') } });
   }

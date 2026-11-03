@@ -1,7 +1,7 @@
 import { query, activeProvider, AbortError, listSessions, type Options, type Query, type McpServerConfig, type ListSessionsOptions } from './providers/index.js';
 import { senderIsOwnerFor } from './plugins.js';
 import { getRolling, rollingEnabledForActiveProvider } from './rolling-context.js';
-import { assembleRollingHistory } from './rolling-history.js';
+import { assembleRollingHistory, conversationBlock } from './rolling-history.js';
 import { getInternalToken } from '../middleware/internal-token.js';
 import { recallForPrompt, ingestTurn, MEMORY_HEADER } from './revien.js';
 import type { McpServerInfo, EffortLevel } from '@sanctum/shared';
@@ -937,13 +937,13 @@ export class AgentService {
       let claudeMemoryBlock = '';
       let bridgeNote = '';
       if (claudeRolling) {
-        if (!noMemory) rollingHistory = await assembleRollingHistory(threadId, content, isAutonomous);
+        if (!noMemory) rollingHistory = await assembleRollingHistory(threadId, content, isAutonomous, { named: true });
         if (!isAutonomous && !noMemory) {
           const memory = await recallForPrompt(content, threadId);
           if (memory) claudeMemoryBlock = `${MEMORY_HEADER}\n${memory}`;
         }
       } else if (bridge && !noMemory) {
-        rollingHistory = await assembleRollingHistory(threadId, content, isAutonomous, { force: true });
+        rollingHistory = await assembleRollingHistory(threadId, content, isAutonomous, { force: true, named: true });
         if (rollingHistory.turns > 0) {
           const n = rollingHistory.turns;
           const s = rollingHistory.segments;
@@ -970,7 +970,7 @@ export class AgentService {
             claudeMemoryBlock,
             rollingHistory.summary,
             rollingHistory.notice,
-            rollingHistory.lines.length ? `[Conversation so far]\n${rollingHistory.lines.join('\n')}` : '',
+            conversationBlock(rollingHistory.lines),
             bridgeNote,
             `[Current message]\n${content}`,
           ].filter(Boolean).join('\n\n')
@@ -993,7 +993,7 @@ export class AgentService {
       // enrichedPrompt (see buildAttachmentNote above); no streaming-input branch
       // is needed, which keeps resume/session handling simple and uniform.
       // Codex / dsh: the adapter owns thread history and needs the raw user message.
-      if (activeProvider() !== 'claude') (options as any).sanctum = { threadId, userContent: content, autonomous: isAutonomous, senderIsOwner: isAutonomous ? undefined : senderIsOwnerFor(platformOpts?.platform, platformOpts?.senderIsOwner), ...(hold ? { noIngest: true } : {}), ...(noMemory ? { memory: 'none' } : {}) };
+      if (activeProvider() !== 'claude') (options as any).sanctum = { threadId, userContent: content, contextBlock, autonomous: isAutonomous, senderIsOwner: isAutonomous ? undefined : senderIsOwnerFor(platformOpts?.platform, platformOpts?.senderIsOwner), ...(hold ? { noIngest: true } : {}), ...(noMemory ? { memory: 'none' } : {}) };
       const result = query({ prompt: enrichedPrompt, options });
       st().activeQuery = result;
 

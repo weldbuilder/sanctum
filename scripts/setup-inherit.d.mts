@@ -13,6 +13,8 @@ export function removalMarkers(tenantYaml: unknown): RemovalMarker[];
 export function withoutMarked(base: unknown, rows: RemovalMarker[]): Record<string, any>;
 export function withRemovalMarkers(own: Record<string, any>, rows: RemovalMarker[], base?: unknown): Record<string, any>;
 export function overlay<T = Record<string, any>>(base: unknown, over: unknown): T;
+export function processFilePath(root: string): string;
+export function hostsOfFolderLoosely(dir: string): string[];
 export function readProcessFile(root: string): Record<string, any>;
 export function tenantsBlockOf(root: string, processFile: unknown, homeDir?: string): { dir: string; inherit: boolean; auth?: string; default?: string } | null;
 export function authKeyMissingProblem(tenantsDir: string, block: { auth?: string | null; default?: string | null } | null): string;
