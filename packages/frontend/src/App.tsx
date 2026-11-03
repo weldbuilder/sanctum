@@ -18,7 +18,7 @@ import { ConfirmProvider } from './components/ConfirmDialog';
 import { COMPANION_PREFIX } from './lib/base';
 import { Hallway } from './components/Hallway';
 import { UpdateDialog } from './components/UpdateBar';
-import { canSelfUpdate, selfUpdateWhy, useUpdateStore } from './store/update';
+import { canSelfUpdate, selfUpdateWhy, showVersionPill, useUpdateStore } from './store/update';
 
 // ─── Cold routes — lazy-loaded on first visit ──────────────────────────────────
 // /home and /chat are the hot path and stay eager; these three only fetch their
@@ -586,6 +586,7 @@ function AppShell() {
 
   // A newer Sanctum on GitHub (distinct from a newer local build above).
   // Dismissed per version, so the same release doesn't nag after a reload.
+  const updateUnavailable = useUpdateStore(st => st.unavailable);
   const [newVersion, setNewVersion] = useState<UpdateStatus | null>(null);
   const onNewVersion = React.useCallback((s: UpdateStatus) => {
     try { if (localStorage.getItem('sanctum.dismissedVersion') === s.latest) return; } catch { /* show anyway */ }
@@ -670,7 +671,7 @@ function AppShell() {
       <ApprovalCard />
       {updateBuildId && <UpdatePill onDismiss={dismissUpdate} />}
       <UpdateDialog />
-      {!updateBuildId && !onBarRoute && newVersion && <NewVersionPill status={newVersion} onDismiss={dismissNewVersion} />}
+      {newVersion && showVersionPill({ updateBuildId, onBarRoute, unavailable: updateUnavailable, hasNewVersion: true }) && <NewVersionPill status={newVersion} onDismiss={dismissNewVersion} />}
       <CommandPalette />
       <div className="app-content" data-route={routeKey}>
         <Suspense fallback={<RouteFallback />}>

@@ -1,7 +1,7 @@
 import React, { useRef, useCallback, useEffect, useState, useMemo } from 'react';
 import { VoiceRecorder } from './VoiceRecorder';
 import { useChatStore } from '../store/chat';
-import { UPDATE_REFUSED_NOTICE, messagesPaused, useUpdateStore } from '../store/update';
+import { UPDATE_REFUSED_NOTICE, mergeRefused, messagesPaused, useUpdateStore } from '../store/update';
 import { useIdentity } from '../store/identity';
 import type { CommandRegistryEntry } from '@sanctum/shared';
 import { resolveEffectiveAttachments } from './attachmentUtils';
@@ -393,15 +393,13 @@ export function Composer({ onSend, onStop, isStreaming, disabled }: Props) {
     if (!refusedDraft) return;
     const el = textareaRef.current;
     if (el) {
-      if (!el.value.trim()) {
-        el.value = refusedDraft.content;
-        saveDraft(activeThreadId, refusedDraft.content);
-        setHasText(refusedDraft.content.trim().length > 0);
-        autoResize();
-      }
-      if (refusedDraft.attachments?.length) {
-        setAttachments(prev => (prev.length ? prev : refusedDraft.attachments!.map(a => ({ ...a }))));
-      }
+      // The person may already be typing the next draft: keep both (refused text first), and union the attachments.
+      const merged = mergeRefused({ text: el.value, attachments }, refusedDraft);
+      el.value = merged.text;
+      saveDraft(activeThreadId, merged.text);
+      setHasText(merged.text.trim().length > 0);
+      autoResize();
+      setAttachments(merged.attachments);
     }
     setPausedNotice(UPDATE_REFUSED_NOTICE);
     setTimeout(() => setPausedNotice(null), 8000);

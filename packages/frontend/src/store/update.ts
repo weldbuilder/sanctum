@@ -93,6 +93,22 @@ export function barModel(s: UpdateSnapshot | null, dismissedFor: string | null, 
   return HIDDEN;
 }
 
+/** The bar covers Home and Chat from the house snapshot. Where that snapshot never comes (`unavailable`: per-tenant hosts answer 404), the pill stands in on those routes too. */
+export function showVersionPill(o: { updateBuildId: unknown; onBarRoute: boolean; unavailable: boolean; hasNewVersion: boolean }): boolean {
+  return !o.updateBuildId && o.hasNewVersion && (!o.onBarRoute || o.unavailable);
+}
+
+/** A refused message is merged into whatever the person has typed since, never dropped: the refused text first, then the new draft; attachments are unioned by fileId. */
+export function mergeRefused<A extends { fileId: string }>(
+  current: { text: string; attachments: A[] },
+  refused: { content: string; attachments?: A[] },
+): { text: string; attachments: A[] } {
+  const text = !current.text.trim() ? refused.content : !refused.content.trim() ? current.text : `${refused.content}\n\n${current.text}`;
+  const seen = new Set(current.attachments.map(a => a.fileId));
+  const extra = (refused.attachments ?? []).filter(a => !seen.has(a.fileId)).map(a => ({ ...a }));
+  return { text, attachments: [...extra, ...current.attachments] };
+}
+
 /** A page built as `current` should reload once the server answers with another build id (the dev build id never counts). */
 export function shouldReload(current: string, served: string | undefined): boolean {
   return !!served && served !== 'dev' && current !== 'dev' && served !== current;
