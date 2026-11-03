@@ -280,3 +280,66 @@ describe('doctor: the command', () => {
     }
   });
 });
+
+describe('doctor: review fixes', () => {
+  it('a yaml parse error reports the line and a category, never the value', () => {
+    const root = app();
+    try {
+      fs.appendFileSync(path.join(root, 'sanctum.yaml'), 'auth:\n  password: *super-secret\n');
+      const report = go(root);
+      const bad = lines(report, 'FAIL').find((c) => c.check === 'sanctum.yaml');
+      expect(bad.message).toMatch(/line \d+/);
+      const out = formatReport(report) + JSON.stringify(report);
+      for (let i = 0; i + 4 <= 'super-secret'.length; i++) for (let n = 4; i + n <= 'super-secret'.length; n++) expect(out).not.toContain('super-secret'.slice(i, i + n));
+    } finally { cleanup(root); }
+  });
+  const block = (extra) => {
+    const root = app();
+    fs.appendFileSync(path.join(root, 'sanctum.yaml'), `tenants:\n  dir: ./tenants\n${extra}`);
+    fs.mkdirSync(path.join(root, 'tenants'), { recursive: true });
+    return root;
+  };
+  for (const [name, yaml, field] of [
+    ['auth per_tenant', '  auth: per_tenant\n', 'tenants.auth'],
+    ['inherit as a string', '  auth: household\n  inherit: "false"\n', 'tenants.inherit'],
+    ['default that is not an id', '  auth: household\n  default: Not An Id\n', 'tenants.default'],
+    ['background_runs as a string', '  auth: household\n  background_runs: "yes"\n', 'tenants.background_runs'],
+  ]) {
+    it(`a ${name} is a FAIL naming ${field}, with no household OK line`, () => {
+      const root = block(yaml);
+      try {
+        const report = go(root);
+        const bad = lines(report, 'FAIL').find((c) => c.check === 'tenants block');
+        expect(bad.message).toContain(field);
+        expect(report.sections[1].checks.some((c) => c.check === 'tenants.auth' && c.status === 'OK')).toBe(false);
+        expect(report.exitCode).toBe(1);
+      } finally { cleanup(root); }
+    });
+  }
+  it('the accepted tenants.auth values match the backend source', () => {
+    const src = fs.readFileSync(path.join(HERE, '..', 'packages', 'backend', 'src', 'tenancy', 'config.ts'), 'utf-8');
+    const m = src.match(/t\.auth !== '([\w-]+)' && t\.auth !== '([\w-]+)'/);
+    expect(m && [m[1], m[2]].sort()).toEqual(['household', 'per-tenant']);
+    expect(src).toContain("typeof t.inherit !== 'boolean'");
+    expect(src).toContain("typeof t.background_runs !== 'boolean'");
+  });
+  it('a host listed twice by one tenant is a WARN, not a clash', () => {
+    const root = app();
+    try {
+      withTenants(root, [{ id: 'ada', yaml: 'hosts:\n  - echo.example.net\n  - Echo.Example.net\n' }]);
+      const report = go(root);
+      expect(lines(report, 'FAIL')).toEqual([]);
+      expect(lines(report, 'WARN').some((c) => c.check === 'tenant ada: hosts')).toBe(true);
+      expect(report.sections[1].checks.some((c) => c.check === 'duplicate hosts' && c.status === 'OK')).toBe(true);
+    } finally { cleanup(root); }
+  });
+  it('a host shared by two tenants is still a FAIL when one of them lists it twice', () => {
+    const root = app();
+    try {
+      withTenants(root, [{ id: 'ada', yaml: 'hosts:\n  - echo.example.net\n  - echo.example.net\n' }, { id: 'bea', yaml: 'hosts:\n  - echo.example.net\n' }]);
+      const dup = lines(go(root), 'FAIL').filter((c) => c.check === 'duplicate host');
+      expect(dup).toHaveLength(1);
+      expect(dup[0].message).toContain('ada and bea');
+    } finally { cleanup(root); }
+  });
+});
