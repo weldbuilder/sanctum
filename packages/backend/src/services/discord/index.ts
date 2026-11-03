@@ -403,7 +403,7 @@ export class DiscordService {
 
     // An in-app update is installing: no turn can start. Say so once per channel (one line), then ignore until the pause ends.
     if (updateBlocking()) {
-      if (noticeOnce(`discord:${batch.channelId}`)) lastMessage.reply({ content: UPDATING_REPLY, allowedMentions: { repliedUser: false } }).catch(() => {});
+      if (noticeOnce(`discord:${batch.channelId}`)) void sendGated({ kind: 'reply', message: lastMessage }, UPDATING_REPLY, batch.lane).catch(() => {}); // (through the gated sender, like every other send)
       console.log('[Discord] A message arrived while an update is installing; it was not processed.');
       return;
     }

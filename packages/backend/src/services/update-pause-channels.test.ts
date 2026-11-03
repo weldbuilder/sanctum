@@ -3,6 +3,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { UPDATING_REPLY, _resetUpdateBlock, setUpdateBlocking } from './update-block.js';
 
+const sent = vi.hoisted(() => ({ calls: [] as Array<{ target: any; payload: any; lane: string }> }));
+vi.mock('./discord/send.js', async (orig) => ({ ...(await orig<typeof import('./discord/send.js')>()), sendGated: async (target: any, payload: any, lane: string) => { sent.calls.push({ target, payload, lane }); return { sent: true }; } }));
 vi.mock('./telegram/config.js', async (orig) => ({ ...(await orig<typeof import('./telegram/config.js')>()), getTelegramConfig: () => ({ ownerChatId: '42' }) }));
 
 beforeEach(() => { _resetUpdateBlock(); vi.spyOn(console, 'log').mockImplementation(() => {}); });
@@ -43,12 +45,13 @@ describe('Discord', () => {
       return { reply, batch: { lane: 'owner', channelId, userId: 'u', firstMessage: lastMessage, lastMessage, messages: [lastMessage], combinedContent: 'hi' } };
     };
     const a1 = mk('c1'), a2 = mk('c1'), b = mk('c2');
+    sent.calls.length = 0;
     setUpdateBlocking(true);
     await handle.call(fake, a1.batch); await handle.call(fake, a2.batch); await handle.call(fake, b.batch);
-    expect(a1.reply).toHaveBeenCalledTimes(1);
-    expect(a1.reply.mock.calls[0][0]).toMatchObject({ content: UPDATING_REPLY });
-    expect(a2.reply).not.toHaveBeenCalled(); // same channel: already told
-    expect(b.reply).toHaveBeenCalledTimes(1); // another channel: told once
+    expect(sent.calls).toHaveLength(2); // one per channel, through the gated sender
+    expect(sent.calls[0]).toMatchObject({ payload: UPDATING_REPLY, lane: 'owner', target: { kind: 'reply', message: a1.batch.lastMessage } });
+    expect(sent.calls[1].target.message).toBe(b.batch.lastMessage);
+    expect(a1.reply).not.toHaveBeenCalled(); // (never a raw reply)
     expect(process).not.toHaveBeenCalled();
     expect(fake.deferredBatches).toHaveLength(0);
     setUpdateBlocking(false);

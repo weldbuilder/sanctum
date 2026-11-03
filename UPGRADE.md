@@ -191,11 +191,16 @@ replaces them. The Codex base now rides every message at roughly 2,000 tokens a 
 
 From this version the app updates itself: when a newer version is out, a bar on Home and Chat
 offers **Update and restart**, asks for your password again, keeps a copy of the current
-version in `.update-rollback/` (inside the app folder), builds the new one beside it in `.update-stage/` (the running app is untouched until it is built), and restarts. `npm run update` runs the
+version in `.update-rollback/` (inside the app folder), builds the new one beside it in `.update-stage/` (the running app is untouched until it is built), and restarts. The new rollback copy is written beside the old one and replaces it only when the swap has succeeded, so a failed swap keeps the previous copy. `npm run update` runs the
 same steps. Two things to know when you move over:
 
 - A git checkout with local changes is refused (the changed files are listed). Commit or
   discard them first; nothing is stashed.
+- If the app dies during the swap (kill, power cut), the next start puts the previous version back **before anything of the app loads** and starts over from it
+  (`packages/backend/src/update-recover.ts`; without a supervisor the process re-executes itself, under pm2 or `SANCTUM_SUPERVISED=1` it exits 75 and the supervisor
+  starts it again). `npm start` runs the same recovery first, so it also works if `dist` was caught missing.
+- While an update installs, messages are refused and kept: the web box keeps your text, Discord and Telegram reply once "Updating, back in a minute.", and a skipped
+  wake or handoff runs once when the pause ends without a restart.
 - Under pm2 (or any supervisor) set nothing new for pm2; for another supervisor add
   `SANCTUM_SUPERVISED=1` and have it restart the app when it exits. Without either, the app
   starts its own replacement.

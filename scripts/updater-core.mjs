@@ -13,11 +13,13 @@
 //                 building    npm run build IN THE STAGE
 //   applyStaged   (the swap, one quick step, run at restart time after the turn fence)
 //                 clean-tree check again (git), `git merge --ff-only` to the staged commit, then rename the stage's node_modules,
-//                 packages/*/dist and packages/frontend/build into place, the previous ones going to <app>/.update-rollback/;
+//                 packages/*/dist and packages/frontend/build into place, the previous ones going to <app>/.update-rollback.next/ (moved over
+//                 the previous .update-rollback/ only once the swap has succeeded);
 //                 a downloaded folder also gets its staged tracked files moved over (and the replaced ones copied to the rollback).
 //
 // A crash, a kill or a failed install or build before the swap leaves the running folder exactly as it was (the stage is
-// deleted at the next start). A failure during the swap puts everything back. A rollback moves the previous copies back
+// deleted at the next start). A failure during the swap puts everything back, and a swap cut short is put back by recoverInterruptedSwap before the app
+// loads (packages/backend/src/update-recover.ts, `npm start`, `npm run update`). A rollback moves the previous copies back
 // (and `git reset --hard <sha>` on a git checkout), so node_modules comes back with the code.
 import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync, lstatSync } from 'node:fs';

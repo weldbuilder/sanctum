@@ -545,7 +545,7 @@ Process-only (see `tenants`).
 
 #### Updating from inside the app
 
-**Update and restart** (the bar on Home and Chat, the pill elsewhere, Settings → Preferences → Updates) calls `POST /api/house/update/start`
+**Update and restart** (the bar on Home, in the page above the welcome, and on Chat, under the header, the pill elsewhere, Settings → Preferences → Updates) calls `POST /api/house/update/start`
 with the house password typed again; `POST /api/house/update/rollback` does the same for a roll back; `GET /api/house/update` is the status. They are
 house routes, never under a companion's prefix, and a companion's tools cannot reach them. One job runs at a time (a second is `409`), and none starts
 while a conversation turn or a background model run (the outlook author, the handoff, the digest, the summarizer) is in progress in any companion.
@@ -566,44 +566,72 @@ update"), and the page shows the terminal command instead of the dialog.
 4. **installing**: `npm ci --include=dev` (`npm install --include=dev` only when there is no lockfile, and the log says so), then **building**:
    `npm run build`, both **in the stage**. The app keeps running on its own files and `node_modules` meanwhile. The npm, tsc and vite children are
    their own process groups and are killed with the app (or on an abort).
-5. **While it installs, builds and restarts**, new interactive turns are refused (`503` on the HTTP routes; on the socket an `update_running` error with
-   a one-line notice) and the orchestrator's wakes, the outlook author, the handoff and the summarizer do not start; they resume when the job ends,
-   whether it succeeds or fails.
+5. **While it installs, builds and restarts**, new interactive turns are refused (`503` on the HTTP routes; on the socket an `update_running` error) and
+   the orchestrator's wakes, the outlook author, the handoff and the summarizer do not start; they resume when the job ends, whether it succeeds or fails.
+   **A refused message is not lost.** The web composer keeps what you typed (and any attachment) in the box and says "Updating; your message was not sent."
+   (it does not send at all while the job is installing, building or restarting; a refusal that still reaches the server puts the text back). Discord and
+   Telegram answer once per channel with "Updating, back in a minute." and ignore the channel until the pause ends. A **wake or the midnight handoff that
+   was skipped** during the pause runs once when the pause ends without a restart (a failed update, or one that only installed): each skipped wake type
+   once, the handoff once, and nothing if nothing was skipped. (After a successful update the app restarts, and the wake schedule starts fresh in the new
+   process: a wake that fell inside the pause is not carried across the restart.)
 6. **The swap** runs only at restart time, after the turn fence (a turn already running at the end of the build gets up to five minutes; if it is still
    running, the update stops with nothing changed). It checks the tree is still clean, runs `git merge --ff-only` to the staged commit, and then
    renames the stage's `node_modules`, `packages/*/dist` and `packages/frontend/build` into place (the stage is inside the app folder, so every
-   rename is on one filesystem). What they replace is moved to **`<app>/.update-rollback/<previous version>/`** with a `manifest.json`. A downloaded
-   folder also moves its staged tracked files in, and the files they replace are copied to the rollback. Then the stage is deleted. Only the latest
-   rollback copy is kept. If anything in the swap fails, it is undone and the job is `failed`.
+   rename is on one filesystem). What they replace is moved to **`<app>/.update-rollback.next/<previous version>/`** with a `manifest.json` (phase `swapping`,
+   written before anything moves). A downloaded folder also moves its staged tracked files in, and the files they replace are copied there. Only when
+   every step has succeeded is the manifest marked `swapped`, the previous `.update-rollback/` deleted and `.update-rollback.next/` renamed over it, and the stage
+   deleted. **The previous rollback copy therefore survives a failed swap**: if anything in the swap fails, it is undone, `.update-rollback.next/` is dropped, the
+   job is `failed`, and the Roll back button still offers the copy from before. When the staged commit is the commit you are already on and its version is not
+   newer (a `--force` with nothing new), nothing is built or swapped: the log says "already on X.Y" and the rollback copy is left alone.
 7. **restarting**: see below. The states are `checking, fetching, installing, building, restarting, done, failed, rolled_back`.
 
-**If the app dies mid-job, nothing was changed.** Everything before the swap happens in the stage, so a crash, a `SIGKILL` or a power cut leaves the
-running folder exactly as it was. At the next boot an existing stage is deleted (and a build it left running is stopped) and the job is marked
-`failed`: "The update did not finish; nothing was changed." The swap itself is a few renames; one cut short is put back at boot.
+**If the app dies mid-job before the swap, nothing was changed.** Everything before the swap happens in the stage, so a crash, a `SIGKILL` or a power cut leaves the
+running folder exactly as it was. At the next boot an existing stage is deleted (a build it left running is stopped only when its recorded pid *and* its start time
+in `/proc/<pid>/stat` still match, so a pid reused after a reboot is never killed; with no `/proc` nothing is killed) and the job is marked `failed`:
+"The update did not finish; nothing was changed." A `.update-stage` that is a symbolic link is never followed, read or deleted through: the update refuses it.
 
-A failure while installing or building deletes the stage and marks the job `failed` with the reason and the last three lines of the failing step's
-output; the app keeps running the old build.
+**If the app dies during the swap, the previous version is put back before anything of the app loads, and the app starts over.** A swap cut short leaves the folder
+part new and part old, so the booting code could be the new backend on whatever `node_modules` came with it. `packages/backend/src/update-recover.ts` is therefore the
+**first import of `server.ts`** and imports nothing of the app (only `scripts/updater-core.mjs`, which uses node's own modules); `npm start` and `npm run update` run the
+same recovery first (`scripts/update.mjs --recover`, which also works when `dist` is missing). It reads the manifest in `.update-rollback.next/` (or `.update-rollback/`):
 
-**Roll back** moves the previous `node_modules`, `dist` and build back (and runs `git reset --hard <previous commit>` on a git checkout, which must be
+- `swapping` (or `rolling_back`): each directory is renamed back (the current one set aside first, so each is in exactly one place at every instant, and a crash in the
+  recovery itself is simply run again), and on a git checkout `git reset --hard <manifest sha>` runs **whenever HEAD is not that sha**, whatever the manifest says about a
+  merge (the merge runs as a child; a kill during it leaves no flag).
+- `swapped` in `.update-rollback.next/`: the swap had succeeded; its copy is moved over the previous one.
+- `rolled_back`: only the set-aside copies are left to delete.
+
+If the recovery changed anything the process **re-execs**: without a supervisor it spawns `node <the same arguments>` with the output shared, passes `SIGINT`/`SIGTERM` on to it
+and exits with its exit code, so what serves is the restored code (the waiting parent loads nothing else); under pm2 or `SANCTUM_SUPERVISED=1` it exits with code **75** and
+the supervisor starts it again. It cannot loop (the child is told it is the restart). The job then reads `failed`: "The update did not finish; the previous version was put
+back." If `packages/backend/dist` is itself missing (killed between moving it aside and moving the new one in), the app cannot start: `npm start` and `npm run update` run the recovery
+first, which brings it back.
+
+A failure while installing or building deletes the stage and marks the job `failed` with the reason: from the last 60 lines of the failing step, the first line that looks
+like an error (`error`, `ERR!`, `TS1234`, `Error:`; `npm warn` lines are skipped) and the two after it, else the last three lines. The app keeps running the old build.
+
+**Roll back** (crash-safe the same way: the current directories are renamed aside first, the old ones moved back, the manifest set to `rolled_back`, and only then the
+set-aside copies deleted; the pre-boot recovery finishes one that was cut short) moves the previous `node_modules`, `dist` and build back (and runs `git reset --hard <previous commit>` on a git checkout, which must be
 clean and still on the commit the update left), so `node_modules` comes back with the code (an install runs only when the copy has no `node_modules` and
 the lockfile differs). It also happens at restart time, after the turn fence, then restarts. It is offered only while a copy exists, and the copy is spent
 by it. `npm run update -- --rollback` does the same from a terminal and needs nothing from the app but node and git: it works when the app cannot start.
 
 **Two restart modes.**
 
-- *Supervised*: when `pm_id` (pm2) or `SANCTUM_SUPERVISED=1` is in the environment, the app stops gracefully and exits 0, and the supervisor starts it again. The supervisor must restart on exit 0 (pm2 does; systemd needs `Restart=always`, Docker `restart: always`). Set `SANCTUM_SUPERVISED=1` for anything that is not pm2.
-- *Respawn* (the default): the app closes its listener, starts a detached replacement (`node packages/backend/dist/server.js`, same folder and environment, output in `<data dir>/update-restart.log`), waits up to 60 seconds for it to answer `/api/health` on the same port, then stops. If it never answers the app listens again, the previous files are put back, and the job is `failed`. For those seconds the replacement and the old process both run (a Discord or Telegram connection may complain once).
+- *Supervised*: when `pm_id` (pm2) or `SANCTUM_SUPERVISED=1` is in the environment, the app writes the job file (synchronously, so the swap and restart lines are kept), stops gracefully and exits 0, and the supervisor starts it again. The supervisor must restart on exit 0 (pm2 does; systemd needs `Restart=always`, Docker `restart: always`). Set `SANCTUM_SUPERVISED=1` for anything that is not pm2.
+- *Respawn* (the default): the app closes its listener, starts a detached replacement (`node packages/backend/dist/server.js`, same folder and environment, output in `<data dir>/update-restart.log`), waits up to 60 seconds for it to answer `/api/health` on the same port, then stops. From the moment the replacement is started this process writes nothing more to `update-job.json`, so its last words cannot land on top of the `done` the replacement writes at its boot (it writes again only if the replacement fails). If it never answers the app listens again, the previous files are put back, and the job is `failed`. For those seconds the replacement and the old process both run (a Discord or Telegram connection may complain once).
 
 The page reconnects until `/api/version` reports a new build, then reloads.
 
 **Files in the data folder** (next to `sanctum.db`; the process's own folder, never a companion's):
 
-- `update-job.json`: the last job, its state and its log (timestamped lines), so it survives the restart. It is written on every state change and at most a second behind the log. A job caught mid-way by a crash reads as `failed` at boot; one that was `restarting` reads as `done` (or `rolled_back`) at boot, with its finish time set then.
+- `update-job.json`: the last job, its state and its log (timestamped lines), so it survives the restart. It is written on every state change and at most a second behind the log, and carries the `pid` and start time of the process that wrote it. A job caught mid-way by a crash reads as `failed` at boot; one that was `restarting` reads as `done` (or `rolled_back`) at boot, with its finish time set then, **only when another process wrote that `restarting`** (its predecessor); one this very process wrote is still in progress, and a job that is already `done` is never touched.
 - `update-restart.log`: what the respawned replacement printed.
 
-**Folders in the app folder** (both are git-ignored; an older checkout's `.git/info/exclude` gets them too):
+**Folders in the app folder** (all are git-ignored; an older checkout's `.git/info/exclude` gets them too):
 
 - `.update-stage/`: where the new version is built while an update runs. Safe to delete when none is running; it is deleted at every boot.
+- `.update-rollback.next/<version>/`: the copy of a swap in progress (see above); it exists only while one runs or after one was cut short, and the next boot settles it.
 - `.update-rollback/<version>/`: the previous `node_modules`, `dist` and frontend build (moved, not copied) and, on a downloaded folder, the files the update replaced, with a `manifest.json` (version, mode, commits, every item, whether it was moved or copied or did not exist). It lives in the app folder, not the data folder, so the swap is a rename on one filesystem.
 
 ### `tenants` — several people in one process (optional)

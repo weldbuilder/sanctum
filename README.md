@@ -150,8 +150,11 @@ have, and restarts itself. While it installs and builds, new messages wait and b
 pause. The page reloads when it is back. In household mode one update restarts every companion in the house.
 
 - **Something went wrong?** A failed install or build changes nothing (the app keeps running the
-  old version), and a crash mid-update does too. The log is in **Settings → Preferences → Updates**. After a good update, **Roll back to X.Y**
+  old version). A crash during the swap is put right at the next start, before anything of the app loads: the previous
+  version is put back and the app starts over from it. A failed swap keeps the previous rollback copy. The log is in **Settings → Preferences → Updates**. After a good update, **Roll back to X.Y**
   there returns to the kept copy (one copy is kept: the version before the last update).
+- **Messages while it updates** are refused, not dropped: the web box keeps what you typed ("Updating; your message was not sent."),
+  Discord and Telegram answer once with "Updating, back in a minute.", and a wake or handoff skipped meanwhile runs once when the pause ends.
 - **Local changes in a git checkout** stop the update, and the files are listed. Nothing is
   stashed or overwritten; commit or discard them and try again.
 - **Restart:** under pm2 (or `SANCTUM_SUPERVISED=1`) the app exits and lets the supervisor start
