@@ -1,6 +1,6 @@
 # Roadmap
 
-*Status as of 2026-10-22. The agreed order comes from the OpenClaw gap audit (2026-10-12) and is kept in
+*Status as of 2026-11-03. The agreed order comes from the OpenClaw gap audit (2026-10-12) and is kept in
 `PLUGINS.md` under "Order"; this page is the running list of what is done, what is next, and the small
 things each verification pass left behind. Update it when a PR merges.*
 
@@ -10,7 +10,7 @@ things each verification pass left behind. Update it when a PR merges.*
 |---|---|---|
 | 1 | Plugin loader, `plugins.enabled`, hash ratification, `plugins.trust` (companion default, person opt-in) | `PLUGINS.md` |
 | 2 | Agent-driven browser seat (`.mcp.json` entry, MCP filter, skill) | `CONFIGURATION.md` |
-| 3 | Discord: two lanes, persisted queues, fence-aware chunker, attachments, send-scan guard, holes D1–D14 except the D11 reader (below) | `DISCORD-PLAN.md` |
+| 3 | Discord: two lanes, persisted queues, fence-aware chunker, attachments, send-scan guard, holes D1–D14 (the D11 reader is done: channel card plus failure alert) | `DISCORD-PLAN.md` |
 | 4 | Mind client and Mind watchdog (status, Test connection, header notice, `MIND_API_KEY` from `.env`, key never in a child env) | `CONFIGURATION.md` |
 | 7 | Identity ratification: one identity source for every harness, ledger + journal with authors, boot on the verified ratified copy, Settings → Identity | `PLUGINS.md` "Identity ratification" |
 | – | In-app setup wizard (first-run page, Run setup again, CLI on one declarative plan with a byte-identical replay) | `CONFIGURATION.md`, README step 8 |
@@ -50,7 +50,6 @@ Small, each a few lines; none blocks anything.
 **Plugins and Discord**
 - Overlapping reloads: merge rather than drop the older one, with a doc note.
 - A `res` help topic so the companion knows it can call `PUT /api/plugins/enabled`.
-- D11 reader: `recentFailures` is on `GET /api/discord/status` but nothing in Settings reads it and the watchdog does not alert on it. Surface it on the channel card and add the alert.
 - Discord lows from the B3d pass (one-liners; see the PR #5 thread).
 - Browser: `--workdir` pointing at a file gives an ENOTDIR stack trace; stale `setup.mjs` "outdated" message.
 

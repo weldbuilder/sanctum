@@ -40,6 +40,7 @@ import { publicHarnessSupported } from './harness.js';
 import type { MessageBatch } from './types.js';
 import type { AgentService } from '../agent.js';
 import { postSystemLine } from '../system-line.js';
+import { noteDiscordSendOk } from './failure-alert.js';
 import { createMessage, createThread, getThread, ensureDailyThread, getConfig, setConfig, updateThreadActivity, countThreadsWithPrefix } from '../db.js';
 import { getBotToken } from '../bot-token.js';
 import { getSanctumConfig } from '../../config.js';
@@ -636,6 +637,7 @@ export class DiscordService {
       if (outcome.empty && !outcome.final) {
         console.log('[Discord] Empty response from agent');
       } else if (outcome.sent) {
+        noteDiscordSendOk();
         console.log(`[Discord] Sent reply to ${channelId}${outcome.attempts > 1 ? ' (after one rewrite)' : ''}`);
       }
 
@@ -702,6 +704,7 @@ export class DiscordService {
           },
         });
         // Only a reply that went out counts against a bot's cap.
+        if (outcome.sent) noteDiscordSendOk();
         if (outcome.sent && author.bot) this.limiter.recordReply(channelId, userId);
       } catch (err) {
         // Silence. A PublicRunError was already recorded by the run; anything else is recorded here, class only.

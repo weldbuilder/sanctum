@@ -151,12 +151,18 @@ export interface LogEventOptions {
   now?: number;
 }
 
+type EventListener = (category: string, kind: string) => void;
+let eventListener: EventListener | null = null;
+/** One listener for every recorded event (the Discord failure alert). It runs in the caller's tenant; it never throws into the caller. */
+export function setEventListener(fn: EventListener | null): void { eventListener = fn; }
+
 export function logEvent(category: string, kind: string, opts: LogEventOptions = {}): void {
   const cat = SAFE_KIND.test(category) ? category : 'unknown';
   const k = SAFE_KIND.test(kind) ? kind : 'unknown';
   let events = eventsLocal.get();
   events.push({ category: cat, kind: k, at: opts.now ?? Date.now() });
   if (events.length > MAX_EVENTS) { events = events.slice(-MAX_EVENTS); eventsLocal.set(events); }
+  try { eventListener?.(cat, k); } catch { /* an alert must never break the failure path */ }
   if (opts.once) {
     const printedOnce = printedOnceLocal.get();
     const key = `${cat}:${k}`;
