@@ -28,9 +28,11 @@ texture (and their fallback when decorations are off).
 - Sources: the Library half of `updated_library_vampire_set-menu-chat-response.png` (plates, brackets), `library.jpg` (the menu).
 - Aged parchment `#FFDA98` plates, a darker tan "You" `#B9834D`, burnt edges, a slim dark mount with a brass line. Polished gold
   riveted brackets.
-- The parchment is the surface everywhere: the chrome (rail, drawer, top bar, header, chat list, chat bar) sits on it, with no
-  ivory layer. Icons are ink. The rim is oxblood `#7E3420`, the focus ring red copper `#BA5C3C`, the selected item wine red
-  `#6A1F22`. The chat bar is one surface.
+- The chrome (rail, drawer, top bar, header, chat list, chat bar) is the demo rail's oxblood wood `#301409`
+  (`library-wood.webp`), not the parchment; there is no ivory layer anywhere. Icons on the wood are light; icons on the
+  parchment plates (Home, Files) are ink. The rim is oxblood `#7E3420`, the focus ring red copper `#BA5C3C`, the selected item
+  wine red `#6A1F22`. The chat bar is wood, one surface.
+- A light skin: the parchment plates and fields are allowed.
 
 ## Crimson Velvet (`black-damask`, room `salon`)
 - Sources: the Vampire half of the same mock-up; `Vampire-salon.jpg` and its sibling demo for the menu.
