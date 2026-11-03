@@ -884,6 +884,15 @@ app. Everything comes home exactly as it was.
 
 ---
 
+### Checking your install: `npm run doctor`
+
+`npm run doctor` reads your `sanctum.yaml`, `.env`, `data/` and (with a `tenants:` block) every tenant folder, and prints one line per check: OK, WARN or
+FAIL, each with a sentence saying why. It checks that the config parses and every path it names exists, which Claude frame the app will use, that the
+secret files (`.env`, `data/.internal-token`) are not readable by anyone but you, that the build stamp is there, that your node version is in range
+and that the database folder is writable; for tenants it adds the clash and inheritance checks in `MULTI-TENANT.md`. It never prints a key, a token or
+a password. It exits 1 when any line is a FAIL, so it can gate a restart; `npm run doctor -- --json` prints the same as JSON and
+`npm run doctor -- --tenant <id>` reports one tenant.
+
 ## 9. Adding external tools — `.mcp.json`
 
 Your AI can reach out to external tool servers (MCP servers) — things like

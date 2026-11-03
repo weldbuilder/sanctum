@@ -223,9 +223,14 @@ export function withRemovalMarkers(own, rows, base) {
 /** Where the operator's config may live (packages/backend/src/config.ts CONFIG_FILE_NAMES). */
 const PROCESS_FILES = ['sanctum.yaml', 'sanctum.yml', 'config/sanctum.yaml', 'resonant.yaml', 'resonant.yml', 'config/resonant.yaml'];
 
+/** The path of the operator's config file in `root` (the first of PROCESS_FILES that exists), or '' when there is none. */
+export function processFilePath(root) {
+  return PROCESS_FILES.map((n) => join(root, n)).find((p) => existsSync(p)) || '';
+}
+
 /** The operator's sanctum.yaml in `root`, parsed ({} when there is none). */
 export function readProcessFile(root) {
-  const found = PROCESS_FILES.map((n) => join(root, n)).find((p) => existsSync(p));
+  const found = processFilePath(root);
   if (!found) return {};
   const loaded = require('js-yaml').load(readFileSync(found, 'utf-8'));
   return loaded && typeof loaded === 'object' && !Array.isArray(loaded) ? loaded : {};
@@ -381,7 +386,8 @@ export function tenantHostClaims(tenantsDir, selfId) {
   return claims;
 }
 
-function hostsOfFolderLoosely(dir) {
+/** The hosts one tenant folder's tenant.yaml names, read loosely (see tenantHostClaims). */
+export function hostsOfFolderLoosely(dir) {
   const clean = (list) => list.map((h) => h.trim().replace(/^["']|["']$/g, '').toLowerCase().replace(/\.$/, '')).filter(Boolean);
   let text = '';
   try { text = ownReadFile(dir, join(dir, 'tenant.yaml'), { encoding: 'utf-8' }); } catch { return []; } // (guarded: a link or a pipe reads as no file)
