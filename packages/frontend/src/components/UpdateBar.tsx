@@ -94,9 +94,16 @@ const DIALOG_CSS = `
   .upd-error { margin: 0.5rem 0 0; font-size: 0.8125rem; color: var(--status-error-text, #dc8c78); }
 `;
 
-const BAR_CSS = `
-  /* Over the pill's own rules (they position it at the bottom): this one hangs from the top edge. */
+export const BAR_CSS = `
+  /* The bar's own base: it must not depend on the pill's style block (that one is only rendered where the pills are, never on Home or Chat).
+     A fixed drop-down hanging from the top edge, out of the page flow, above the page and the menus. */
   .update-pill.update-bar {
+    position: fixed; z-index: 9000; display: flex; align-items: center; gap: 0.625rem;
+    background: var(--surface-pill-bg, rgba(44, 26, 16, 0.92));
+    border: 1px solid var(--chrome-pill-border, rgba(201, 168, 124, 0.28));
+    backdrop-filter: var(--surface-pill-blur, blur(16px) saturate(1.05)); -webkit-backdrop-filter: var(--surface-pill-blur, blur(16px) saturate(1.05));
+    box-shadow: 0 4px 20px -4px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(201, 168, 124, 0.06);
+    transform: translateX(-50%);
     top: 0.75rem; bottom: auto; left: 50%;
     width: max-content; max-width: min(94vw, 40rem);
     border-radius: 0.75rem; padding: 0.625rem 0.875rem; white-space: normal; cursor: default;
@@ -135,6 +142,7 @@ const BAR_CSS = `
   .update-bar .update-pill-x:hover { color: var(--surface-chrome-text, #efe4d0); background: var(--chrome-hover-wash, rgba(201, 168, 124, 0.14)); }
   @keyframes update-bar-in { from { opacity: 0; transform: translateX(-50%) translateY(-120%); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
   @keyframes update-bar-turn { to { transform: rotate(360deg); } }
+  @media (max-width: 480px) { .update-pill.update-bar { flex-wrap: wrap; width: calc(100vw - 2rem); max-width: none; } .update-bar-body { flex: 1 1 12rem; } }
   @media (prefers-reduced-motion: reduce) {
     .update-pill.update-bar { animation: none; }
     .update-bar-spin { animation: none; }

@@ -89,6 +89,9 @@ function passwordMatches(input: unknown, expected: string): boolean {
   return crypto.timingSafeEqual(paddedInput, paddedExpected) && inputBuffer.length === expectedBuffer.length;
 }
 
+/** Is a password set at all (the house's, in household mode)? False in the local dev-open setup, where nothing can ask for one. */
+export function passwordConfigured(): boolean { return !!authPassword(); }
+
 /** Does this entered password match the install's (the house's, in household mode)? The same check the login uses; false when no password is set. */
 export function verifyPassword(input: unknown): boolean {
   const expected = authPassword();

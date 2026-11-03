@@ -5,13 +5,16 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
+const cleared = vi.hoisted(() => ({ n: 0 }));
 vi.mock('./update-check.js', () => ({
   checkForUpdate: async () => ({ version: '1.0.0', latest: '1.1.0', update_available: true, repo: 'echo/sanctum', branch: 'main', checked_at: '2026-11-03T00:00:00.000Z' }),
+  clearUpdateCache: () => { cleared.n++; },
 }));
 
 import {
-  _jobDone, _setRestartOverrides, _setUpdaterEnv, getJob, getSnapshot, performRestart, setRestartControl, startUpdate, type RestartControl,
+  _jobDone, _setRestartOverrides, _setUpdaterEnv, getJob, getSnapshot, initUpdater, performRestart, setRestartControl, startUpdate, UpdaterError, type RestartControl,
 } from './updater.js';
+import { _resetUpdateBlock, backgroundRunsInFlight, trackBackgroundStart, updateBlocking } from './update-block.js';
 
 const ctlStub = (calls: string[]): RestartControl => ({
   healthUrl: 'http://127.0.0.1:1/api/health',
@@ -96,7 +99,7 @@ describe('an update job', () => {
     _setUpdaterEnv({ root, dataDir: () => data, busy: () => false, supervised: () => false });
     setRestartControl(ctlStub(calls));
   });
-  afterEach(() => { vi.unstubAllGlobals(); _setUpdaterEnv(null); setRestartControl(null); rmSync(tmp, { recursive: true, force: true }); });
+  afterEach(() => { vi.unstubAllGlobals(); _setUpdaterEnv(null); _resetUpdateBlock(); setRestartControl(null); rmSync(tmp, { recursive: true, force: true }); });
 
   it('replacement never comes up: state failed, the previous files are back, the listener is re-opened, the log says why', async () => {
     _setRestartOverrides({ spawnChild: () => ({ exited: () => false }), waitHealthy: async () => false });
@@ -136,7 +139,7 @@ describe('an update job', () => {
     put(data, 'update-job.json', JSON.stringify({ id: 'x', kind: 'update', state: 'building', from: '1.0.0', to: null, started_at: '2026-11-03T00:00:00Z', finished_at: null, error: null, log: [{ t: 'z', line: 'npm run build' }] }));
     const j = getJob()!;
     expect(j.state).toBe('failed');
-    expect(j.error).toMatch(/stopped while this was running/);
+    expect(j.error).toBe('The update did not finish; nothing was changed.');
     expect(j.log).toHaveLength(1);
   });
 
@@ -147,5 +150,115 @@ describe('an update job', () => {
     await _jobDone();
     expect(calls).toEqual(['stop']);
     expect(existsSync(join(data, 'update-job.json'))).toBe(true);
+  });
+});
+
+describe('an update job: the pause, the boot check and the failure reason', () => {
+  let tmp: string, root: string, data: string, archive: string, calls: string[];
+  const realFetch = globalThis.fetch;
+  const makeArchive = (build: string) => {
+    const src = join(tmp, 'src2', 'sanctum-main');
+    put(src, 'package.json', pkg('1.1.0')); put(src, 'package-lock.json', lock('1.1.0')); put(src, 'build.js', build);
+    const f = join(tmp, 'r2.tar.gz');
+    execFileSync('tar', ['-czf', f, '-C', join(tmp, 'src2'), 'sanctum-main']);
+    return f;
+  };
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'updater-job2-'));
+    root = join(tmp, 'app'); data = join(root, 'data'); calls = [];
+    put(root, 'package.json', pkg('1.0.0')); put(root, 'package-lock.json', lock('1.0.0')); put(root, 'build.js', BUILD_JS);
+    execFileSync('node', ['build.js'], { cwd: root });
+    archive = makeArchive(BUILD_JS);
+    vi.stubGlobal('fetch', async (url: string, init?: unknown) => {
+      if (String(url).includes('raw.githubusercontent')) return { ok: true, status: 200, text: async () => JSON.stringify({ version: '1.1.0' }) };
+      if (String(url).includes('codeload')) return { ok: true, status: 200, arrayBuffer: async () => readFileSync(archive) };
+      return realFetch(url, init as RequestInit);
+    });
+    _setUpdaterEnv({ root, dataDir: () => data, busy: () => false, supervised: () => false });
+    setRestartControl(ctlStub(calls));
+    _setRestartOverrides({ spawnChild: () => ({ exited: () => false }), waitHealthy: async () => true });
+  });
+  afterEach(() => { vi.unstubAllGlobals(); _setUpdaterEnv(null); _resetUpdateBlock(); setRestartControl(null); rmSync(tmp, { recursive: true, force: true }); });
+
+  it('new turns and background runs are paused from installing to the end, and resume when the job fails', async () => {
+    archive = makeArchive("console.error('x'); process.exit(1);");
+    const seen: Array<[string, boolean]> = [];
+    const before = cleared.n;
+    startUpdate();
+    for (let i = 0; i < 400 && getJob()!.state !== 'failed'; i++) { seen.push([getJob()!.state, updateBlocking()]); await new Promise((r) => setTimeout(r, 25)); }
+    await _jobDone();
+    expect(getJob()!.state).toBe('failed');
+    expect(seen.filter(([s]) => s === 'installing' || s === 'building').every(([, b]) => b)).toBe(true);
+    expect(seen.filter(([s]) => s === 'checking' || s === 'fetching').every(([, b]) => !b)).toBe(true);
+    expect(updateBlocking()).toBe(false); // resumed on failure
+    expect(cleared.n).toBeGreaterThan(before); // and the update check forgets its answer
+  });
+
+  it('is blocked until the end on success too (the restart)', async () => {
+    let during = false;
+    setRestartControl({ ...ctlStub(calls), gracefulStop: async () => { during = updateBlocking(); calls.push('stop'); } });
+    startUpdate();
+    await _jobDone();
+    expect(during).toBe(true);
+    expect(getJob()!.state).toBe('restarting');
+  });
+
+  it('a background run in flight blocks the start (not only a turn)', async () => {
+    const end = trackBackgroundStart();
+    expect(backgroundRunsInFlight()).toBe(1);
+    // the default busy() counts it; the harness busy() here is a stub, so use the real one
+    _setUpdaterEnv({ root, dataDir: () => data, supervised: () => false });
+    let err: unknown;
+    try { startUpdate(); } catch (e) { err = e; }
+    expect(err).toBeInstanceOf(UpdaterError);
+    expect((err as UpdaterError).code).toBe('turn_running');
+    end();
+    expect(backgroundRunsInFlight()).toBe(0);
+  });
+
+  it('a failed step puts the last lines of its output in the error', async () => {
+    archive = makeArchive("console.log('compiling'); console.error('TS2304: cannot find name x'); console.error('Found 1 error'); process.exit(2);");
+    startUpdate();
+    await _jobDone();
+    const j = getJob()!;
+    expect(j.state).toBe('failed');
+    expect(j.error).toMatch(/^npm run build failed \(exit \d+\)/);
+    expect(j.error).toContain('TS2304: cannot find name x');
+    expect(j.error).toContain('Found 1 error');
+    expect(readFileSync(join(root, 'package.json'), 'utf-8')).toContain('"1.0.0"'); // the running folder was never touched
+    expect(existsSync(join(root, '.update-stage'))).toBe(false);
+  });
+
+  it('boot: a stage left by a crash is deleted and the job is failed "did not finish; nothing was changed"', async () => {
+    mkdirSync(join(root, '.update-stage', 'node_modules'), { recursive: true });
+    put(data, 'update-job.json', JSON.stringify({ id: 'x', kind: 'update', state: 'building', from: '1.0.0', to: null, started_at: '2026-11-03T00:00:00Z', finished_at: null, error: null, log: [{ t: 'z', line: 'npm run build' }] }));
+    await initUpdater();
+    expect(existsSync(join(root, '.update-stage'))).toBe(false);
+    const j = JSON.parse(readFileSync(join(data, 'update-job.json'), 'utf-8'));
+    expect(j.state).toBe('failed');
+    expect(j.error).toBe('The update did not finish; nothing was changed.');
+    expect(j.finished_at).toEqual(expect.any(String));
+    expect(getJob()!.log).toHaveLength(1);
+  });
+
+  it('boot: a restarting job becomes done at boot (finished_at set then, on disk), before anything asks', async () => {
+    put(data, 'update-job.json', JSON.stringify({ id: 'x', kind: 'update', state: 'restarting', from: '1.0.0', to: '1.1.0', started_at: '2026-11-03T00:00:00Z', finished_at: null, error: null, log: [] }));
+    const at = new Date('2026-11-03T12:00:00Z');
+    _setUpdaterEnv({ root, dataDir: () => data, busy: () => false, now: () => at });
+    await initUpdater();
+    const onDisk = JSON.parse(readFileSync(join(data, 'update-job.json'), 'utf-8'));
+    expect(onDisk).toMatchObject({ state: 'done', finished_at: at.toISOString() });
+  });
+
+  it('boot: a swap cut short is put back, and the job says so', async () => {
+    put(root, 'packages/backend/dist/server.js', 'NEW');
+    const dir = join(root, '.update-rollback', '1.0.0');
+    put(dir, 'files/packages/backend/dist/server.js', 'OLD');
+    put(dir, 'manifest.json', JSON.stringify({ version: '1.0.0', mode: 'tarball', phase: 'swapping', entries: [{ path: 'packages/backend/dist', kind: 'dir', how: 'moved' }] }));
+    put(data, 'update-job.json', JSON.stringify({ id: 'x', kind: 'update', state: 'restarting', from: '1.0.0', to: '1.1.0', started_at: '2026-11-03T00:00:00Z', finished_at: null, error: null, log: [] }));
+    await initUpdater();
+    expect(readFileSync(join(root, 'packages/backend/dist/server.js'), 'utf-8')).toBe('OLD');
+    expect(existsSync(join(root, '.update-rollback'))).toBe(false);
+    expect(getJob()).toMatchObject({ state: 'failed', error: 'The update did not finish; the previous version was put back.' });
   });
 });

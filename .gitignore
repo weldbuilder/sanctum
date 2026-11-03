@@ -1,6 +1,8 @@
 node_modules
 dist/
 build/
+.update-stage/
+.update-rollback/
 .svelte-kit/
 *.js.map
 *.tsbuildinfo

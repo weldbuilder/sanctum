@@ -18,7 +18,7 @@ import { ConfirmProvider } from './components/ConfirmDialog';
 import { COMPANION_PREFIX } from './lib/base';
 import { Hallway } from './components/Hallway';
 import { UpdateBar, UpdateDialog } from './components/UpdateBar';
-import { useUpdateStore } from './store/update';
+import { canSelfUpdate, selfUpdateWhy, useUpdateStore } from './store/update';
 
 // ─── Cold routes — lazy-loaded on first visit ──────────────────────────────────
 // /home and /chat are the hot path and stay eager; these three only fetch their
@@ -341,11 +341,11 @@ function NewVersionPill({ status, onDismiss }: { status: UpdateStatus; onDismiss
   const [open, setOpen] = useState(false);
   const snapshot = useUpdateStore(st => st.snapshot);
   const openDialog = useUpdateStore(st => st.openDialog);
-  const canSelfUpdate = !!snapshot && snapshot.self_update.ok;
-  const why = snapshot && !snapshot.self_update.ok ? snapshot.self_update.reason : '';
+  const canUpdate = canSelfUpdate(snapshot);
+  const why = selfUpdateWhy(snapshot);
   return (
     <div className="update-pill update-pill-version" role="status" aria-live="polite" onClick={() => setOpen(o => !o)}>
-      <span className="update-pill-text">Sanctum {status.latest} is out{canSelfUpdate ? '' : ' — how to update'}</span>
+      <span className="update-pill-text">Sanctum {status.latest} is out{canUpdate ? '' : ' — how to update'}</span>
       <button
         type="button"
         className="update-pill-x"
@@ -357,7 +357,7 @@ function NewVersionPill({ status, onDismiss }: { status: UpdateStatus; onDismiss
       {open && (
         <div className="update-sheet" onClick={(e) => e.stopPropagation()}>
           <p className="update-sheet-line">You have {status.version}. The newest is {status.latest}.</p>
-          {canSelfUpdate ? (
+          {canUpdate ? (
             <>
               <p className="update-sheet-line">The app downloads it, keeps a copy of this version to roll back to, and restarts. Your settings, data and companion folder stay as they are.</p>
               <button type="button" className="approval-btn approval-allow" onClick={() => { setOpen(false); openDialog('update'); }}>Update and restart</button>

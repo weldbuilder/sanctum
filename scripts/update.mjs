@@ -17,14 +17,15 @@
 //
 // The steps live in scripts/updater-core.mjs, the same module the in-app "Update and
 // restart" uses: a git checkout with local changes is refused (the list is shown), a
-// rollback copy of what changes is kept in <data dir>/update-rollback/, and a failed
-// install or build puts it back. `npm run update -- --rollback` restores that copy by hand.
+// update is built in <app>/.update-stage/ first (the running folder is untouched until that has built), the previous node_modules, dist
+// and build are kept in <app>/.update-rollback/, and `npm run update -- --rollback` puts them back by hand. --rollback needs nothing
+// from the app but node and git, so it works when the app cannot start.
 
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { UpdateError, dataDirFor, readEnvFile, readUpdateSettings, readVersion, rollbackInfo, runRollback, runUpdate } from './updater-core.mjs';
+import { UpdateError, discardStage, killAllChildren, readEnvFile, readUpdateSettings, readVersion, rollbackInfo, runRollback, runUpdate } from './updater-core.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const force = process.argv.includes('--force');
@@ -45,24 +46,26 @@ function mindLine() {
 
 // ---- main ---------------------------------------------------------------------
 readEnvFile(root);
-let settings;
-try { settings = await readUpdateSettings(root); } catch (err) { fail(err.message); }
-const dataDir = dataDirFor(root, settings.dbPath);
-
+// Ctrl+C stops the npm/tsc/vite children too (they are their own process groups) and deletes the stage: nothing in the app was changed.
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { killAllChildren(); discardStage(root).finally(() => process.exit(130)); });
 if (process.argv.includes('--rollback')) {
-  if (!rollbackInfo(dataDir).available) fail('there is no rollback copy (one is kept each time an update runs).');
-  try { await runRollback({ root, dataDir, log: say }); } catch (err) { fail(err.message); }
+  // Nothing here reads the settings or the app: the copy and its manifest are all it needs.
+  if (!rollbackInfo(root).available) fail('there is no rollback copy (one is kept each time an update runs).');
+  try { await runRollback({ root, log: say }); } catch (err) { fail(err.message); }
   mindLine();
   say('Now restart the app: press Ctrl+C in the window where it runs, then:  npm start');
   process.exit(0);
 }
 
+let settings;
+try { settings = await readUpdateSettings(root); } catch (err) { fail(err.message); }
+
 let result;
 try {
-  result = await runUpdate({ root, dataDir, force, settings, log: say });
+  result = await runUpdate({ root, force, settings, log: say });
 } catch (err) {
   if (err instanceof UpdateError) {
-    fail(`update stopped: ${err.message}${err.restored ? '\n[update] The previous version was put back.' : ''}\n` +
+    fail(`update stopped: ${err.message}\n[update] ${err.restored ? 'The previous version was put back.' : 'Nothing in the app was changed.'}\n` +
       '  - Or download the ZIP from GitHub again and copy it over this folder, then: npm install && npm run build');
   }
   throw err;

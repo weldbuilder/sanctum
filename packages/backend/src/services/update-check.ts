@@ -4,7 +4,9 @@
 // Off with updates.check: false. For a private project, GITHUB_TOKEN in .env.
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
-import { getSanctumConfig, PROJECT_ROOT } from '../config.js';
+import { getSanctumConfig, PROJECT_ROOT, repoFromPackageJson } from '../config.js';
+import { getProcessConfig, tenancyEnabled } from '../tenancy/context.js';
+import { resolveRepo } from '../../../../scripts/updater-core.mjs';
 
 export interface UpdateStatus {
   version: string;          // this install
@@ -63,8 +65,13 @@ async function fetchLatest(repo: string, branch: string): Promise<string> {
   throw new Error(last);
 }
 
+/** The check is the install's, not a companion's: in household mode it runs outside any tenant, so it reads the process's own config. */
+function updatesConfig(): { check: boolean; repo: string; branch: string } {
+  return (tenancyEnabled() ? getProcessConfig() : getSanctumConfig()).updates;
+}
+
 export async function checkForUpdate(opts: { force?: boolean } = {}): Promise<UpdateStatus> {
-  const cfg = getSanctumConfig().updates;
+  const cfg = updatesConfig();
   const version = installedVersion();
   const base: UpdateStatus = { version, latest: null, update_available: false, repo: cfg.repo, branch: cfg.branch, checked_at: null };
   if (!cfg.check) return base;
@@ -73,7 +80,11 @@ export async function checkForUpdate(opts: { force?: boolean } = {}): Promise<Up
   inflight = (async () => {
     const checked_at = new Date().toISOString();
     try {
-      const latest = await fetchLatest(cfg.repo, cfg.branch);
+      // A git checkout's code comes from its origin: the version is read from the same place (updates.repo that disagrees with origin is refused).
+      const picked = resolveRepo(PROJECT_ROOT, { repo: cfg.repo, explicit: cfg.repo.toLowerCase() !== repoFromPackageJson().toLowerCase() });
+      if (picked.error) throw new Error(picked.error);
+      base.repo = picked.repo;
+      const latest = await fetchLatest(picked.repo, cfg.branch);
       cached = { ...base, latest, update_available: isNewer(latest, version), checked_at };
     } catch (err) {
       cached = { ...base, checked_at, error: err instanceof Error ? err.message : String(err) };
@@ -84,6 +95,9 @@ export async function checkForUpdate(opts: { force?: boolean } = {}): Promise<Up
   })();
   return inflight;
 }
+
+/** Forget the last answer (an update or roll back just changed the installed version): the next check reads the files and asks again. */
+export function clearUpdateCache(): void { cached = null; }
 
 /** Test hook. */
 export function _resetUpdateCache(): void { cached = null; inflight = null; }

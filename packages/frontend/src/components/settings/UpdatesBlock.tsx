@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Eyebrow, Group, FieldRow, Btn } from './primitives';
-import { jobActive, stateWord, useUpdateStore, type UpdateJob } from '../../store/update';
+import { canSelfUpdate, jobActive, selfUpdateWhy, stateWord, useUpdateStore, type UpdateJob } from '../../store/update';
 
 /** The log as the person reads it: time and line, the last few dozen. */
 export function logText(job: UpdateJob | null, max = 40): string {
@@ -18,7 +18,7 @@ export function UpdatesBlock() {
 
   const job = snapshot?.job ?? null;
   const running = jobActive(job);
-  const canUpdate = !!snapshot && snapshot.self_update.ok && snapshot.update_available && !running;
+  const canUpdate = canSelfUpdate(snapshot) && !!snapshot?.update_available && !running;
   return (
     <>
       <Eyebrow label="updates" sub="the app updates itself, keeps a copy to roll back to, and restarts" />
@@ -36,8 +36,10 @@ export function UpdatesBlock() {
               mono
               hint={snapshot?.error ? `could not check: ${snapshot.error}` : snapshot?.update_available ? 'a newer version is out' : snapshot?.latest ? 'you have the newest' : undefined}
             />
-            {snapshot && !snapshot.self_update.ok && (
-              <span className="sp-empty-text">{snapshot.self_update.reason} In the app's folder, run <code>npm run update</code>, then restart it.</span>
+            {snapshot && !canSelfUpdate(snapshot) && (
+              <span className="sp-empty-text">{snapshot.self_update.ok
+                ? `${selfUpdateWhy(snapshot)}, then restart the app.`
+                : <>{selfUpdateWhy(snapshot)} In the app's folder, run <code>npm run update</code>, then restart it.</>}</span>
             )}
             <div className="sp-btn-row" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
               <Btn variant="muted" onClick={() => void refresh(true)} disabled={running}>Check now</Btn>

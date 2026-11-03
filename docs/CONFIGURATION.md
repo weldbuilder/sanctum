@@ -544,19 +544,46 @@ Process-only (see `tenants`).
 **Update and restart** (the bar on Home and Chat, the pill elsewhere, Settings → Preferences → Updates) calls `POST /api/house/update/start`
 with the house password typed again; `POST /api/house/update/rollback` does the same for a roll back; `GET /api/house/update` is the status. They are
 house routes, never under a companion's prefix, and a companion's tools cannot reach them. One job runs at a time (a second is `409`), and none starts
-while a conversation turn is running in any companion.
+while a conversation turn or a background model run (the outlook author, the handoff, the digest, the summarizer) is in progress in any companion.
+With no password set (the local dev-open setup) there is nothing to type again: the routes answer `403 no_password` ("Set a password, or run npm run
+update"), and the page shows the terminal command instead of the dialog.
 
-The steps (the same module, `scripts/updater-core.mjs`, as `npm run update`):
+**The design: stage, then swap.** The running folder is not changed until the new version is fully built.
 
-1. **checking**: read the settings, ask GitHub for the newest version.
-2. A **git checkout** with anything in `git status --porcelain` (untracked files too) is refused, and the list is the error. Nothing is stashed or overwritten.
-3. **fetching**: `git fetch` then `git merge --ff-only origin/<branch>`, recording the previous commit. A **downloaded folder** (no `.git`) downloads the branch tarball to a temp folder and copies only the files the archive holds: never `.env`, `sanctum.yaml`, `.mcp.json`, `data/`, nor `companion-home/` (nor the folder `agent.cwd` names, when it is inside the app folder).
-4. The **rollback copy**, taken before anything changes: `package.json`, `package-lock.json`, every `packages/*/dist`, `packages/frontend/build`, and on the tarball path every file the archive will overwrite, in `<data dir>/update-rollback/<previous version>/` with a `manifest.json`. Only the latest copy is kept.
-5. **installing**: `npm ci --include=dev` (`npm install --include=dev` only when there is no lockfile, and the log says so). **building**: `npm run build`.
-6. A failure in steps 3 to 5 restores the copy (`git reset --hard <previous commit>` on a git checkout, which is safe because the tree was clean), puts `node_modules` back in line with the old lockfile, and marks the job `failed` with the reason; the app keeps running the old build.
+1. **checking**: read the settings, ask GitHub for the newest version. A git checkout reads it from the repository its `origin` points at: when only
+   `package.json` names the repository, a fork's clone follows its origin; when `updates.repo` is set and is not the origin, the update is refused
+   with that message.
+2. A **git checkout** with anything in `git status --porcelain` (untracked files too) is refused, and the list is the error. Nothing is stashed or
+   overwritten. A checkout that is not on `updates.branch`, or that has commits the branch does not have, is refused too.
+3. **fetching**: a git checkout runs `git fetch` and makes a `git worktree` of the target commit in **`<app>/.update-stage/`**. A **downloaded folder**
+   (no `.git`) downloads the branch tarball and unpacks it into `.update-stage/`, minus the paths that are yours: never `.env`, `sanctum.yaml`,
+   `.mcp.json`, `data/`, `companion-home/` (nor the folder `agent.cwd` names when it is inside the app folder, compared after resolving symlinks,
+   so a home that is a link into the app is protected too).
+4. **installing**: `npm ci --include=dev` (`npm install --include=dev` only when there is no lockfile, and the log says so), then **building**:
+   `npm run build`, both **in the stage**. The app keeps running on its own files and `node_modules` meanwhile. The npm, tsc and vite children are
+   their own process groups and are killed with the app (or on an abort).
+5. **While it installs, builds and restarts**, new interactive turns are refused (`503` on the HTTP routes; on the socket an `update_running` error with
+   a one-line notice) and the orchestrator's wakes, the outlook author, the handoff and the summarizer do not start; they resume when the job ends,
+   whether it succeeds or fails.
+6. **The swap** runs only at restart time, after the turn fence (a turn already running at the end of the build gets up to five minutes; if it is still
+   running, the update stops with nothing changed). It checks the tree is still clean, runs `git merge --ff-only` to the staged commit, and then
+   renames the stage's `node_modules`, `packages/*/dist` and `packages/frontend/build` into place (the stage is inside the app folder, so every
+   rename is on one filesystem). What they replace is moved to **`<app>/.update-rollback/<previous version>/`** with a `manifest.json`. A downloaded
+   folder also moves its staged tracked files in, and the files they replace are copied to the rollback. Then the stage is deleted. Only the latest
+   rollback copy is kept. If anything in the swap fails, it is undone and the job is `failed`.
 7. **restarting**: see below. The states are `checking, fetching, installing, building, restarting, done, failed, rolled_back`.
 
-**Roll back** puts the copy back the same way (a git checkout must be clean and still on the commit the update left), then restarts. It is offered only while a copy exists, and the copy is spent by it.
+**If the app dies mid-job, nothing was changed.** Everything before the swap happens in the stage, so a crash, a `SIGKILL` or a power cut leaves the
+running folder exactly as it was. At the next boot an existing stage is deleted (and a build it left running is stopped) and the job is marked
+`failed`: "The update did not finish; nothing was changed." The swap itself is a few renames; one cut short is put back at boot.
+
+A failure while installing or building deletes the stage and marks the job `failed` with the reason and the last three lines of the failing step's
+output; the app keeps running the old build.
+
+**Roll back** moves the previous `node_modules`, `dist` and build back (and runs `git reset --hard <previous commit>` on a git checkout, which must be
+clean and still on the commit the update left), so `node_modules` comes back with the code (an install runs only when the copy has no `node_modules` and
+the lockfile differs). It also happens at restart time, after the turn fence, then restarts. It is offered only while a copy exists, and the copy is spent
+by it. `npm run update -- --rollback` does the same from a terminal and needs nothing from the app but node and git: it works when the app cannot start.
 
 **Two restart modes.**
 
@@ -567,9 +594,13 @@ The page reconnects until `/api/version` reports a new build, then reloads.
 
 **Files in the data folder** (next to `sanctum.db`; the process's own folder, never a companion's):
 
-- `update-job.json`: the last job, its state and its log (timestamped lines), so it survives the restart. A job caught mid-way by a crash reads as `failed`; one that was `restarting` reads as `done` (or `rolled_back`) in the new process.
-- `update-rollback/<version>/`: the rollback copy and its `manifest.json` (version, mode, commits, every item and whether it existed).
+- `update-job.json`: the last job, its state and its log (timestamped lines), so it survives the restart. It is written on every state change and at most a second behind the log. A job caught mid-way by a crash reads as `failed` at boot; one that was `restarting` reads as `done` (or `rolled_back`) at boot, with its finish time set then.
 - `update-restart.log`: what the respawned replacement printed.
+
+**Folders in the app folder** (both are git-ignored; an older checkout's `.git/info/exclude` gets them too):
+
+- `.update-stage/`: where the new version is built while an update runs. Safe to delete when none is running; it is deleted at every boot.
+- `.update-rollback/<version>/`: the previous `node_modules`, `dist` and frontend build (moved, not copied) and, on a downloaded folder, the files the update replaced, with a `manifest.json` (version, mode, commits, every item, whether it was moved or copied or did not exist). It lives in the app folder, not the data folder, so the swap is a rename on one filesystem.
 
 ### `tenants` — several people in one process (optional)
 
@@ -899,7 +930,7 @@ Inside `data/` you'll find:
 - **`.internal-token`** — an auto-generated secret the app uses to talk to itself.
 - **`.google-key`** — an auto-generated key that encrypts stored Google tokens.
 - **`identity/`** — the identity ledger (`identity.ledger_dir` moves it): `ledger.json` (the digest of the identity files you ratified, who ratified it and when), `journal.jsonl` (one line for every change to the identity folder: when, which files, and whether it was you, your companion, something else on disk, a rollback or the first look) and `snapshots/` (the ratified copy that your companion actually runs on, and the one before it). It is separate from `plugins/`. Back up the whole folder: without `snapshots/` the app cannot serve the ratified copy and says so in Settings > Identity.
-- **`update-job.json`, `update-rollback/`, `update-restart.log`** — the in-app updater's last job, the copy it keeps to roll back to, and the log of the restart. Safe to delete when no update is running; see "Updating from inside the app" under `updates`.
+- **`update-job.json`, `update-restart.log`** — the in-app updater's last job and the log of the restart (the rollback copy is `.update-rollback/` in the app folder). Safe to delete when no update is running; see "Updating from inside the app" under `updates`.
 - **`plugins/`** — `audit.json`: every change to a plugin's files, as it was noticed (the last 20 per plugin), which Settings > Plugins reads for "changed since you last looked". If you chose `plugins.trust: person`, it also holds `ratified.json` (which plugin code you have approved, by hash) and `snapshots/` (the approved copy that actually runs); a plugin whose files differ from that record does nothing until you approve it again. Back up the whole folder. If you set `plugins.ledger_dir`, it lives there instead.
 
 The database is created automatically the first time you run the app — the schema

@@ -38,6 +38,7 @@ import { existsSync } from 'fs';
 import { readOwnText } from '../tenancy/own-files.js';
 import { join, dirname } from 'path';
 import { query } from './providers/index.js';
+import { trackBackgroundRun } from './update-block.js';
 import { Cron } from 'croner';
 import {
   getDb,
@@ -426,7 +427,7 @@ export async function runHandoff(now: Date = new Date()): Promise<HandoffRunResu
       return { ran: false, reason };
     }
 
-    const authored = await authorHandoff(facts);
+    const authored = await trackBackgroundRun(() => authorHandoff(facts));
     if (!authored) {
       recordResult({ ran: false, reason: 'author_failed' });
       return { ran: false, reason: 'author_failed' };

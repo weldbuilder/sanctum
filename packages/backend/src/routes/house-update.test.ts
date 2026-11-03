@@ -7,13 +7,15 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-const h = vi.hoisted(() => ({ session: true, busy: false, gate: null as null | Promise<void> }));
+const h = vi.hoisted(() => ({ session: true, busy: false, gate: null as null | Promise<void>, password: true }));
 vi.mock('../middleware/auth.js', () => ({
   authMiddleware: (_req: unknown, res: { status(n: number): { json(b: unknown): void } }, next: () => void) => (h.session ? next() : res.status(401).json({ error: 'Unauthorized' })),
   verifyPassword: (p: unknown) => p === 'correct horse',
+  passwordConfigured: () => h.password,
 }));
 vi.mock('../services/update-check.js', () => ({
   checkForUpdate: async () => ({ version: '1.0.0', latest: '1.1.0', update_available: true, repo: 'echo/sanctum', branch: 'main', checked_at: '2026-11-03T00:00:00.000Z' }),
+  clearUpdateCache: () => {},
 }));
 
 import router from './house-update.js';
@@ -41,7 +43,7 @@ afterAll(async () => { await new Promise((r) => server.close(r)); });
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), 'house-update-')); root = join(tmp, 'app'); data = join(root, 'data');
   put(root, 'package.json', pkg('1.0.0'));
-  h.session = true; h.busy = false; h.gate = null;
+  h.session = true; h.busy = false; h.gate = null; h.password = true;
   // GitHub answers "1.0.0" (nothing newer), after the gate if a test holds one: a job that does nothing, but takes as long as the test needs.
   vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
     if (String(url).includes('githubusercontent')) { if (h.gate) await h.gate; return { ok: true, status: 200, text: async () => JSON.stringify({ version: '1.0.0' }) }; }
@@ -68,7 +70,12 @@ describe('GET /api/house/update', () => {
       self_update: { ok: expect.any(Boolean), mode: expect.stringMatching(/^(git|tarball)$/) },
       restart_mode: 'respawn', household: false, companions: 1, job: null,
       rollback: { available: false, version: null },
+      password_set: true,
     });
+  });
+  it('says password_set: false in dev-open (nothing to type again), so the page shows the terminal command', async () => {
+    h.password = false;
+    expect((await (await realFetch(`${base}/api/house/update`)).json()).password_set).toBe(false);
   });
 });
 
@@ -105,6 +112,16 @@ describe('POST /api/house/update/start', () => {
     expect(status.job.log.some((l: { line: string }) => /already have it/.test(l.line))).toBe(true);
   });
 
+  it('no password set (dev-open): no_password, "Set a password, or run npm run update", and nothing starts', async () => {
+    h.password = false;
+    for (const path of ['/api/house/update/start', '/api/house/update/rollback']) {
+      const res = await post(path, { password: 'anything' });
+      expect(res.status, path).toBe(403);
+      expect(await res.json()).toEqual({ error: 'no_password', message: 'Set a password, or run npm run update' });
+    }
+    expect(await (await realFetch(`${base}/api/house/update`)).json()).toMatchObject({ job: null });
+  });
+
   it('is refused while a turn is running', async () => {
     h.busy = true;
     const res = await post('/api/house/update/start', { password: 'correct horse' });
@@ -123,7 +140,7 @@ describe('POST /api/house/update/rollback', () => {
 
   it('restores the copy and, with no restart wired, says the app must be restarted', async () => {
     put(root, 'packages/backend/dist/server.js', 'old');
-    makeRollbackCopy({ root, dataDir: data, version: '0.9.0', mode: 'tarball', branch: 'main' });
+    await makeRollbackCopy({ root, version: '0.9.0', mode: 'tarball', branch: 'main', entries: ['packages/backend/dist/server.js'] });
     put(root, 'packages/backend/dist/server.js', 'new');
     put(root, 'package.json', pkg('1.0.0'));
     expect((await (await realFetch(`${base}/api/house/update`)).json()).rollback).toMatchObject({ available: true, version: '0.9.0' });

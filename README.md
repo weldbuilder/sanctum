@@ -145,11 +145,12 @@ Each is off until you turn it on.
 
 When a new version is out, a notice drops down at the top of Home and Chat: **Sanctum X.Y is out.
 Update and restart.** Press the button, type your password again, and the app downloads the new
-version, keeps a copy of the one you have, builds, and restarts itself. The page reloads when it
-is back. In household mode one update restarts every companion in the house.
+version, builds it beside the running one (nothing changes until it is built), keeps the one you
+have, and restarts itself. While it installs and builds, new messages wait and background runs
+pause. The page reloads when it is back. In household mode one update restarts every companion in the house.
 
-- **Something went wrong?** A failed install or build puts the old version back by itself, and
-  the log is in **Settings → Preferences → Updates**. After a good update, **Roll back to X.Y**
+- **Something went wrong?** A failed install or build changes nothing (the app keeps running the
+  old version), and a crash mid-update does too. The log is in **Settings → Preferences → Updates**. After a good update, **Roll back to X.Y**
   there returns to the kept copy (one copy is kept: the version before the last update).
 - **Local changes in a git checkout** stop the update, and the files are listed. Nothing is
   stashed or overwritten; commit or discard them and try again.
@@ -161,7 +162,9 @@ is back. In household mode one update restarts every companion in the house.
   cannot update itself (no `git` in a git checkout, no `tar` in a downloaded folder) the notice
   says so and shows this command.
 
-Your `sanctum.yaml`, `.env`, `data` folder and their home folder are never touched. Upgrading
+Your `sanctum.yaml`, `.env` and `data` folder are never touched, and neither is the companion's home
+when it is outside the app folder or untracked (a downloaded folder skips `companion-home/` and the folder
+`agent.cwd` names; a git checkout updates only tracked files). Upgrading
 from an older layout: [UPGRADE.md](UPGRADE.md).
 
 ## Setting it up with an AI assistant

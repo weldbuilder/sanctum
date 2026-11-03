@@ -191,7 +191,7 @@ replaces them. The Codex base now rides every message at roughly 2,000 tokens a 
 
 From this version the app updates itself: when a newer version is out, a bar on Home and Chat
 offers **Update and restart**, asks for your password again, keeps a copy of the current
-version in `<data dir>/update-rollback/`, builds, and restarts. `npm run update` runs the
+version in `.update-rollback/` (inside the app folder), builds the new one beside it in `.update-stage/` (the running app is untouched until it is built), and restarts. `npm run update` runs the
 same steps. Two things to know when you move over:
 
 - A git checkout with local changes is refused (the changed files are listed). Commit or

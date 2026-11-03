@@ -36,7 +36,14 @@ export interface UpdateSnapshot {
   companions: number;
   job: UpdateJob | null;
   rollback: { available: boolean; version: string | null; created_at: string | null };
+  /** false in dev-open (no password is set): the dialog has nothing to ask for, so the page shows the terminal command. */
+  password_set?: boolean;
 }
+
+/** Can this install update itself from the page? The platform must allow it and a password must exist to type again. */
+export const canSelfUpdate = (s: UpdateSnapshot | null | undefined): boolean => !!s && s.self_update.ok && s.password_set !== false;
+/** Why not, in one line (empty when it can). */
+export const selfUpdateWhy = (s: UpdateSnapshot | null | undefined): string => (!s || canSelfUpdate(s) ? '' : !s.self_update.ok ? (s.self_update.reason ?? 'This install cannot update itself.') : 'Set a password, or run npm run update');
 
 const ACTIVE: JobState[] = ['checking', 'fetching', 'installing', 'building', 'restarting'];
 export const jobActive = (j: UpdateJob | null | undefined): boolean => !!j && ACTIVE.includes(j.state);
@@ -53,6 +60,13 @@ export type BarPhase = 'hidden' | 'offer' | 'fallback' | 'progress' | 'failed' |
 export interface BarModel { phase: BarPhase; text: string; detail: string; dismissible: boolean }
 const HIDDEN: BarModel = { phase: 'hidden', text: '', detail: '', dismissible: false };
 
+/** The failed job's reason on one line: its first line, plus the last line of the failing step's output when the error carries it. */
+export function failureDetail(job: UpdateJob): string {
+  const lines = (job.error ?? '').split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length <= 1 || (job.dirty && job.dirty.length)) return lines[0] ?? '';
+  return `${lines[0].replace(/:$/, '')}: ${lines[lines.length - 1]}`;
+}
+
 export function barModel(s: UpdateSnapshot | null, dismissedFor: string | null, waiting = false): BarModel {
   if (!s) return waiting ? { phase: 'progress', text: 'Restarting', detail: 'Waiting for the app to come back', dismissible: false } : HIDDEN;
   const job = s.job;
@@ -61,13 +75,15 @@ export function barModel(s: UpdateSnapshot | null, dismissedFor: string | null, 
     return { phase: 'progress', text: `${what}: ${stateWord(job!.state).toLowerCase()}`, detail: lastLine(job), dismissible: false };
   }
   if (job && job.state === 'failed' && dismissedFor !== `job:${job.id}`) {
-    return { phase: 'failed', text: job.kind === 'rollback' ? 'The roll back did not finish' : 'The update did not finish', detail: (job.error ?? '').split('\n')[0], dismissible: true };
+    return { phase: 'failed', text: job.kind === 'rollback' ? 'The roll back did not finish' : 'The update did not finish', detail: failureDetail(job), dismissible: true };
   }
   if (job && job.restart_pending && dismissedFor !== `job:${job.id}`) {
     return { phase: 'finished', text: `${job.to ?? 'The new version'} is installed. Restart the app to finish.`, detail: '', dismissible: true };
   }
   if (s.update_available && s.latest && dismissedFor !== s.latest) {
-    if (!s.self_update.ok) return { phase: 'fallback', text: `Sanctum ${s.latest} is out.`, detail: `${s.self_update.reason ?? 'This install cannot update itself.'} In the app's folder, run: npm run update`, dismissible: true };
+    if (!canSelfUpdate(s)) {
+      return { phase: 'fallback', text: `Sanctum ${s.latest} is out.`, detail: s.self_update.ok ? selfUpdateWhy(s) : `${selfUpdateWhy(s)} In the app's folder, run: npm run update`, dismissible: true };
+    }
     return { phase: 'offer', text: `Sanctum ${s.latest} is out.`, detail: '', dismissible: true };
   }
   return HIDDEN;
@@ -83,7 +99,7 @@ export function dialogBody(kind: 'update' | 'rollback', s: UpdateSnapshot | null
   const everyone = s?.household ? ` and every companion in the house (${s.companions})` : '';
   const stops = `The app restarts${everyone}. Anything running stops for a minute or so, and this page reloads by itself when the app is back.`;
   return kind === 'update'
-    ? `${stops} A copy of the current version is kept first, so you can roll back.`
+    ? `${stops} The new version is built beside the running one first, and the current one is kept so you can roll back.`
     : `${stops} The files go back to the version kept before the last update.`;
 }
 
@@ -112,6 +128,9 @@ function writeDismissed(v: string | null): void { try { if (v) sessionStorage.se
 
 const builtAs = (): string => { try { return __BUILD_ID__; } catch { return 'dev'; } };
 let timer: ReturnType<typeof setTimeout> | null = null;
+/** The id of the last finished update whose build id was checked, so each is checked once. */
+let checkedDone: string | null = null;
+export function _resetCheckedDone(): void { checkedDone = null; }
 
 export const useUpdateStore = create<UpdateStore>((set, get) => {
   function schedule(ms: number) {
@@ -146,11 +165,14 @@ export const useUpdateStore = create<UpdateStore>((set, get) => {
         if (res.status === 404 || res.status === 401) { set({ unavailable: true }); return; }
         if (!res.ok) return;
         const snapshot = await res.json() as UpdateSnapshot;
-        const wasActive = jobActive(get().snapshot?.job);
         set({ snapshot, unavailable: false });
         if (snapshot.job?.state === 'restarting') set({ waiting: true });
         if (jobActive(snapshot.job)) schedule(snapshot.job!.state === 'restarting' ? 1500 : 2000);
-        else if (wasActive && snapshot.job?.state === 'done' && snapshot.job.kind === 'update') schedule(500); // back already: check the build id once
+        else if (snapshot.job?.state === 'done' && snapshot.job.kind === 'update' && checkedDone !== snapshot.job.id) {
+          // The update finished (whether or not this page ever saw `restarting`): look at /api/version once. A new build id reloads the page.
+          checkedDone = snapshot.job.id;
+          set({ waiting: true }); // (the line below schedules the check)
+        }
         if (get().waiting) schedule(1500);
       } catch {
         // The status stopped answering while a job was running: that is the restart.

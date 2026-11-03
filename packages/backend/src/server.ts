@@ -47,7 +47,7 @@ import apiRoutes, { initCcRoutes, ccEnabledGate } from './routes/api.js';
 import setupRoutes from './routes/setup.js';
 import { announceSetupCode } from './services/setup-code.js';
 import houseUpdateRoutes from './routes/house-update.js';
-import { setRestartControl } from './services/updater.js';
+import { initUpdater, setRestartControl, stopUpdateWork } from './services/updater.js';
 import authPreferencesRoutes from './routes/auth-preferences.js';
 import googleRoutes from './routes/google-routes.js';
 import { startOutlookPoller, stopOutlookPoller } from './services/outlook.js';
@@ -413,6 +413,10 @@ if (!TENANT_MODE) startOutlookAuthor();
 // + logged and never crash the process.
 if (!TENANT_MODE) startHandoffSchedule();
 
+// The in-app updater, before the listener opens: a stage a crash left behind is deleted (and its build stopped), a cut-short swap is put back,
+// and the job file is settled (`restarting` is `done` now, with its finish time).
+await initUpdater().catch((err) => console.warn('[updater] boot check failed:', (err as Error).message));
+
 // Start server
 server.listen(PORT, HOST, () => {
   console.log(`Server running at http://${HOST}:${PORT}`);
@@ -450,6 +454,7 @@ server.listen(PORT, HOST, () => {
 // Graceful shutdown
 async function gracefulStop(signal: string): Promise<void> {
   console.log(`${signal} received, shutting down gracefully...`);
+  stopUpdateWork(); // an update's build children (npm, tsc, vite: each its own process group) go with the app, and the stage is deleted at the next start
   orchestrator?.stop(); // (null in tenant mode)
   mindWatchdog?.stop();
   if (tenantRuntimes) await stopTenantServices(tenantRuntimes.values()); // each tenant's orchestrator, watchdog and timers, then its database below

@@ -30,6 +30,7 @@
 // ===========================================================================
 
 import { query } from './providers/index.js';
+import { trackBackgroundRun } from './update-block.js';
 import type {
   OutlookPresence,
   OutlookTheme,
@@ -379,7 +380,11 @@ function normalizeAuthored(parsed: unknown, updatedAt: string): AuthoredOutput {
  *  store. Returns true on success (output stored), false on failure. Never
  *  throws — the caller's lifecycle stays resilient. */
 export async function authorOutlook(): Promise<boolean> {
-  if (backgroundRunsOff()) return false; // the operator's switch: no model run for this tenant
+  if (backgroundRunsOff()) return false; // the operator's switch (or an update in progress): no model run for this tenant
+  return trackBackgroundRun(authorOutlookRun);
+}
+
+async function authorOutlookRun(): Promise<boolean> {
   // Hale #1 (2026-07-02): never fire a concurrent query() while the user's live
   // turn is in flight — same subscription, same rate limit; the interactive
   // turn is the one that must not bounce. Defer to the next cycle.

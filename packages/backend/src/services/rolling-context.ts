@@ -28,6 +28,7 @@ import { runCodexExec } from './providers/codex-exec.js';
 import { runDshSummarizer } from './providers/dsh-exec.js';
 import { getSanctumConfig, activeProviderName } from '../config.js';
 import { backgroundRunsOff, tenantLocal } from '../tenancy/context.js';
+import { trackBackgroundStart } from './update-block.js';
 
 export interface RollingTurn { id: string; role: 'user' | 'assistant'; content: string; at: string }
 
@@ -609,6 +610,7 @@ export function getRolling(): Rolling {
       if (backgroundRunsOff()) return { text: '', error: 'background model runs are off for this tenant' }; // the operator's switch
       const ac = new AbortController();
       const timer = setTimeout(() => ac.abort(), timeoutMs);
+      const untrack = trackBackgroundStart();
       try {
         await ownMkdirAsync(dir, { recursive: true });
         const cx = getSanctumConfig().agent.codex;
@@ -647,6 +649,7 @@ export function getRolling(): Rolling {
         return { text: '', error: String(err?.message ?? err) };
       } finally {
         clearTimeout(timer);
+        untrack();
       }
     },
   });

@@ -11,6 +11,7 @@ import { readdirSync, readFileSync, existsSync, statSync, lstatSync, realpathSyn
 import { join, basename, dirname, extname, resolve, sep, isAbsolute } from 'path';
 import { activeProvider } from '../services/providers/index.js';
 import { checkForUpdate } from '../services/update-check.js';
+import { updateBlocking, UPDATE_BLOCK_NOTICE } from '../services/update-block.js';
 import { logMeal, undoMeal } from '../services/meal.js';
 import yaml from 'js-yaml';
 import { mindIdProblem, mindKeyInfo, mindUrlInfo, keyFingerprint, mindRootFrom, redactUrls } from '../services/mind-client.js';
@@ -2680,6 +2681,7 @@ router.post('/messages/:id/save-to-canvas', (req, res) => {
 // rotation. Acceptable for interruption recovery; revisit with resumeSessionAt
 // if completed-response regeneration needs true context rewind.
 router.post('/messages/:id/regenerate', async (req, res) => {
+  if (updateBlocking()) { res.status(503).json({ error: 'update_running', message: UPDATE_BLOCK_NOTICE }); return; }
   try {
     const { id } = req.params;
     const message = getMessage(id);

@@ -4,6 +4,6 @@ export default defineConfig({
   test: {
     setupFiles: [fileURLToPath(new URL('./vitest.setup.mjs', import.meta.url))],
     // Agent worktrees live under .claude/worktrees; a local `npm test` must never collect their suites.
-    exclude: [...configDefaults.exclude, '**/.claude/**'],
+    exclude: [...configDefaults.exclude, '**/.claude/**', '**/.update-stage/**', '**/.update-rollback/**'],
   },
 });
