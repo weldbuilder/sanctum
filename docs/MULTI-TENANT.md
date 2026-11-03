@@ -549,11 +549,30 @@ Both projects were read for how they isolate (their docs and issue trackers, mai
 | Trust statement | one trust boundary per gateway; adversarial users need a separate gateway and OS user | in-process isolation is not enough for adversarial profiles | the same: option (a), or the seam |
 
 What they have and this does not: a filesystem sandbox per agent, per-agent tool allow and deny lists, hot park and revive of one
-tenant without a restart, a full per-profile HOME as an option (here it is the only mode), and audit or doctor commands. Those are
-in the roadmap. Their open reports are the checklist this was built against: a singleton that wrote one profile's memory into
+tenant without a restart, and a full per-profile HOME as an option (here it is the only mode). Those are in the roadmap. A doctor
+command exists now: `npm run doctor` (below); an audit of a running process's state does not. Their open reports are the checklist this was built against: a singleton that wrote one profile's memory into
 another, configuration bridged into the process environment, scope lost across an executor or a watcher task, a same-named MCP
 server shared across profiles, a reload with no secret scope. Each has a counterpart here (per-tenant state behind `tenantLocal`,
 the environment never written, bound callbacks, MCP keyed by tenant, `rt.reload()` reading the tenant's own files) and a test.
+
+### `npm run doctor`
+
+`npm run doctor [-- --tenant <id>] [-- --json]` prints the health checks the runbook below does by hand, one line each (OK, WARN or FAIL, with a
+sentence), and exits 1 when any is a FAIL. It reads and never writes, and prints names, paths, modes and lengths, never a secret.
+
+- **Config**: `sanctum.yaml` parses; the shipped prompts, the wake prompts and the companion-home config files exist; the Claude frame as the
+  app resolves it (the home's copy, the configured file, or the preset).
+- **Tenants** (when a `tenants:` block exists, or `--tenant` names one): per tenant, the boot scan (no link, pipe or second hard link), the
+  `tenant.yaml` and `.env` rules boot enforces, the never-inherited table against the live merged config (a never-inherited key may hold only what
+  the tenant's own file says, and no secret-named key may come from the operator's file), file modes (`.env`, `app.env`, `data/.internal-token`,
+  `data/.google-key`: none group or world readable), and the home with `identity/` and the three harness copies in `config/`. Across tenants:
+  duplicate hosts, hosts reserved by a tenant boot would skip, duplicate internal tokens and duplicate bot tokens in the `.env` files (compared by
+  hash; a token saved in a tenant's database is not read). `--tenant` reports one tenant in full and still runs the clash checks over all.
+- **Process**: the node version against `engines`, the build stamp (`packages/frontend/build/.build-id`), the database path writable, and the
+  process's own secret files.
+
+`--json` prints the same report as `{ ok, exitCode, counts, sections: [{ name, checks: [{ status, check, message }] }] }`. Run it before the
+soak below and after every step that edits a tenant's files.
 
 ### A chaos and soak run, locally
 
