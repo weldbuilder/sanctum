@@ -1,14 +1,15 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import type { Message, MessageSegment } from '@sanctum/shared';
-import type { ToolEvent, ThinkingEvent } from '../store/chat';
+import type { ToolEvent, ThinkingEvent, TimelineEntry } from '../store/chat';
 import { renderMarkdown } from '../utils/markdown';
 import { HearthAudioPlayer } from './HearthAudioPlayer';
-import { PersistedThinkingAccordion } from './ThinkingAccordion';
+import { PersistedThinkingAccordion, LiveThinkingAccordion } from './ThinkingAccordion';
 import { useConfirm } from './ConfirmDialog';
 import { useIdentity, avatarSrc } from '../store/identity';
 
 // ─── Base URL (matches SettingsView) ──────────────────────────────────────────
 import { BASE } from '../lib/base';
+import { copyText } from '../lib/copyText';
 import { ORNAMENT_SLOTS } from '../theme/materials';
 
 // ─── Attachment contract ──────────────────────────────────────────────────────
@@ -262,6 +263,8 @@ interface Props {
   suppressHeader?: boolean;
   /** Whether the thinking timeline should be visible (from thread's show_thinking) */
   showThinking?: boolean;
+  /** Live thinking/tool timeline of the message that is streaming; rendered as the in-bubble disclosure. */
+  liveEntries?: TimelineEntry[];
   /** Whether this is the last companion message in the thread — used to scope the Regenerate button */
   isLastCompanion?: boolean;
   /** created_at of the previous message in the list — used for cross-day bubble timestamp formatting */
@@ -388,13 +391,12 @@ function MessageActionRow({ message, isCompanion, isLastCompanion, onReply, onRe
   }
 
   async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(message.content);
+    if (await copyText(message.content)) {
       setCopyFlash(true);
       if (copyTimer.current) clearTimeout(copyTimer.current);
       copyTimer.current = setTimeout(() => setCopyFlash(false), 1400);
-    } catch (err) {
-      console.warn('[Actions] Copy failed:', err);
+    } else {
+      console.warn('[Actions] Copy failed');
     }
   }
 
@@ -625,7 +627,7 @@ const MarkdownBody = React.memo(function MarkdownBody({ html }: { html: string }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function MessageBubble({ message, isStreaming = false, streamTokens = '', toolEvents = [], thinkingEvents = [], onReply, suppressHeader = false, showThinking = true, isLastCompanion = false, prevTimestamp }: Props) {
+export function MessageBubble({ message, isStreaming = false, streamTokens = '', toolEvents = [], thinkingEvents = [], onReply, suppressHeader = false, showThinking = true, liveEntries, isLastCompanion = false, prevTimestamp }: Props) {
   const [showTools, setShowTools] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
@@ -734,32 +736,16 @@ export function MessageBubble({ message, isStreaming = false, streamTokens = '',
       aria-label={`${isCompanion ? 'Companion' : 'You'} message`}
       data-orn={(message.sequence ?? 0) % ORNAMENT_SLOTS}
     >
-      {/* Companion avatar — the logo, at the left of the bubble; first bubble of a run only */}
-      {isCompanion && !suppressHeader && (
-        <img className={`message-avatar${identity.avatar_url ? ' is-custom' : ''}`} src={avatarSrc(identity)} alt="" aria-hidden="true" width={36} height={36} />
-      )}
-
-      {/* Attribution — suppressed in grouped same-role runs.
-          Tools toggle only shown on legacy path (no segments); the accordion handles segments. */}
-      {(!suppressHeader || (isCompanion && hasTools && !segments)) && (
+      {/* No name/avatar/time header: the sides say who is speaking and the time sits under the text (.bubble-ts).
+          Legacy messages without segments keep their tools toggle. */}
+      {isCompanion && hasTools && !segments && (
         <div className="message-header">
-          {!suppressHeader && (
-            <>
-              <span className="message-role">{roleName}</span>
-              <span className="message-time">{formatTime(message.created_at)}</span>
-              {message.edited_at && !isDeleted && (
-                <span className="message-edited">edited</span>
-              )}
-            </>
-          )}
-          {isCompanion && hasTools && !segments && (
-            <button
-              className="tools-toggle"
-              onClick={() => setShowTools(s => !s)}
-            >
-              {showTools ? 'hide' : `${toolEvents.length} tool${toolEvents.length !== 1 ? 's' : ''}`}
-            </button>
-          )}
+          <button
+            className="tools-toggle"
+            onClick={() => setShowTools(s => !s)}
+          >
+            {showTools ? 'hide' : `${toolEvents.length} tool${toolEvents.length !== 1 ? 's' : ''}`}
+          </button>
         </div>
       )}
 
@@ -790,6 +776,11 @@ export function MessageBubble({ message, isStreaming = false, streamTokens = '',
         ) : (
           // ─── Legacy / streaming rendering ────────────────────────────────
           <>
+            {/* Live disclosure: narration + tool calls, collapsed, inside the bubble */}
+            {isStreaming && liveEntries && liveEntries.length > 0 && (
+              <LiveThinkingAccordion entries={liveEntries} />
+            )}
+
             {/* Thinking events — legacy path (when no segments) */}
             {hasThinking && isCompanion && showThinking && thinkingEvents.map((ev, i) => (
               <ThinkingBlock key={i} event={ev} index={i} />
@@ -869,6 +860,9 @@ export function MessageBubble({ message, isStreaming = false, streamTokens = '',
           <span className="bubble-ts" aria-label={`Sent at ${formatBubbleTime(message.created_at, prevTimestamp)}`}>
             {formatBubbleTime(message.created_at, prevTimestamp)}
           </span>
+          {message.edited_at && !isDeleted && (
+            <span className="message-edited">edited</span>
+          )}
         </div>
       )}
 
@@ -935,8 +929,9 @@ export function MessageBubble({ message, isStreaming = false, streamTokens = '',
         .message.companion {
           align-self: flex-start;
           width: auto;
-          max-width: 78%;
-          margin-left: 3.1rem;
+          max-width: min(78%, 680px);
+          margin-left: 0;
+          margin-right: auto;
           /* Parchment with a little of the wall through it: the bubbles sit in the room, not on top of it. */
           background: var(--surface-companion);
           color: var(--surface-companion-text);
@@ -948,25 +943,24 @@ export function MessageBubble({ message, isStreaming = false, streamTokens = '',
         .message.companion:hover {
           border-color: var(--border-hover, rgba(90, 65, 40, 0.28));
         }
+        /* Avatar sits inline in the header, before the name (no side gutter). */
         .message-avatar {
-          position: absolute;
-          left: -3.1rem;
-          top: 0.15rem;
-          width: 36px;
-          height: 36px;
-          border-radius: 0;
-          object-fit: contain;
-          box-shadow: none;
-          filter: drop-shadow(0 2px 5px rgba(20, 10, 5, 0.35));
+          flex: 0 0 auto;
+          align-self: center;
+          width: 22px;
+          height: 22px;
+          border-radius: 50%;
+          object-fit: cover;
         }
         /* A custom photo avatar gets the rounded tile; the Sanctum mark does not. */
-        .message-avatar.is-custom { border-radius: 9px; object-fit: cover; filter: none; box-shadow: 0 2px 6px rgba(20, 10, 5, 0.35); }
+        .message-avatar.is-custom { border-radius: 50%; object-fit: cover; filter: none; }
 
         /* User — lavender bubble, ink #3b2f52, right-anchored */
         .message.user {
           align-self: flex-end;
           margin-left: auto;
-          max-width: 72%;
+          margin-right: 0;
+          max-width: min(78%, 680px);
           background: var(--surface-user);
           -webkit-backdrop-filter: var(--surface-blur, none);
           backdrop-filter: var(--surface-blur, none);
@@ -1656,8 +1650,7 @@ export function MessageBubble({ message, isStreaming = false, streamTokens = '',
         }
 
         @media (max-width: 768px) {
-          .message.companion { max-width: calc(100% - 3.1rem); }
-          .message.user { max-width: 88%; }
+          .message.companion, .message.user { max-width: 78%; }
           .tool-output { max-width: calc(100vw - 5rem); }
           /* Always show read-aloud on mobile (no hover) */
           .ral-row > :not(.bubble-ts) { opacity: 1; }

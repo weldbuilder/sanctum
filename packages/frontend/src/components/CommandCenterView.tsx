@@ -2675,7 +2675,7 @@ function CommandCenterStyles() {
       .cmd-panel {
         background: rgba(255, 255, 255, 0.02);
         border: 1px solid var(--border, rgba(255,255,255,0.06));
-        border-radius: var(--radius-card, 1.125rem);
+        border-radius: 5px; /* the plate radius (materials.ts PLATES) */
         overflow: hidden;
         min-width: 0;
         position: relative;
@@ -2832,7 +2832,7 @@ function CommandCenterStyles() {
         gap: 0.5rem;
         margin-top: 0.7rem;
         padding: 0.3rem 0.8rem;
-        border-radius: 999px;
+        border-radius: 5px; /* same as .cmd-panel */
         background: var(--chip-bg, var(--surface-chrome, #2c1a10));
         border: 1px solid color-mix(in srgb, var(--skin-trim, #c9a87c) 55%, transparent);
         color: var(--chip-text, var(--surface-chrome-text, #efe4d0));
@@ -4086,8 +4086,8 @@ function CommandCenterStyles() {
         .cmd-dayhead { grid-template-columns: auto minmax(0, 1fr); row-gap: 0; column-gap: 0.6rem; }
         .cmd-dayhead > .cmd-manage { grid-column: auto; grid-row: auto; }
         .cmd-dayhead > .cmd-dayhead-ask { grid-column: 1 / -1; justify-self: center; justify-content: center; flex-wrap: wrap; column-gap: 0.45rem; row-gap: 0; text-align: center; }
-        .cmd-dayhead .horb { --orb-d: 52px; }
-        .cmd-dayhead-date { font-size: 1.4rem; }
+        .cmd-dayhead .horb { --orb-d: 44px; }
+        .cmd-dayhead-date { font-size: 1.25rem; line-height: 1.15; min-width: 0; overflow-wrap: anywhere; }
         /* one column: care's chips first, then the day and its automations, then the rest */
         .cmd-daymain, .cmd-dayside { display: contents; }
         /* the day speaks for itself here: Echo's words stay on a desktop, the ask stays everywhere */

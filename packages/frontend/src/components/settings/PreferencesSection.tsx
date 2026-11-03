@@ -996,6 +996,10 @@ export function PreferencesSection({ base }: { base: string }) {
           color: var(--text-muted, #6a6258);
           transition: transform 160ms var(--hearth-curve, ease);
         }
+        @media (min-width: 769px) {
+          .settings-view .raw-cfg-toggle-label { font-size: 14px; }
+          .settings-view .raw-cfg-chevron { font-size: 12px; }
+        }
 
         .raw-cfg-body {
           padding: 0.875rem 1rem 1rem;

@@ -804,9 +804,9 @@ export function HomeView() {
           background: radial-gradient(circle at 50% 35%,
             color-mix(in srgb, var(--surface-chrome, #2c1a10) 78%, var(--skin-trim, #d4a843)) 0%,
             var(--surface-chrome, #2c1a10) 70%);
-          border: 1.5px solid var(--skin-trim, var(--surface-chrome-muted, #d9cdb6));
+          border: 1.5px solid var(--skin-badge-ink, var(--skin-trim, var(--surface-chrome-muted, #d9cdb6)));
           box-shadow: 0 0 0 3px color-mix(in srgb, var(--skin-trim, #d4a843) 18%, transparent), 0 4px 12px rgba(0, 0, 0, 0.35);
-          color: var(--skin-trim, var(--surface-chrome-text, #efe4d0));
+          color: var(--skin-badge-ink, var(--skin-trim, var(--surface-chrome-text, #efe4d0)));
         }
         .home-tile-main { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 0; }
         .home-tile-title { font-family: var(--font-serif, 'Lora', Georgia, serif); font-size: 1.25rem; line-height: 1.2; color: var(--text-primary, #2c231f); }

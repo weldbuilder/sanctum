@@ -377,6 +377,7 @@ export function SkillsStatusSection({ base }: { base: string }) {
           color: var(--text-secondary, #a09689);
           line-height: 1.4;
         }
+        @media (min-width: 769px) { .settings-view .ss-skill-desc, .settings-view .ss-skill-name { font-size: 14px; } }
         .ss-skill-trigger {
           font-family: var(--font-mono, 'JetBrains Mono', monospace);
           font-size: 0.6875rem;

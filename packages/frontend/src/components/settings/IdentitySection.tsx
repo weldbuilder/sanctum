@@ -177,6 +177,7 @@ export function IdentitySection({ base }: { base: string }) {
         .id-hint { color: var(--text-muted, #6a6258); font-size: 0.8125rem; }
         .id-diff { margin: 0.25rem 0 0.5rem; padding: 0.5rem; max-height: 20rem; overflow: auto; background: rgba(90,65,40,0.08); border-radius: 6px; font-family: monospace; font-size: 0.75rem; line-height: 1.45; }
         .id-diff div { white-space: pre-wrap; overflow-wrap: anywhere; }
+        @media (min-width: 769px) { .settings-view .id-hint { font-size: 14px; } .settings-view .id-diff, .settings-view .id-textarea { font-size: 14px; } .settings-view strong.id-fname { font-size: 14px !important; } }
         .id-textarea { width: 100%; box-sizing: border-box; min-height: 12rem; resize: vertical; padding: 0.5rem; border-radius: 6px; border: 1px solid rgba(90,65,40,0.25); background: rgba(90,65,40,0.06); color: inherit; font-family: monospace; font-size: 0.8125rem; line-height: 1.5; }
       `}</style>
       <p className="id-hint" style={{ margin: '0 0 1rem' }}>
@@ -231,7 +232,7 @@ export function IdentitySection({ base }: { base: string }) {
                     : diffs === 'error' ? <div role="alert" style={{ color: ERR_COLOR, marginBottom: '0.5rem' }}>Could not load the files. Reload before ratifying.</div>
                     : Object.values(diffs).map(d => (
                       <div key={d.path} style={{ marginBottom: '0.5rem' }}>
-                        <strong style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{d.path}</strong>
+                        <strong className="id-fname" style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{d.path}</strong>
                         {diffNote(d) ? <div className="id-hint">{diffNote(d)}</div> : (
                           <div className="id-diff" role="region" aria-label={`Text of ${d.path}`}>
                             {parseDiff(d.diff).map((l, i) => <div key={i} style={{ color: DIFF_COLOR[l.kind] }}>{l.text}</div>)}
@@ -312,7 +313,7 @@ export function IdentitySection({ base }: { base: string }) {
               return (
                 <div key={f.name} style={{ padding: '0.75rem 0', borderBottom: '1px solid rgba(90,65,40,0.12)' }}>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
-                    <strong style={{ fontFamily: 'monospace', fontSize: '0.8125rem' }}>{f.name}</strong>
+                    <strong className="id-fname" style={{ fontFamily: 'monospace', fontSize: '0.8125rem' }}>{f.name}</strong>
                     {draft !== f.text && <Pill color={TONE_COLOR.warn} label="Unsaved" />}
                     <Btn small onClick={() => setOpenEditors(prev => ({ ...prev, [f.name]: !open }))}>{open ? 'Close' : 'Edit'}</Btn>
                   </div>

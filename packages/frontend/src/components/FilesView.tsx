@@ -860,7 +860,7 @@ export function FilesView() {
         /* ── plates: the route's plate (materials.ts), a faint wash where no skin draws one ── */
         .fl-plate {
           position: relative;
-          border-radius: 6px;
+          border-radius: 5px;
           border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
           background: rgba(255, 255, 255, 0.02);
           color: var(--text-primary, #efe4d0);

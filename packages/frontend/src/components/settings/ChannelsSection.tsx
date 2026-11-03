@@ -86,6 +86,12 @@ const CHANNELS_CSS = `
   padding: 2rem 0;
 }
 
+@media (min-width: 769px) {
+  .settings-view .ch-card-desc { font-size: 14px; }
+  .settings-view .ch-header-note { font-size: 14px; }
+  .settings-view .ch-err { font-size: 14px; }
+}
+
 @media (max-width: 600px) {
   .ch-card-desc { display: none; }
   .ch-card-controls { gap: 0.375rem; }

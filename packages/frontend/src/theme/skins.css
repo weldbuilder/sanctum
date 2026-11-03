@@ -41,11 +41,22 @@ body::before {
 body::after {
   inset: 0;
   z-index: -2;
-  background-size: contain;
+  background-size: cover;
 }
-/* A phone fills the screen with its portrait painting: zoomed out to fit, it left half the screen to the fill. */
+/* A phone shows its whole portrait painting (the file is 2:3) across the full width, from the top: cover on a 390x844 screen zoomed
+   it in by a third and left one wall panel filling the screen with the candles, curtains and furniture cropped away. Below the
+   painting (a phone is taller than 2:3) the last fifth of it fades into the blurred fill, so there is no hard edge. The legacy
+   Hedgewitch kitchen is a landscape painting and keeps cover. */
 @media (max-width: 768px) {
   body::after { background-size: cover; }
+  :root:not([data-room="hedgewitch"]) body::after {
+    inset: 0 0 auto 0;
+    aspect-ratio: 2 / 3;
+    background-size: 100% 100%;
+    background-position: 50% 0;
+    -webkit-mask-image: linear-gradient(#000 80%, transparent);
+    mask-image: linear-gradient(#000 80%, transparent);
+  }
 }
 
 /* ── focus: the ring always has its own colour, chrome gets the light one ── */
@@ -125,8 +136,8 @@ body::after {
 /* A desktop sets the frame into the room, as in the mockups: the scene shows all round it, the frame (line, corners,
    gutter) sits that far in from the window's edge with a soft shadow off it, and the app sits just inside its line, the
    rail flush against it (the corners' curve is behind the rail on the left, and clear of the views' own padding elsewhere).
-   A phone keeps the frame on the screen's own edge, where every pixel of width counts, and so does Ember, whose approved
-   desktop is full-window with the frame on the edge. */
+   The outer frame itself is off by default (below); this is the set-in layout used when
+   data-outer-frame="on". Ember's is full-window with the frame on the edge. */
 @media (min-width: 769px) {
   :root[data-decor="on"]:not([data-room="ember"]) {
     --skin-inset-x: clamp(16px, 2.6vw, 48px);
@@ -150,9 +161,66 @@ body::after {
   :root[data-decor="on"][data-room="ember"] .app-shell { padding: 3px; }
   :root[data-decor="on"][data-room="ember"] .app-content { padding: 21px 21px 21px 0; }
 }
+/* Desktop: no outer app-shell frame. The room is full-bleed and the app fills the window edge to edge; the panel plates keep
+   their own frames and corners. The same on a phone (every width, Ember included, as on desktop). A future toggle sets
+   data-outer-frame="on" on <html> to bring the frame back. */
+:root[data-decor="on"]:not([data-outer-frame="on"]) {
+  --skin-inset-x: 0px;
+  --skin-inset-top: 0px;
+  --skin-inset-bottom: 0px;
+}
+:root[data-decor="on"]:not([data-outer-frame="on"]) .skin-frame { display: none; }
+:root[data-decor="on"]:not([data-outer-frame="on"]) .app-shell { padding: 0; }
 :root[data-decor="on"] .nav-rail { height: 100%; }
-/* The gutter already clears the notch, so the top bar does not add the inset a second time. */
-:root[data-decor="on"] .mobile-topbar { padding-top: 0.5rem; }
+/* Desktop rail sits on the room, not on a slab: chrome ink at ~60% over a light blur, a single gold hairline on the right,
+   no plate textures, fittings, ornaments or frame. Wins over every skin's generated plate paint. The phone drawer is untouched. */
+@media (min-width: 769px) {
+  :root .nav-rail {
+    background-color: color-mix(in srgb, var(--plate-bg, var(--surface-chrome)) 60%, transparent) !important;
+    background-image: none !important;
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    border: 0 !important;
+    border-right: 1px solid color-mix(in oklab, var(--skin-chrome-trim, var(--skin-trim, var(--gold))) 40%, transparent) !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    outline: 0 !important;
+  }
+  /* Hedgewitch's rail is its solid wood, the same surface as its phone drawer (--chrome-rail-bg is the drawer's wood under a dark veil),
+     not the translucent fill above; the gold hairline stays and the active item keeps its plate. Other skins keep the fill. */
+  :root[data-material="hedgewitch"] .nav-rail {
+    background: var(--chrome-rail-bg) !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  /* Light on the wood: the chrome cream (#efe4d0) reads 4.54:1 on the wood's lightest pixel, and the active plate's selected wash lifts
+     that further, so the rail's rows take a near-white cream in every state (4.65:1 or better on the worst pixel under the hover and active washes). The drawer keeps the palette's own. */
+  :root[data-material="hedgewitch"] .nav-rail .navlink, :root[data-material="hedgewitch"] .nav-rail .navlink:hover { color: #fffdf8; }
+  /* The Settings section menu is the rail's twin: same fill, blur and hairline, no plate. */
+  :root .settings-subnav {
+    background-color: color-mix(in srgb, var(--plate-bg, var(--surface-chrome)) 60%, transparent) !important;
+    background-image: none !important;
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    border: 0 !important;
+    border-right: 1px solid color-mix(in oklab, var(--skin-chrome-trim, var(--skin-trim, var(--gold))) 40%, transparent) !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    outline: 0 !important;
+  }
+  /* Extra readable keeps its 2px accessibility ring on both (the generic ring rule below loses to the !important above). */
+  :root[data-readability="extra"] .nav-rail,
+  :root[data-readability="extra"] .settings-subnav { box-shadow: 0 0 0 2px var(--control-border) !important; }
+}
+/* The framed gutter already clears the notch, so the top bar does not add the inset a second time. Without the outer frame
+   (the default) the top bar keeps its own safe-area inset. */
+:root[data-decor="on"][data-outer-frame="on"] .mobile-topbar { padding-top: 0.5rem; }
+/* The header frame (the top bar on every page, the chat header on chat) is a framed plate with its own border and corner fittings, so it sits
+   below the notch / status bar rather than carrying the inset as padding, which pushed its top edge and the top corners under it. */
+@media (max-width: 768px) {
+  :root[data-decor="on"]:not([data-outer-frame="on"]) .mobile-topbar { margin-top: env(safe-area-inset-top, 0px); padding-top: 0.5rem; }
+  :root[data-decor="on"]:not([data-outer-frame="on"]) .chat-view .chat-header { margin-top: env(safe-area-inset-top, 0px); }
+}
 
 /* Code, tool output and the thinking timeline own a pair of their own: inside them the
    usual ink variables are re-pointed at it, so nothing in there inherits an ink chosen
@@ -242,4 +310,87 @@ body::after {
 }
 :root[data-readability="extra"] .app-content:is([data-route="files"], [data-route="canvas"], [data-route="command"], [data-route="browser"], [data-route="observatory"]) {
   background: var(--surface-chrome);
+}
+
+/* ── chat bubbles sit on opposite sides (all widths) ──
+   Alignment/width live in MessageBubble; repeated here at skin specificity so no theme can widen them. */
+.message-row > .message.user      { max-width: min(78%, 900px); margin-left: auto; margin-right: 0; align-self: flex-end; box-sizing: border-box; min-width: 0; width: auto; }
+.message-row > .message.companion { max-width: min(78%, 900px); margin-right: auto; margin-left: 0; align-self: flex-start; box-sizing: border-box; min-width: 0; width: auto; }
+
+/* ── phones: thinner gilt, tighter gutters, more width for the bubbles ── */
+@media (max-width: 600px) {
+  .message-row > .message.user, .message-row > .message.companion { max-width: 78%; }
+
+  /* Phone type: bigger base, bubbles, composer (>=16px stops iOS focus-zoom), drawer, chat list, header selectors. */
+  :root .message-row > .message .message-content { font-size: 17px; line-height: 1.45; }
+  :root .composer-textarea, :root .composer input { font-size: 17px; }
+  :root .navlink-drawer .navlink-label { font-size: 16px; }
+  :root .thread-item, :root .thread-item .thread-name { font-size: 16px; }
+  :root .model-effort-strip .hsel-trigger .hsel-trigger-text,
+  :root .model-effort-strip .hsel-trigger.mono .hsel-trigger-text { font-size: 15px; }
+  :root .hsel-opt { font-size: 16px; }
+
+  /* Outer frame: the 24px reserve shrinks to 10px, and the second, finer inner gilt line goes. */
+  :root[data-decor="on"] {
+    --skin-gutter-x: 10px;
+    --skin-gutter-y: 10px;
+    --skin-corner-size: 32px;
+  }
+  :root[data-decor="on"] .skin-line {
+    inset: 1.5px;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+  }
+
+  /* Ornate plates: smaller corner filigree, less padding, a hairline gilt edge. */
+  :root[data-decor="on"] :is(.message.user, .message.companion, .chat-header, .composer-inner) {
+    --plate-corner: 12px;
+    --plate-orn-size: 0px;
+    border-width: 1px;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+  }
+  :root[data-decor="on"] :is(.message.user, .message.companion) {
+    padding: 0.55rem 0.7rem;
+    margin-top: 4px;
+    margin-bottom: 4px;
+  }
+
+  /* Composer pill: the generated plate stacks a 6px inset gilt/black ring and 30px corner fittings on a
+     1px border, which reads as a thick frame on a phone. Keep one gilt hairline + one dark inner line,
+     smaller fittings and tighter padding. Specificity matches the generated plate rules (+[data-material]). */
+  :root[data-surface-decor="on"][data-material]:not([data-material="hedgewitch"]):not([data-material="smoked-copper"]):not([data-readability="extra"]) .composer-inner {
+    --plate-corner: 14px;
+    padding: 0.3rem 0.45rem;
+    gap: 0.3rem;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
+  }
+  :root[data-decor="on"] .composer { padding: 0.4rem 0.5rem 0.5rem; }
+
+  /* Message bubbles: same treatment as the composer. Drop the generated inset ring stack, keep the gilt
+     1px border + one dark inner hairline, 14px fittings, proportionally tighter padding. Widths untouched. */
+  :root[data-surface-decor="on"][data-material]:not([data-material="hedgewitch"]):not([data-material="smoked-copper"]):not([data-readability="extra"]) .message-row > :is(.message.user, .message.companion) {
+    --plate-corner: 14px;
+    border-width: 1px;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
+  }
+  /* Padding is thinned only where no corner ornament needs clearance. midnight-ink, botanical-linen and
+     indigo-silk keep their generated per-side padding (calc(... + var(--material-orn-clearance))). */
+  :root[data-surface-decor="on"][data-material]:not([data-material="hedgewitch"]):not([data-material="smoked-copper"]):not([data-material="midnight-ink"]):not([data-material="botanical-linen"]):not([data-material="indigo-silk"]):not([data-readability="extra"]) .message-row > :is(.message.user, .message.companion) {
+    padding: 0.45rem 0.6rem;
+  }
+
+  /* Route panels (Command, Files, Notes, Observatory, Editor body): the same thinning as the bubbles above, so a phone
+     shows one frame on every page. The generated framed-panel rule sets no padding (panels keep their own content padding),
+     so none is touched here. Specificity (0,7,0) beats the generated (0,5,0) framed rule and its 768px media twin. */
+  :root[data-surface-decor="on"][data-material]:not([data-material="hedgewitch"]):not([data-material="smoked-copper"]):not([data-readability="extra"]) :is(.cmd-panel, .fl-plate, .nt-card, .ob-panel, .ob-card, .cve-body) {
+    --plate-corner: 14px;
+    border-width: 1px;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.35);
+  }
+  /* Smoked copper's phone chat is flat (generated: --plate-corner 0, a soft drop shadow, no fittings), so its route panels match:
+     no brackets, no ring, the 1px trim outline and the same drop. Extra :not keeps it above the generated copper rule. */
+  :root[data-surface-decor="on"][data-material="smoked-copper"]:not([data-material="hedgewitch"]):not([data-readability="extra"]) :is(.cmd-panel, .fl-plate, .nt-card, .ob-panel, .ob-card, .cve-body) {
+    --plate-corner: 0px;
+    border-width: 1px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  }
 }

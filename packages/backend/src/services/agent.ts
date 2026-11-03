@@ -290,6 +290,10 @@ interface ThinkingInsertion {
   textOffset: number;
   content: string;
   summary: string;
+  /** Set for narration: assistant text that was followed by a tool call in the same turn. It is not the
+   *  reply. It covers fullResponse[textOffset, endOffset), which buildSegments must not emit as text. */
+  narration?: boolean;
+  endOffset?: number;
 }
 
 // ─── Attachment delivery to the in-process query() ───────────────────────────
@@ -358,7 +362,7 @@ function buildAttachmentNote(attachments: AgentImageInput[] | undefined, userNam
 }
 
 // Build interleaved text/tool/thinking segments from response text + insertions
-function buildSegments(fullResponse: string, toolInsertions: ToolInsertion[], thinkingBlocks: ThinkingInsertion[] = []): MessageSegment[] {
+export function buildSegments(fullResponse: string, toolInsertions: ToolInsertion[], thinkingBlocks: ThinkingInsertion[] = []): MessageSegment[] {
   if (toolInsertions.length === 0 && thinkingBlocks.length === 0) return [];
 
   // Merge all insertions into one sorted list
@@ -378,7 +382,8 @@ function buildSegments(fullResponse: string, toolInsertions: ToolInsertion[], th
   for (const ins of allInsertions) {
     const offset = Math.min(ins.textOffset, fullResponse.length);
     if (offset > cursor) {
-      segments.push({ type: 'text', content: fullResponse.slice(cursor, offset) });
+      const gap = fullResponse.slice(cursor, offset);
+      if (gap.trim()) segments.push({ type: 'text', content: gap });
     }
     if (ins.kind === 'tool') {
       segments.push({
@@ -394,14 +399,18 @@ function buildSegments(fullResponse: string, toolInsertions: ToolInsertion[], th
         type: 'thinking',
         content: ins.data.content,
         summary: ins.data.summary,
+        ...(ins.data.narration ? { narration: true } : {}),
       });
     }
-    cursor = offset;
+    cursor = ins.kind === 'thinking' && ins.data.narration
+      ? Math.max(offset, Math.min(ins.data.endOffset ?? offset, fullResponse.length))
+      : Math.max(cursor, offset);
   }
 
   // Trailing text after last insertion
   if (cursor < fullResponse.length) {
-    segments.push({ type: 'text', content: fullResponse.slice(cursor) });
+    const tail = fullResponse.slice(cursor);
+    if (tail.trim()) segments.push({ type: 'text', content: tail });
   }
 
   return segments;
@@ -631,6 +640,23 @@ export class AgentService {
     // like the text-block counters above so it spans all assistant messages in
     // the turn; reset to 0 on compaction (see the compaction reset block).
     let thinkingBlockSeq = 0;
+    // Narration: text that is followed by a tool call in the same turn is thinking, not the reply. `replyBase` is
+    // where the text after the latest tool call starts in fullResponse; the live stream only shows that tail.
+    let replyBase = 0;
+    let narrationSeq = 0;
+    const replyTail = (): string => fullResponse.slice(replyBase).replace(/^\s+/, '');
+    const sealNarration = (): void => {
+      const raw = fullResponse.slice(replyBase);
+      const content = raw.trim();
+      const start = replyBase;
+      replyBase = fullResponse.length;
+      if (!content) return;
+      const id = `${streamMsgId}-narr-${++narrationSeq}`;
+      const summary = extractThinkingSummary(content);
+      thinkingBlocks.push({ textOffset: start + (raw.length - raw.trimStart().length), endOffset: fullResponse.length, content, summary, narration: true });
+      registry.broadcast({ type: 'thinking', id, content, summary, textOffset: start, isComplete: true, narration: true });
+      if (!hold) registry.broadcast({ type: 'stream_token', messageId: streamMsgId, token: '' });
+    };
     // The current thinking block's stable id + interleave offset, captured at
     // its content_block_start and reused for its deltas + stop.
     let thinkingId = '';
@@ -1053,7 +1079,7 @@ export class AgentService {
               if (!hold) registry.broadcast({
                 type: 'stream_token',
                 messageId: streamMsgId,
-                token: fullResponse,
+                token: replyTail(),
               });
               if (MEASURE) {
                 mTokenCount++;
@@ -1096,7 +1122,7 @@ export class AgentService {
                   if (!hold) registry.broadcast({
                     type: 'stream_token',
                     messageId: streamMsgId,
-                    token: fullResponse,
+                    token: replyTail(),
                   });
                   if (MEASURE) {
                     mTokenCount++;
@@ -1104,9 +1130,12 @@ export class AgentService {
                   }
                 }
                 assistantTextBlockIndex++;
-              } else if (MEASURE && block.type === 'tool_use') {
-                mToolCount++;
-                console.log(`[THINK-CADENCE] ${mt()} tool_use #${mToolCount} name=${block.name} id=${block.id}`);
+              } else if (block.type === 'tool_use') {
+                sealNarration();
+                if (MEASURE) {
+                  mToolCount++;
+                  console.log(`[THINK-CADENCE] ${mt()} tool_use #${mToolCount} name=${block.name} id=${block.id}`);
+                }
               }
               // Thinking blocks are captured from stream_event, not here (avoids duplicates)
             }
@@ -1228,6 +1257,8 @@ export class AgentService {
             // and offsets cleanly for post-compaction thinking blocks.
             thinkingBlockSeq = 0;
             currentThinkingAccum = '';
+            replyBase = 0;
+            narrationSeq = 0;
           } else if (systemMsg.status === 'compacting') {
             console.log('[Compaction] Compacting in progress...');
           }

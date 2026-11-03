@@ -1,7 +1,7 @@
 ---
 name: design-taste-frontend
 description: >-
-  tasteskill v2, the anti-slop frontend skill. Art direction for websites, distilled from a study of
+  FENCED 2026-10-30 — generic design skill, NOT for Sanctum skins. Sanctum's skin rules are `.claude/skills/skin-design/SKILL.md` only. Do not load for any skin, theme, room, frame, or layout work.   tasteskill v2, the anti-slop frontend skill. Art direction for websites, distilled from a study of
   247 curated gallery sites (One Page Love, Awwwards Sites of the Day). Deals researched directions
   (idea, composition, type, palette, photographs, section blueprints) from a library, enforces a strict
   no-slop house style with a real-browser inspector, and runs a look-and-fix loop on screenshots. Use
@@ -12,6 +12,8 @@ description: >-
   site. Also for app screens: dashboards, admin and analytics views, settings, inboxes and other screens
   people work in, with their own run and rules.
 ---
+
+> FENCED 2026-10-30 — generic design skill, NOT for Sanctum skins. Sanctum's skin rules are `.claude/skills/skin-design/SKILL.md` only. Do not load for any skin, theme, room, frame, or layout work.
 
 # tasteskill v2
 

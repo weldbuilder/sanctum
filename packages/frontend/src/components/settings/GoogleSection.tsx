@@ -1291,6 +1291,21 @@ export function GoogleSection({ base }: { base: string }) {
           to   { opacity: 1; transform: none; }
         }
 
+        /* Desktop floor: body text >= 14px, pills/badges/glyphs >= 12px. Phone sizes untouched. */
+        @media (min-width: 769px) {
+          .settings-view .gs-accordion-glyph, .settings-view .gs-accordion-chevron, .settings-view .gs-step-num,
+          .settings-view .ga-account-error-note, .settings-view .gs-restricted-pill, .settings-view .gs-service-note { font-size: 12px; }
+          .settings-view .gs-accordion-label, .settings-view .gs-accordion-intro, .settings-view .gs-step-body,
+          .settings-view .gs-accordion-note, .settings-view .gs-field-label, .settings-view .gs-field-input.mono,
+          .settings-view .gs-cred-err, .settings-view .gs-cred-hint, .settings-view .gs-configured-label,
+          .settings-view .gs-edit-keys-btn, .settings-view .ga-empty-note, .settings-view .ga-account-email,
+          .settings-view .ga-add-btn, .settings-view .ga-add-hint, .settings-view .gs-service-hint,
+          .settings-view .gs-grant-inline-text, .settings-view .gs-grant-inline-btn,
+          .settings-view .gs-account-select .hsel-trigger .hsel-trigger-text,
+          .settings-view .gs-save-btn, .settings-view input.gs-field-input,
+          .settings-view .google-msg, .settings-view .google-err { font-size: 14px; }
+        }
+
         /* Mobile: make account dropdowns full-width and iOS-safe */
         @media (max-width: 600px) {
           .gs-account-select {

@@ -84,7 +84,7 @@ export type ServerMessage =
   | { type: 'canvas_list'; canvases: Canvas[] }
   | { type: 'approval_request'; approval: Approval }
   | { type: 'approval_decided'; approval: Approval }
-  | { type: 'thinking'; id: string; content: string; summary: string; textOffset: number; isComplete: boolean }
+  | { type: 'thinking'; id: string; content: string; summary: string; textOffset: number; isComplete: boolean; narration?: boolean }
   | { type: 'message_reaction_added'; messageId: string; emoji: string; user: string; createdAt: string }
   | { type: 'message_reaction_removed'; messageId: string; emoji: string; user: string }
   | { type: 'generation_stopped' }
