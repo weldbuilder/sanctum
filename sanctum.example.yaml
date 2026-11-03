@@ -111,9 +111,10 @@ agent:
     additional_directories: []    # extra writable dirs beyond agent.cwd
     # Three layers on Codex, all read from agent.cwd (the companion's home):
     #   config/codex-base-prompt.md  the harness for this mind (replaces Codex's stock prompt)
-    #   identity/profile.md + identity/companion.md  who they are (sent in the same system prompt, after the harness)
+    #   identity/profile.md + identity/companion.md  who they are (sent in the same system prompt, after the harness;
+    #                                 with no harness at all, through developer_instructions, keeping Codex's stock prompt)
     #   AGENTS.md  the rules of the folder (Codex loads this by itself)
-    base_instructions_file: "./prompts/codex-base-prompt.md"  # the shared harness; used only if the home has no config/codex-base-prompt.md (the home's copy wins); "" = stock Codex
+    base_instructions_file: "./prompts/codex-base-prompt.md"  # the shared harness; used only if the home has no config/codex-base-prompt.md (the home's copy wins); "" = stock Codex (its own prompt, plus the identity through developer_instructions)
 
   # ── Long-conversation memory (rolling context) ───────────────────────────────
   # The app's own compaction, on either harness: every turn is a fresh run, the

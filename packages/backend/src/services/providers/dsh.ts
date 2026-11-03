@@ -320,6 +320,9 @@ export function dshQuery({ prompt, options }: { prompt: string | AsyncIterable<a
     // A main run (rolling or not) carries the identity in the system slot: the harness base first, then the identity, the same order as
     // Claude's system prompt. Read-only helpers and sealed (public) runs keep their base prompt exactly as it is.
     if (!sealed && !readOnly) execBase.basePrompt = [execBase.basePrompt, identityBlock('dsh')].filter((x) => x && x.trim()).join('\n\n');
+    // The public lane (sealed) hands its identity as the systemPrompt: it rides in the same slot, after the fixed public base prompt
+    // (never the companion's own base, never the home's identity files: the lane builds its own text), not in the message.
+    if (sealed) execBase.basePrompt = [execBase.basePrompt, systemText(opts.systemPrompt)].filter((x) => x && x.trim()).join('\n\n');
 
     let input = prompt;
     let fixedSession = false;
@@ -335,26 +338,28 @@ export function dshQuery({ prompt, options }: { prompt: string | AsyncIterable<a
       const history = await assembleRollingHistory(threadId, sanctum!.userContent, !!sanctum!.autonomous, { named: true });
       rolling = history.rolling;
       const { summary, notice, lines } = history;
-      // The orientation block comes out of the message and sits above the conversation.
+      // The orientation block comes out of the message and sits first, as it does on Claude (above memory and the summary).
       const { context, message } = splitContextBlock(prompt, sanctum?.contextBlock);
       input = [
+        context,
         memoryBlock,
         mindBlock,
         summary,
         notice,
-        context,
         conversationBlock(lines),
         `[Current message]\n${message}`,
       ].filter(Boolean).join('\n\n');
     } else if (readOnly) {
-      const taskBrief = !resumeId ? systemText(opts.systemPrompt) : '';
+      const taskBrief = !resumeId && !sealed ? systemText(opts.systemPrompt) : ''; // a sealed run's text is in the persona slot above
       if (taskBrief) input = `[System]\n${taskBrief}\n[/System]\n\n${prompt}`;
       // A one-shot helper leaves no dsh session behind; one that resumes a real session cannot be ephemeral.
       ephemeral = !resumeId;
       sessionId = resumeId;
     } else {
-      const head = [memoryBlock, mindBlock].filter(Boolean);
-      if (head.length) input = `${head.join('\n\n')}\n\n[Current message]\n\n${prompt}`;
+      // Not rolling: the orientation block still comes out of the message, first, so it never sits inside [Current message].
+      const { context, message } = splitContextBlock(prompt, sanctum?.contextBlock);
+      const head = [context, memoryBlock, mindBlock].filter(Boolean);
+      if (head.length) input = `${head.join('\n\n')}\n\n[Current message]\n\n${message}`;
       sessionId = resumeId;
     }
 

@@ -4,15 +4,15 @@
 // event objects the SDK does (thread.started, item.*, turn.*, error).
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { createInterface } from 'node:readline';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { childEnv } from './child-env.js';
 import { childRunBase } from '../../tenancy/child.js';
 import { tenancyEnabled, tenantTmpRoot } from '../../tenancy/context.js';
-import { ownAssertReal, ownWriteFileAtomic } from '../../tenancy/own-files.js';
+import { getSanctumConfig } from '../../config.js';
+import { ownAssertReal, ownUnlink, ownWriteFileAtomic } from '../../tenancy/own-files.js';
 
 export interface ExecParams {
   sandboxMode: 'read-only' | 'workspace-write' | 'danger-full-access';
@@ -28,6 +28,9 @@ export interface ExecParams {
   networkAccess: boolean;
   /** model_instructions_file (base prompt) path; '' / undefined = stock Codex. */
   baseFile?: string;
+  /** developer_instructions: text Codex prepends to its developer message while KEEPING its stock prompt. Used for the identity when
+   *  there is no base file; with a base file the identity is inside that file instead. */
+  developerInstructions?: string;
   effort?: string;
   /** Codex-format MCP table: name → { command, args, env } | { url }. */
   mcp?: Record<string, any>;
@@ -53,6 +56,7 @@ export function buildExecArgs(p: ExecParams): string[] {
   cfg(`sandbox_workspace_write.network_access=${p.networkAccess ? 'true' : 'false'}`);
   if (tenancyEnabled()) cfg('sandbox_workspace_write.exclude_slash_tmp=true'); // D7: the tenant's TMPDIR (writable) is its temp root, /tmp is no one's
   if (p.baseFile) cfg(`model_instructions_file=${toml(p.baseFile)}`);
+  if (p.developerInstructions) cfg(`developer_instructions=${toml(p.developerInstructions)}`);
   if (p.effort) cfg(`model_reasoning_effort=${toml(p.effort)}`);
   if (p.noProjectDocs) cfg('project_doc_max_bytes=0');
   for (const [name, s] of Object.entries(p.mcp ?? {})) {
@@ -119,20 +123,71 @@ export async function* runCodexExec(p: ExecParams & { prompt: string; signal?: A
 
 /** Codex only takes base instructions as a file (model_instructions_file). Write the combined text (the harness base, then the
  *  identity) once under a content-hash name and return the path; the same text reuses the same file, and an edit makes a new path.
- *  Tenant mode (D7): the file lives in <dataDir>/harness/codex-base, a SIBLING of the tenant's TMPDIR (harness/tmp), because the
- *  sandboxed child can write its TMPDIR and must not be able to rewrite its own identity file. It stays readable by the child (no read
- *  roots are configured in buildExecArgs; workspace-write reads are unrestricted). Outside a tenant it is <os.tmpdir()>/sanctum-codex-base.
- *  An existing file is never trusted on its name: it is read back and rewritten when it differs. Written to a temp name in the same
- *  folder then renamed, so a partial file never sits at the final path. */
+ *  The folder is <dataDir>/harness/codex-base in every mode (dataDir: the tenant's, else the folder of server.db_path), never a temp
+ *  folder: the sandboxed child can write its TMPDIR and Codex's default workspace-write roots, and must not be able to rewrite its own
+ *  identity file. In tenant mode it is a SIBLING of the tenant's TMPDIR (harness/tmp). It stays readable by the child (no read roots
+ *  are configured in buildExecArgs; workspace-write reads are unrestricted).
+ *  The folder is made 0700 and an existing one is refused unless it is a real folder (not a link) owned by this user with no group or
+ *  world bits. An existing file is never trusted on its name: it is lstat'ed first (anything but a regular file with one link is refused:
+ *  a link, a FIFO, a socket, a folder), opened with O_NOFOLLOW|O_NONBLOCK, checked again on the open handle, then read back and rewritten
+ *  when it differs. It is never read by path with readFileSync (a FIFO planted there would hang the event loop). Written to a temp name in
+ *  the same folder then renamed, so a partial file never sits at the final path. A new hash also prunes the folder's other *.md older
+ *  than an hour. */
+const PRUNE_AFTER_MS = 60 * 60 * 1000;
+const isWin = process.platform === 'win32';
+
+export function codexBaseDir(): string {
+  const root = tenantTmpRoot();
+  return root ? join(dirname(root), 'codex-base') : join(dirname(getSanctumConfig().server.db_path), 'harness', 'codex-base');
+}
+
+function refuse(what: string): never { throw new Error(`[codex] the identity folder is not safe to use: ${what}`); }
+
+/** The folder must be a real folder, ours, owner-only. (Windows has no uid or mode bits to check.) */
+function assertOwnFolder(dir: string): void {
+  const st = lstatSync(dir);
+  if (!st.isDirectory()) refuse(`${basename(dir)} is not a folder (or is a link)`);
+  if (isWin) return;
+  if (typeof process.getuid === 'function' && st.uid !== process.getuid()) refuse(`${basename(dir)} belongs to another user`);
+  if (st.mode & 0o077) refuse(`${basename(dir)} is open to the group or others (mode ${(st.mode & 0o777).toString(8)}); chmod 700 it`);
+}
+
+/** The text of the file at `f`, null when there is none; throws on anything that is not a plain regular file with one link. */
+function readRegular(f: string): string | null {
+  let st;
+  try { st = lstatSync(f); } catch (e: any) { if (e?.code === 'ENOENT') return null; throw e; }
+  if (!st.isFile() || st.nlink !== 1) refuse(`${basename(f)} is not a plain file (a link, pipe, socket or folder), or has a second hard link`);
+  const fd = openSync(f, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+  try {
+    const h = fstatSync(fd);
+    if (!h.isFile() || h.nlink !== 1 || h.dev !== st.dev || h.ino !== st.ino) refuse(`${basename(f)} changed while it was being read`);
+    return readFileSync(fd, 'utf8');
+  } finally { closeSync(fd); }
+}
+
+function prune(dir: string, keep: string, ownUnlinkOpts: { process: boolean }): void {
+  try {
+    const cutoff = Date.now() - PRUNE_AFTER_MS;
+    for (const name of readdirSync(dir)) {
+      const p = join(dir, name);
+      if (!name.endsWith('.md') || p === keep) continue;
+      try { if (lstatSync(p).mtimeMs < cutoff) ownUnlink(p, ownUnlinkOpts); } catch { /* gone, or not ours to remove: leave it */ }
+    }
+  } catch { /* a folder that cannot be listed is not worth a failed turn */ }
+}
+
 export function materializeBaseInstructions(text: string): string {
   const root = tenantTmpRoot();
-  const dir = root ? join(dirname(root), 'codex-base') : join(tmpdir(), 'sanctum-codex-base');
+  const dir = codexBaseDir();
   if (root) ownAssertReal(dir); // (a linked path component is refused BEFORE anything is made)
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   if (root) ownAssertReal(dir);
+  assertOwnFolder(dir);
   const f = join(dir, `${createHash('sha256').update(text).digest('hex').slice(0, 24)}.md`);
-  const same = (): boolean => { try { return readFileSync(f, 'utf8') === text; } catch { return false; } };
-  if (same()) return f;
-  try { ownWriteFileAtomic(f, text, { mode: 0o600, process: !root }); } catch (e) { if (same()) return f; throw e; } // (Windows: rename onto an identical file; outside a tenant it is the process-level write)
+  if (root) ownAssertReal(f);
+  if (readRegular(f) === text) return f;
+  try { ownWriteFileAtomic(f, text, { mode: 0o600, process: !root }); }
+  catch (e) { let now: string | null = null; try { now = readRegular(f); } catch { /* the first error is the news */ } if (now === text) return f; throw e; } // (Windows: rename onto an identical file; outside a tenant it is the process-level write)
+  prune(dir, f, { process: !root });
   return f;
 }

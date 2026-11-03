@@ -386,8 +386,20 @@ describe('dsh adapter', () => {
       const p: string = h.exec.params.prompt;
       expect(p.indexOf('[Context]')).toBeGreaterThan(-1);
       expect(p.indexOf('[Context]')).toBeLessThan(p.indexOf('[Conversation so far]'));
-      expect(p.indexOf('[Context]')).toBeGreaterThan(p.indexOf('ROLLING-BLOCK'));
+      expect(p.indexOf('[Context]')).toBe(0); // context first, above memory and the summary, as on Claude
+      expect(p.indexOf('ROLLING-BLOCK')).toBeGreaterThan(p.indexOf('[/Context]'));
       expect(p.slice(p.indexOf('[Current message]'))).toBe('[Current message]\nraw hello');
+    });
+
+    it('the [Context] block also comes out of the message when rolling is off: first, above memory, never inside [Current message]', async () => {
+      h.rollingCfg = { dsh: false };
+      h.recall = '- a memory';
+      const ctx = '[Context]\nORIENT\n[/Context]';
+      await drain(dshQuery({ prompt: `${ctx}\n\nraw hello`, options: so({ sanctum: { threadId: 'T1', userContent: 'raw hello', contextBlock: ctx } }) }));
+      const p: string = h.exec.params.prompt;
+      expect(p.startsWith(ctx)).toBe(true);
+      expect(p.indexOf('[Memory]')).toBeGreaterThan(p.indexOf('[/Context]'));
+      expect(p.endsWith('[Current message]\n\nraw hello')).toBe(true);
     });
 
     it('uses the stable rolling session id and ignores resume; ingests once', async () => {
@@ -556,8 +568,17 @@ describe('dsh adapter: the sealed (public) run', () => {
   it("never sends the companion's own dsh-base-prompt as the persona: it sends the fixed public base prompt", async () => {
     await drain(dshQuery({ prompt: 'frame', options: publicOptions() }));
     expect(h.exec.params.basePrompt).not.toContain('BASE PERSONA');
-    expect(h.exec.params.basePrompt).toBe('PUBLIC BASE'); // exactly the public base: the home has an identity, and a sealed run does not carry it
+    // the persona is the public base, then the identity the lane built (its systemPrompt) in the same slot: not the home's identity files
+    expect(h.exec.params.basePrompt).toBe('PUBLIC BASE\n\nIDENTITY OF HAZEL');
     expect(h.exec.params.basePrompt).not.toContain('I am Hazel.');
+  });
+
+  it("the lane's identity is in the system slot and no longer in the message as a [System] block; no systemPrompt leaves the base exactly as it is", async () => {
+    await drain(dshQuery({ prompt: 'frame', options: publicOptions() }));
+    expect(h.exec.params.prompt).toBe('frame');
+    expect(h.exec.params.prompt).not.toContain('IDENTITY OF HAZEL');
+    await drain(dshQuery({ prompt: 'frame', options: publicOptions({ systemPrompt: undefined }) }));
+    expect(h.exec.params.basePrompt).toBe('PUBLIC BASE');
   });
 
   it('an unsealed read-only helper is unchanged: it keeps the companion base prompt and is not sealed', async () => {

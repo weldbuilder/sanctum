@@ -253,6 +253,44 @@ describe('codex adapter', () => {
     expect(captured.input).toBe('hi');
   });
 
+  it('SDK path, no harness base: the identity rides developer_instructions, model_instructions_file is unset, nothing is materialized', async () => {
+    realFs.rmSync(realPathMod.join(h.agentHome, 'config', 'codex-base-prompt.md'));
+    await drain(codexQuery({ prompt: 'hi', options: {} as any }));
+    expect(captured.clientOpts.config.model_instructions_file).toBeUndefined();
+    expect(captured.clientOpts.config.developer_instructions).toContain('I am Hazel.');
+    expect(h.exec.base).toBe('');
+    expect(captured.input).toBe('hi');
+  });
+
+  it('SDK path, with a harness base: model_instructions_file carries base then identity, developer_instructions is unset', async () => {
+    await drain(codexQuery({ prompt: 'hi', options: {} as any }));
+    expect(captured.clientOpts.config.model_instructions_file).toBe(h.exec.path);
+    expect(captured.clientOpts.config.developer_instructions).toBeUndefined();
+  });
+
+  it('the [Context] block comes out of the message on the non-rolling SDK path too, first, above memory', async () => {
+    h.recall = '- She has a cat named Miso.';
+    const ctx = '[Context]\nenv\n[/Context]';
+    await drain(codexQuery({ prompt: `${ctx}\n\nhello`, options: { sanctum: { threadId: 'T1', userContent: 'hello', contextBlock: ctx } } as any }));
+    const input: string = captured.input;
+    expect(input.startsWith(ctx)).toBe(true);
+    expect(input.indexOf('[Memory')).toBeGreaterThan(input.indexOf('[/Context]'));
+    expect(input.endsWith('[Current message]\n\nhello')).toBe(true);
+  });
+
+  it('an identity edit drops the client it replaces (same everything but the instructions), so the cache does not grow', async () => {
+    realFs.writeFileSync(realPathMod.join(h.agentHome, 'identity', 'companion.md'), 'edition A');
+    await drain(codexQuery({ prompt: 'one', options: {} as any }));
+    realFs.writeFileSync(realPathMod.join(h.agentHome, 'identity', 'companion.md'), 'edition B');
+    await drain(codexQuery({ prompt: 'two', options: {} as any }));
+    captured.clientOpts = undefined;
+    await drain(codexQuery({ prompt: 'three', options: {} as any })); // B again: cached
+    expect(captured.clientOpts).toBeUndefined();
+    realFs.writeFileSync(realPathMod.join(h.agentHome, 'identity', 'companion.md'), 'edition A');
+    await drain(codexQuery({ prompt: 'four', options: {} as any })); // A was evicted when B was built: a new client
+    expect(captured.clientOpts).toBeDefined();
+  });
+
   describe('rolling mode', () => {
     const sanctumOpts = (extra: any = {}) => ({ sanctum: { threadId: 'T1', userContent: 'raw hello' }, ...extra }) as any;
     const t = (id: string, role: string, content: string) => ({ id, role, content, at: '2026-01-01T00:00:00Z' });
@@ -264,7 +302,7 @@ describe('codex adapter', () => {
       h.rolling.serve = { covered: 2, segments: 1, block: 'ROLLING-BLOCK', render: (d: number) => (d ? `ROLLING-BLOCK dropped=${d}` : 'ROLLING-BLOCK') };
     });
 
-    it('builds the sections in order: memory, summary, context, conversation, then the bare current message; identity is not in the message', async () => {
+    it('builds the sections in order: context, memory, summary, conversation, then the bare current message; identity is not in the message', async () => {
       const ctx = '[Context]\nenv\n[/Context]';
       const prompt = `${ctx}\n\nraw hello`;
       await drain(codexQuery({ prompt, options: sanctumOpts({ sanctum: { threadId: 'T1', userContent: 'raw hello', contextBlock: ctx } }) }));
@@ -274,10 +312,10 @@ describe('codex adapter', () => {
       expect(h.exec.params.baseFile).toBe(h.exec.path);
       expect(h.exec.base).toContain('I am Hazel.');
       expect(input).not.toContain('I am Hazel.'); // the identity body is in the system slot, not the message
-      expect(i('[Memory — recalled from Revien')).toBe(0);
+      expect(i('[Context]\nenv\n[/Context]')).toBe(0); // context first, as on Claude
+      expect(i('[Memory — recalled from Revien')).toBeGreaterThan(i('[/Context]'));
       expect(i('- She has a cat named Miso.')).toBeGreaterThan(i('[Memory'));
       expect(i('ROLLING-BLOCK')).toBeGreaterThan(i('Miso'));
-      expect(i('[Context]\nenv\n[/Context]')).toBeGreaterThan(i('ROLLING-BLOCK')); // context above the history
       expect(i('Prior turns of this conversation. Lines marked Hazel: are your own earlier words.\n\n[Conversation so far]\nPat: mid u\nHazel: mid a')).toBeGreaterThan(i('[/Context]'));
       expect(i('[Current message]\n')).toBeGreaterThan(i('Hazel: mid a'));
       expect(input.endsWith('[Current message]\nraw hello')).toBe(true); // only the person's words
@@ -285,6 +323,23 @@ describe('codex adapter', () => {
       expect(input).not.toContain('old u'); // covered by the summary
       expect(h.exec.params.sandboxMode).toBe('workspace-write');
       expect(h.rolling.compact).toBe(1);
+    });
+
+    it('with no harness base the identity rides developer_instructions and no base file is set (rolling)', async () => {
+      realFs.rmSync(realPathMod.join(h.agentHome, 'config', 'codex-base-prompt.md'));
+      await drain(codexQuery({ prompt: 'raw hello', options: sanctumOpts() }));
+      expect(h.exec.params.baseFile).toBe('');
+      expect(h.exec.params.developerInstructions).toContain('I am Hazel.');
+      expect(h.exec.params.developerInstructions).toContain('# Companion Identity');
+      expect(h.exec.base).toBe(''); // nothing materialized
+      expect(h.exec.params.prompt).not.toContain('I am Hazel.');
+    });
+
+    it('with a harness base the identity is in the materialized file and developer_instructions is unset (rolling)', async () => {
+      await drain(codexQuery({ prompt: 'raw hello', options: sanctumOpts() }));
+      expect(h.exec.params.baseFile).toBe(h.exec.path);
+      expect(h.exec.params.developerInstructions).toBeUndefined();
+      expect(h.exec.base.startsWith('BASE')).toBe(true);
     });
 
     it('does not duplicate the current user message in the conversation', async () => {

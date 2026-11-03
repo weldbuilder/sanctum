@@ -9,7 +9,7 @@ in [README.md](README.md). This file is the technical record.
 | Layer | File, inside the companion's home folder (`agent.cwd`) | How it reaches the model |
 |---|---|---|
 | Harness | `config/codex-base-prompt.md` (dsh: `config/dsh-base-prompt.md`) | Codex: passed per run as `model_instructions_file`, replacing Codex's stock "You are Codex" prompt; `~/.codex/config.toml` is not touched. dsh: set as the persona in the run's overlay. Both are the shared harness: one base plus a short tail per mind (`prompts/README.md`). |
-| Self | `identity/profile.md` and `identity/companion.md` | In the system slot, as on Claude: the harness first, then the identity ("Companion Identity", "Companion Narrative"). Codex: harness and identity are written together into one content-addressed file (`<data>/harness/codex-base` in a tenant, beside the child's writable TMPDIR; `<tmp>/sanctum-codex-base` otherwise) that is the run's `model_instructions_file`; an identity edit makes a new file, so it reaches the next run, a resumed thread included. dsh: the same two joined as the persona. The message carries only memory, the summary, the history and the current message. |
+| Self | `identity/profile.md` and `identity/companion.md` | In the system slot, as on Claude: the harness first, then the identity ("Companion Identity", "Companion Narrative"). Codex: harness and identity are written together into one content-addressed file (`<data>/harness/codex-base` in every mode: the tenant's data folder, else the folder of `server.db_path`; never a temp folder, which the sandboxed child can write) that is the run's `model_instructions_file`; an identity edit makes a new file, so it reaches the next run, a resumed thread included. The folder is 0700 and refused unless it is ours and owner-only; a file there that is not a plain one-link file (a link, FIFO, socket) is refused, and files older than an hour are pruned when a new one is written. With NO base file (`base_instructions_file: ""`, no home copy) Codex keeps its stock prompt and the identity goes through `--config developer_instructions=…` instead (codex-cli 0.159.3 prepends it to the developer message), with `model_instructions_file` unset. dsh: the same two joined as the persona. The message carries only memory, the summary, the history and the current message. |
 | Law | `AGENTS.md` | Codex discovers and injects it by itself. |
 
 Resonant's own `CLAUDE.md` and system-prompt frame are not used on the Codex path.
@@ -51,7 +51,7 @@ three-layer files are. (Claude gets the same harness text as its frame,
 The app owns the thread history on the Codex path; Codex does not. Each message is a
 fresh, unlogged Codex run (`codex exec --ephemeral`, spawned directly, so no session
 files land in `~/.codex/sessions`). The prompt is, in order: the
-Revien memory block, the rolling summary block, the `[Context]` orientation block, `[Conversation so far]` (recent turns
+`[Context]` orientation block, the Revien memory block, the rolling summary block, `[Conversation so far]` (recent turns
 word for word, each line marked with who said it: `Sam:` or `Echo:`, under a line saying which name is the companion's own), `[Current message]`.
 The identity is not in it: it rides in the system slot (above).
 
@@ -149,7 +149,7 @@ On the Claude path with rolling on: no session is ever resumed, the prompt is co
 |---|---|---|
 | `model` | `""` | Chat model id. Empty uses whatever `~/.codex/config.toml` sets. |
 | `model_provider` | `""` | A `[model_providers.*]` key from `~/.codex/config.toml`. Empty = Codex's default provider. |
-| `base_instructions_file` | `./prompts/codex-base-prompt.md` | The shared harness. Used only when the home has no `config/codex-base-prompt.md` (the home's copy wins). `""` gives stock Codex back. |
+| `base_instructions_file` | `./prompts/codex-base-prompt.md` | The shared harness. Used only when the home has no `config/codex-base-prompt.md` (the home's copy wins). `""` gives stock Codex back (its own prompt and tool guidance, plus the identity through `developer_instructions`). |
 | `sandbox_mode` | `workspace-write` | The write boundary: the home folder plus `additional_directories`. |
 | `network_access` | `true` | Must stay `true`. The `res` CLI calls the local backend. |
 | `rolling.tail_chars` / `fold_chars` / `keep_chars` | `14000` / `6000` / `6000` | Fold once the un-summarized tail passes `tail_chars`; one fold covers about `fold_chars` of the oldest tail; the newest `keep_chars` are never folded. |
