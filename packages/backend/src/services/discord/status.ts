@@ -76,6 +76,6 @@ export function buildDiscordStatus(cfg: DiscordConfig, paths: DiscordPaths, gate
     paused: cfg.paused,
     privateDir: dirState,
     refused: paths.refused.map((r) => ({ key: r.key, clash: r.clash })),
-    recentFailures: opts.recentFailures ?? { count24h: 0, lastKind: null, lastAt: null },
+    recentFailures: opts.recentFailures ?? { count24h: 0, lastKind: null, lastAt: null, byKind: {} },
   };
 }

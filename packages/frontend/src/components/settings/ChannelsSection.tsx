@@ -129,25 +129,31 @@ const PILL_MAP: Record<ChannelState, { color: string; label: string }> = {
 
 // ─── Discord send failures (D11 reader) ──────────────────────────────────────
 
+const FAILURES_REFRESH_MS = 30_000;
+
 function DiscordFailures({ base, onOpenLogs }: { base: string; onOpenLogs?: (q: string) => void }) {
   const [view, setView] = useState<FailureView | null>(null);
   useEffect(() => {
     let alive = true;
-    (async () => {
+    const load = async () => {
       try {
         const res = await fetch(`${base}/api/discord/status`);
         if (!res.ok) return;
         const v = describeFailures(parseRecentFailures(await res.json()));
         if (alive) setView(v);
       } catch { /* no status: the card shows nothing rather than a guess */ }
-    })();
-    return () => { alive = false; };
+    };
+    load();
+    // The Settings page can sit open: read again every 30 seconds, and stop with the card.
+    const timer = setInterval(load, FAILURES_REFRESH_MS);
+    return () => { alive = false; clearInterval(timer); };
   }, [base]);
   if (!view) return null;
   return (
     <p className={`ch-failures ${view.tone}`} role={view.tone === 'error' ? 'alert' : undefined}>
       <span>{view.headline}</span>
       {view.detail && <span>{view.detail}</span>}
+      {view.note && <span>{view.note}</span>}
       {onOpenLogs && (
         <button type="button" className="ch-failures-link" onClick={() => onOpenLogs(DISCORD_LOG_FILTER)}>open the log, filtered to [discord]</button>
       )}
@@ -409,7 +415,7 @@ function ChannelCard({
       {/* Toggle error flash */}
       {errMsg && <p className="ch-err">{errMsg}</p>}
 
-      {id === 'discord' && <DiscordFailures base={base} onOpenLogs={onOpenLogs} />}
+      {id === 'discord' && hasToken && enabled && <DiscordFailures base={base} onOpenLogs={onOpenLogs} />}
 
       {/* ── Configure body — conditionally rendered, collapses to zero naturally ── */}
       {configOpen && (

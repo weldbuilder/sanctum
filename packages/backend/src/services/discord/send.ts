@@ -308,7 +308,7 @@ const appRuntime: SendRuntime = {
   log: (event, fields) => {
     console.warn(`[Discord] ${event} ${JSON.stringify(fields)}`);
     // A gate that could not run blocks everything: that is a failure the person has to be able to see.
-    if (event === 'blocked' && fields.reason === 'gate_error') logEvent('discord', 'gate_error');
+    if (event === 'blocked' && fields.reason === 'gate_error') logEvent('discord', 'gate_error', typeof fields.lane === 'string' ? { lane: fields.lane } : {});
   },
 };
 

@@ -147,11 +147,13 @@ export interface LogEventOptions {
   class?: string;
   /** Print the line the first time this (category, kind) happens in the process; every occurrence is still counted. */
   once?: boolean;
+  /** The lane the event fired on (`owner` or `public`), when the caller knows it. Not printed. */
+  lane?: string;
   /** Test hook. */
   now?: number;
 }
 
-type EventListener = (category: string, kind: string) => void;
+type EventListener = (category: string, kind: string, opts?: { now?: number; lane?: string }) => void;
 let eventListener: EventListener | null = null;
 /** One listener for every recorded event (the Discord failure alert). It runs in the caller's tenant; it never throws into the caller. */
 export function setEventListener(fn: EventListener | null): void { eventListener = fn; }
@@ -162,7 +164,7 @@ export function logEvent(category: string, kind: string, opts: LogEventOptions =
   let events = eventsLocal.get();
   events.push({ category: cat, kind: k, at: opts.now ?? Date.now() });
   if (events.length > MAX_EVENTS) { events = events.slice(-MAX_EVENTS); eventsLocal.set(events); }
-  try { eventListener?.(cat, k); } catch { /* an alert must never break the failure path */ }
+  try { eventListener?.(cat, k, { now: opts.now, lane: opts.lane }); } catch { /* an alert must never break the failure path */ }
   if (opts.once) {
     const printedOnce = printedOnceLocal.get();
     const key = `${cat}:${k}`;
@@ -173,14 +175,18 @@ export function logEvent(category: string, kind: string, opts: LogEventOptions =
   console.error(`[${cat}] failure kind=${k}${cls}`);
 }
 
-export interface EventSummary { count24h: number; lastKind: string | null; lastAt: string | null }
+export interface EventSummary { count24h: number; lastKind: string | null; lastAt: string | null; /** The last 24 hours by kind. */ byKind: Record<string, number> }
 
 /** The last 24 hours of one category: how many, and the newest kind and time (the newest ever recorded, even if older). */
 export function eventSummary(category: string, now: number = Date.now()): EventSummary {
   const mine = eventsLocal.get().filter((e) => e.category === category);
   const last = mine[mine.length - 1];
+  const recent = mine.filter((e) => now - e.at < DAY_MS && now - e.at >= 0);
+  const byKind: Record<string, number> = {};
+  for (const e of recent) byKind[e.kind] = (byKind[e.kind] ?? 0) + 1;
   return {
-    count24h: mine.filter((e) => now - e.at < DAY_MS && now - e.at >= 0).length,
+    count24h: recent.length,
+    byKind,
     lastKind: last ? last.kind : null,
     lastAt: last ? new Date(last.at).toISOString() : null,
   };

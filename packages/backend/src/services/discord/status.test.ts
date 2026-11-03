@@ -110,8 +110,8 @@ describe('buildDiscordStatus', () => {
 
 describe('buildDiscordStatus: recentFailures (D11)', () => {
   it('empty by default, and carries the summary it is handed (kinds and times only)', () => {
-    expect(buildDiscordStatus(cfg(), paths, { words: loaded, names: off }).recentFailures).toEqual({ count24h: 0, lastKind: null, lastAt: null });
-    const recent = { count24h: 4, lastKind: 'gate_error', lastAt: '2026-10-19T10:00:00.000Z' };
+    expect(buildDiscordStatus(cfg(), paths, { words: loaded, names: off }).recentFailures).toEqual({ count24h: 0, lastKind: null, lastAt: null, byKind: {} });
+    const recent = { count24h: 4, lastKind: 'gate_error', lastAt: '2026-10-19T10:00:00.000Z', byKind: { gate_error: 4 } };
     expect(buildDiscordStatus(cfg(), paths, { words: loaded, names: off }, { recentFailures: recent }).recentFailures).toEqual(recent);
   });
 });

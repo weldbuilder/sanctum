@@ -242,6 +242,8 @@ export function SettingsView() {
   // A card can send the person to the log viewer with a filter already typed (the Discord card: `[discord]`).
   const [logsQuery, setLogsQuery] = useState('');
   const openLogs = (q: string) => { setLogsQuery(q); setActiveSection('logs'); };
+  // Only the card's button seeds the filter: leaving Logs, or opening it from the sidebar, starts clean.
+  const chooseSection = (id: SectionId) => { setLogsQuery(''); setActiveSection(id); };
 
   const activeMeta = SECTIONS.find(s => s.id === activeSection)!;
 
@@ -251,7 +253,7 @@ export function SettingsView() {
       <style>{PRIMITIVES_CSS}</style>
 
       {/* Sub-sidebar */}
-      <SubSidebar active={activeSection} onChange={setActiveSection} />
+      <SubSidebar active={activeSection} onChange={chooseSection} />
 
       {/* Content pane */}
       <div className="settings-content" role="main">

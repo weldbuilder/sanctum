@@ -123,6 +123,7 @@ vi.mock('./public-transcript.js', () => ({ publicTranscript: { append: (e: any) 
 
 import { DiscordService } from './index.js';
 import { eventSummary, resetEvents } from '../logs.js';
+import { resetFailureAlert, discordAlertActive } from './failure-alert.js';
 
 const sha12 = (s: string) => createHash('sha256').update(s).digest('hex').slice(0, 12);
 const OWNER = '111';
@@ -186,7 +187,7 @@ beforeEach(() => {
   h.wordsStatus = { status: { state: 'loaded', entries: 3 } };
   h.dbAllowedUsers = new Set(); h.dbAllowedGuilds = new Set();
   h.harnessOk = true;
-  h.legacyDeferMs = null; h.unreacts = []; h.refFetches = []; h.followUpMs = 20; h.saved = []; h.fetches = []; resetEvents();
+  h.legacyDeferMs = null; h.unreacts = []; h.refFetches = []; h.followUpMs = 20; h.saved = []; h.fetches = []; resetEvents(); resetFailureAlert();
   h.db = h.newDb(); h.known.clear(); h.reacts = []; h.channelFetches = 0;
   svc =new DiscordService({} as any, registry);
 });
@@ -1511,5 +1512,60 @@ describe('B3c: restore, owner changes and the hourglass', () => {
     expect(rowsAtUnreact).toBe(1);
     expect(rows('discord_deferrals')).toHaveLength(0);
     expect(ownerLines(/waited out/)).toHaveLength(1);
+  });
+});
+
+
+// D11: the failure alert is wired to the real send paths, per lane. Deleting either noteDiscordSendOk call fails here.
+describe('the failure alert, per lane, through the real send paths', () => {
+  const open = () => { h.cfg = config({ public: { ...config().public, enabled: true } }); };
+  const alertLines = () => h.messages.filter((m) => m.metadata?.discordFailureAlert).map((m) => m.content as string);
+  const ownerMsg = () => message({ channelId: OWNER_CH, authorId: OWNER });
+  const publicMsg = () => message({ channelId: '600' });
+  const failOwner = () => { h.turnImpl = async () => { throw new Error('boom'); }; };
+  const failPublic = () => { h.publicImpl = async () => { throw new Error('boom'); }; };
+
+  beforeEach(() => { vi.spyOn(console, 'error').mockImplementation(() => {}); });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('an owner reply that goes out clears the owner lane: the clear line names it', async () => {
+    failOwner();
+    for (let i = 0; i < 3; i++) await send(ownerMsg());
+    expect(alertLines()).toEqual([expect.stringContaining('on the owner lane')]);
+    expect(discordAlertActive('owner')).toBe(true);
+    h.turnImpl = null;
+    await send(ownerMsg());
+    expect(discordAlertActive('owner')).toBe(false);
+    expect(alertLines()).toHaveLength(2);
+    expect(alertLines()[1]).toBe('Discord: sends are going out again on the owner lane.');
+  });
+
+  it('a public reply that goes out clears the public lane: the clear line names it', async () => {
+    open(); failPublic();
+    for (let i = 0; i < 3; i++) await send(publicMsg());
+    expect(alertLines()).toEqual([expect.stringContaining('on the public lane')]);
+    expect(discordAlertActive('public')).toBe(true);
+    h.publicImpl = null;
+    await send(publicMsg());
+    expect(discordAlertActive('public')).toBe(false);
+    expect(alertLines()[1]).toBe('Discord: sends are going out again on the public lane.');
+  });
+
+  it('owner replies going out do not clear a public alert, and say nothing about the public lane', async () => {
+    open(); failPublic();
+    for (let i = 0; i < 3; i++) await send(publicMsg());
+    expect(discordAlertActive('public')).toBe(true);
+    await send(ownerMsg());
+    await send(ownerMsg());
+    expect(discordAlertActive('public')).toBe(true);
+    expect(alertLines()).toHaveLength(1);
+  });
+
+  it('a public lane that keeps failing reaches its threshold while the owner chats in between', async () => {
+    open(); failPublic();
+    await send(publicMsg()); await send(ownerMsg());
+    await send(publicMsg()); await send(ownerMsg());
+    await send(publicMsg());
+    expect(alertLines()).toEqual([expect.stringContaining('3 sends failed on the public lane')]);
   });
 });
