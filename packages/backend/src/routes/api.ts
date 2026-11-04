@@ -3102,6 +3102,16 @@ const uploadRateLimiter = rateLimit({
   validate: { trustProxy: false },
 });
 
+// Each share starts an agent turn: same budget as uploads (10 a minute), counted separately.
+const shareRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  message: 'Too many shares, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { trustProxy: false },
+});
+
 // File upload
 // tenantEnter after multer: its next() runs from a stream event, outside the store the request started in (a pass-through without a tenant).
 router.post('/files', uploadRateLimiter, upload.single('file'), tenantEnter, (req, res) => {
@@ -3533,7 +3543,7 @@ router.post('/files/shared/delete', (req, res) => {
 // carries an attachment: a user-role message with metadata.attachments, broadcast to every device, then a turn, so the companion
 // is handed the file the way it is handed an uploaded image (buildAttachmentNote: path + Read).
 // Body: { thread_id }. 404 when the file or the thread is missing.
-router.post('/files/:id/share-to-chat', appWriteGate, (req, res) => {
+router.post('/files/:id/share-to-chat', shareRateLimiter, appWriteGate, (req, res) => {
   const fileParam = String(req.params.id);
   try {
     const threadId = (req.body ?? {}).thread_id;

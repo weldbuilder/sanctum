@@ -123,10 +123,23 @@ describe('POST /api/files/:id/share-to-chat', () => {
 
   it('404 for a missing file or thread, 400 without thread_id, 403 when app writes are off', async () => {
     const gen = await generateImage({ prompt: 'x', postToChat: false });
-    expect((await share('00000000-0000-4000-8000-000000000000', { thread_id: 't1' })).status).toBe(404);
-    expect((await share(gen.file_id, { thread_id: 'nope' })).status).toBe(404);
+    const noFile = await share('00000000-0000-4000-8000-000000000000', { thread_id: 't1' });
+    expect(noFile.status).toBe(404);
+    expect(await noFile.json()).toMatchObject({ error: 'file_not_found' });
+    const noThread = await share(gen.file_id, { thread_id: 'nope' });
+    expect(noThread.status).toBe(404);
+    expect(await noThread.json()).toMatchObject({ error: 'thread_not_found' });
     expect((await share(gen.file_id, {})).status).toBe(400);
     h.appWrite = false;
     expect((await share(gen.file_id, { thread_id: 't1' })).status).toBe(403);
+  });
+});
+
+describe('share-to-chat rate limit', () => {
+  it('is limited to 10 a minute, like POST /files', async () => {
+    const gen = await generateImage({ prompt: 'rl', postToChat: false });
+    const statuses: number[] = [];
+    for (let i = 0; i < 14; i++) statuses.push((await share(gen.file_id, { thread_id: 'nope' })).status);
+    expect(statuses).toContain(429);
   });
 });

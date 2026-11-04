@@ -266,6 +266,11 @@ const voiceInstance = (): VoiceService | null => voiceLocal.get();
 /** The current voice service (the tenant's own in tenant mode), or null. */
 export function getVoiceService(): VoiceService | null { return voiceInstance(); }
 
+/** True when any open socket for the user is in voice mode (the auto-TTS path already speaks the reply there). */
+export function isVoiceModeActive(userId = 'user'): boolean {
+  return registry.getConnectionsForUser(userId).some((c) => c.voiceModeEnabled);
+}
+
 export function setVoiceService(vs: VoiceService): void {
   voiceLocal.set(vs);
 }

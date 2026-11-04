@@ -6,9 +6,9 @@ import { getSanctumConfig } from '../config.js';
 import { ensureDailyThread, getThread } from '../services/db.js';
 import { registry } from '../services/ws.js';
 import {
-  generateImage, imagegenStatus, imagegenOffered, isImageGenError, parseSize, ImageGenNotConfigured,
-  MAX_PROMPT_LENGTH, type ImageGenProviderName, type ImageSize,
+  generateImage, imagegenStatus, imagegenOffered, isImageGenError, ImageGenNotConfigured,
 } from '../services/imagegen/index.js';
+import { parseSize, MAX_PROMPT_LENGTH, type ImageGenProviderName, type ImageSize } from '../services/imagegen/types.js';
 
 type ThreadResolution = { ok: true; threadId: string } | { ok: false; status: number; error: string };
 export type ThreadResolver = (explicit: unknown) => ThreadResolution;

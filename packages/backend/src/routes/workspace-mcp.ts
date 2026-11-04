@@ -69,8 +69,9 @@ import { getSanctumConfig } from '../config.js';
 import { ensureDailyThread, getThread } from '../services/db.js';
 import { registry } from '../services/ws.js';
 import {
-  generateImage, imagegenOffered, oneLineResult, isImageGenError, parseSize, ImageGenNotConfigured, MAX_PROMPT_LENGTH, IMAGE_SIZES, type ImageSize,
+  generateImage, imagegenOffered, oneLineResult, isImageGenError, ImageGenNotConfigured,
 } from '../services/imagegen/index.js';
+import { parseSize, MAX_PROMPT_LENGTH, IMAGE_SIZES, type ImageSize } from '../services/imagegen/types.js';
 
 const router = Router();
 

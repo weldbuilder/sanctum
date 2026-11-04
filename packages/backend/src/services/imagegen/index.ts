@@ -9,24 +9,17 @@ import { createMessage, updateThreadActivity } from '../db.js';
 import { registry } from '../ws.js';
 import { createRunwareProvider, RUNWARE_DEFAULT_MODEL } from './runware.js';
 import { createReplicateProvider, REPLICATE_DEFAULT_MODEL } from './replicate.js';
-import { ImageGenError, type ImageGenProvider, type ImageGenProviderName } from './types.js';
+import { ImageGenError, parseSize, type ImageGenProvider, type ImageGenProviderName, type ImageSize } from './types.js';
 
 export { ImageGenError } from './types.js';
 export type { ImageGenProviderName } from './types.js';
 
-export const IMAGE_SIZES = ['1024x1024', '1024x1536', '1536x1024'] as const;
-export type ImageSize = typeof IMAGE_SIZES[number];
-export const MAX_PROMPT_LENGTH = 2000;
+export { IMAGE_SIZES, MAX_PROMPT_LENGTH, parseSize } from './types.js';
+export type { ImageSize } from './types.js';
 
 const KEY_ENV: Record<ImageGenProviderName, string> = { runware: 'RUNWARE_API_KEY', replicate: 'REPLICATE_API_TOKEN' };
 const DEFAULT_MODEL: Record<ImageGenProviderName, string> = { runware: RUNWARE_DEFAULT_MODEL, replicate: REPLICATE_DEFAULT_MODEL };
 const PROVIDERS: ImageGenProviderName[] = ['runware', 'replicate'];
-
-export function parseSize(size: string): { width: number; height: number } | null {
-  if (!(IMAGE_SIZES as readonly string[]).includes(size)) return null;
-  const [w, h] = size.split('x').map(Number);
-  return { width: w, height: h };
-}
 
 function keyFor(p: ImageGenProviderName): string {
   return (envFor('the image keys')[KEY_ENV[p]] || '').trim();

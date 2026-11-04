@@ -2,6 +2,17 @@
 
 export type ImageGenProviderName = 'runware' | 'replicate';
 
+// Dependency-free on purpose: routes/workspace-mcp.ts reads IMAGE_SIZES at load, inside an import cycle that runs through imagegen/index.ts.
+export const IMAGE_SIZES = ['1024x1024', '1024x1536', '1536x1024'] as const;
+export type ImageSize = typeof IMAGE_SIZES[number];
+export const MAX_PROMPT_LENGTH = 2000;
+
+export function parseSize(size: string): { width: number; height: number } | null {
+  if (!(IMAGE_SIZES as readonly string[]).includes(size)) return null;
+  const [w, h] = size.split('x').map(Number);
+  return { width: w, height: h };
+}
+
 export interface ImageGenRequest {
   prompt: string;
   width: number;

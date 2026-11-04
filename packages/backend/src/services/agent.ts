@@ -9,8 +9,7 @@ import { getFile } from './files.js';
 import { createMessage, updateThreadSession, getThread, updateThreadActivity, createSessionRecord, endSessionRecord, setConfig, getConfig } from './db.js';
 import { registry } from './ws.js';
 import { createHooks, buildOrientationContext, prefetchMindContext, maybeSnapshotTone, type HookContext, type ToolInsertion } from './hooks.js';
-// Keep this after ./hooks.js: tags/builtin pulls in imagegen, and loading it first makes a cycle through outlook -> workspace-mcp -> imagegen.
-import { parseTags, streamView, runTags } from './tags/index.js';
+import { parseTags, streamView, runTags, anyTagWillRun } from './tags/index.js';
 import './tags/builtin.js';
 import type { MessageSegment } from '@sanctum/shared';
 import type { PushService } from './push.js';
@@ -660,6 +659,7 @@ export class AgentService {
     // Response and tool tracking (declared early so hookContext can reference)
     let fullResponse = '';
     let wasInterrupted = false;
+    let turnErrored = false;
     const toolInsertions: ToolInsertion[] = [];
     const thinkingBlocks: ThinkingInsertion[] = [];
     let currentThinkingAccum = '';
@@ -1350,6 +1350,7 @@ export class AgentService {
         console.log('[Agent] turn ended before its provider call: the companion is being parked');
       } else {
       console.error('Agent query error:', errMsg, error);
+      turnErrored = true;
       if (hold) turnError = errorClass(error);
       else fullResponse = fullResponse || `[Agent error: ${errMsg}]`;
       }
@@ -1432,6 +1433,9 @@ export class AgentService {
     // Inline tags ([image: ...], [voice]) come out of the stored reply; their actions run after it is stored (see finish()).
     // Tool and thinking offsets point into the raw text, so they move with it.
     const parsedTags = parseTags(fullResponse);
+    // Only the reply itself acts: tags in pre-tool narration are stripped like any other, but never run, and a [voice]
+    // speaks the text after the narration, not the narration. (replyBase is where the post-tool reply starts.)
+    const replyTags = parsedTags.tags.length > 0 ? parseTags(fullResponse.slice(replyBase).replace(/^\s+/, '')) : parsedTags;
     if (parsedTags.tags.length > 0) {
       for (const t of toolInsertions) t.textOffset = parsedTags.map(t.textOffset);
       for (const b of thinkingBlocks) {
@@ -1441,8 +1445,9 @@ export class AgentService {
       fullResponse = parsedTags.clean;
     }
     // Not on a held turn (Discord, public or owner: the reply goes out as text and is stripped, never acted on), a stopped turn,
-    // an error, or a PULSE_OK sentinel (nothing was said).
-    const tagsMayRun = !hold && !wasInterrupted && parsedTags.tags.length > 0
+    // an error (including a partial reply that then failed), a PULSE_OK sentinel (nothing was said), or a surface the
+    // instructions are not shown on (the web app and the API only; Telegram is never told about tags).
+    const tagsMayRun = !hold && !wasInterrupted && !turnErrored && (platform === 'web' || platform === 'api') && replyTags.tags.length > 0
       && !fullResponse.trim().startsWith('PULSE_OK') && !fullResponse.startsWith('[Agent error:');
 
     // Build segments for interleaved tool/thinking display
@@ -1450,13 +1455,16 @@ export class AgentService {
     const messageMetadata: Record<string, unknown> | undefined =
       segments.length > 0 ? { segments } : undefined;
 
-    // A reply that was only tags stores empty text (the picture or voice note arrives as its own message).
-    const finalText = fullResponse || (parsedTags.tags.length > 0 ? '' : '[No response]');
+    // A reply that was only tags, with a tag that will run: the picture or voice note IS the reply, so no blank text bubble
+    // (with tool/thinking segments the accordion fills it, so it is stored with empty text). Nothing following: "[No response]".
+    const tagsOnly = !fullResponse.trim() && tagsMayRun && anyTagWillRun(replyTags.tags, replyTags.clean);
+    const skipMessage = tagsOnly && segments.length === 0;
+    const finalText = fullResponse || (tagsOnly ? '' : '[No response]');
     // Everything that follows a reply that has been sent. For an ordinary turn that is every reply; for a
     // held one (Discord) it runs only when the caller commits, after the gated send went out.
     const finish = (): void => {
       // Store final message
-      const companionMessage = createMessage({
+      const companionMessage = skipMessage ? null : createMessage({
         id: streamMsgId,
         threadId,
         role: 'companion',
@@ -1486,15 +1494,16 @@ export class AgentService {
       }
 
       // End stream (a held reply was never streamed: it arrives as one message)
-      if (hold) registry.broadcast({ type: 'message', message: companionMessage });
+      if (hold) { if (companionMessage) registry.broadcast({ type: 'message', message: companionMessage }); }
       else registry.broadcast({
         type: 'stream_end',
         messageId: streamMsgId,
-        final: companionMessage,
+        // '' (falsy) when there is no companion message: the client only clears its streaming state.
+        final: (companionMessage ?? '') as unknown as NonNullable<typeof companionMessage>,
       });
 
       // Inline tag actions: after the reply is stored and the stream has ended, never on the reply path.
-      if (tagsMayRun) runTags(parsedTags.tags, { platform, threadId, messageId: streamMsgId, cleanText: fullResponse });
+      if (tagsMayRun) runTags(replyTags.tags, { platform, threadId, messageId: streamMsgId, cleanText: replyTags.clean });
 
       // Push notification for offline user
       if (this.pushService && fullResponse) {

@@ -25,6 +25,7 @@ const h = vi.hoisted(() => ({
   voices: [] as any[],
   tts: true,
   imageThrows: false,
+  voiceMode: false,
 }));
 
 vi.mock('./providers/index.js', () => ({
@@ -34,7 +35,7 @@ vi.mock('./providers/index.js', () => ({
   query: (p: any) => {
     h.options = p.options;
     const events = h.events ?? [{ type: 'assistant', session_id: 's1', message: { content: [{ type: 'text', text: h.reply }] } }, { type: 'result', session_id: 's1' }];
-    const it = (async function* () { if (h.gate) await h.gate; if (h.queryThrows) throw h.queryThrows; for (const e of events) yield e; })();
+    const it = (async function* () { if (h.gate) await h.gate; if (h.queryThrows) throw h.queryThrows; for (const e of events) { if ((e as any).__throw) throw new Error('boom'); yield e; } })();
     return Object.assign(it, { mcpServerStatus: async () => [], interrupt: async () => {}, close: () => {} });
   },
 }));
@@ -63,6 +64,7 @@ vi.mock('./db.js', () => ({
 }));
 vi.mock('./ws.js', () => ({
   registry: { broadcast: (m: any) => { h.broadcasts.push(m); } },
+  isVoiceModeActive: () => h.voiceMode,
   getVoiceService: () => ({ canTTS: h.tts, generateTTSForMessage: async (text: string, threadId: string, opts: any) => { h.voices.push({ text, threadId, opts }); return { messageId: 'v', fileId: 'f' }; } }),
 }));
 vi.mock('./imagegen/index.js', () => ({
@@ -105,7 +107,7 @@ const turn = (opts: Record<string, unknown> = { platform: 'web' }, autonomous = 
 
 beforeEach(() => {
   h.created = []; h.broadcasts = []; h.ingested = []; h.pushes = []; h.options = null; h.events = null; h.gate = null; h.queryThrows = null;
-  h.provider = 'claude'; h.rolling = true; h.images = []; h.voices = []; h.imageOffered = true; h.voiceEnabled = true; h.tts = true; h.imageThrows = false;
+  h.provider = 'claude'; h.rolling = true; h.images = []; h.voices = []; h.imageOffered = true; h.voiceEnabled = true; h.tts = true; h.imageThrows = false; h.voiceMode = false;
 });
 
 describe('inline tags in a reply', () => {
@@ -186,12 +188,85 @@ describe('inline tags in a reply', () => {
     expect(h.voices).toEqual([]);
   });
 
-  it('a reply that is only a tag stores empty text and still runs it', async () => {
+  it('a reply that is only a tag that will run: no blank companion message; stream_end still fires with an empty final', async () => {
     say('[image: a lamp]');
     expect(await turn()).toBe('');
-    expect(companionMessages()[0].content).toBe('');
+    expect(companionMessages()).toHaveLength(0);
+    const end = h.broadcasts.find((b) => b.type === 'stream_end');
+    expect(end).toBeTruthy();
+    expect(end.final).toBe('');
     await settle();
     expect(h.images).toHaveLength(1);
+  });
+
+  it('a reply that is only a tag that will NOT run (not offered): stored as [No response]', async () => {
+    h.imageOffered = false;
+    say('[image: a lamp]');
+    await turn();
+    expect(companionMessages().map((m) => m.content)).toEqual(['[No response]']);
+    expect(h.broadcasts.find((b) => b.type === 'stream_end').final.content).toBe('[No response]');
+    await settle();
+    expect(h.images).toEqual([]);
+  });
+
+  it('a bare [voice] with no text, or a gated platform, is also [No response]', async () => {
+    say('[voice]');
+    await turn();
+    expect(companionMessages().map((m) => m.content)).toEqual(['[No response]']);
+    h.created = [];
+    say('[image: a lamp]');
+    await turn({ platform: 'telegram' });
+    expect(companionMessages().map((m) => m.content)).toEqual(['[No response]']);
+  });
+
+  it('a Telegram turn stores clean text and runs nothing', async () => {
+    say('Hello [image: x] there [voice]');
+    expect(await turn({ platform: 'telegram' })).toBe('Hello there');
+    expect(companionMessages()[0].content).toBe('Hello there');
+    await settle();
+    expect(h.images).toEqual([]);
+    expect(h.voices).toEqual([]);
+  });
+
+  it('[voice] speaks the reply after the narration, not the narration', async () => {
+    h.events = [
+      { type: 'assistant', session_id: 's1', message: { content: [{ type: 'text', text: 'Let me check' }, { type: 'tool_use', id: 'tu1', name: 'Read', input: {} }] } },
+      { type: 'assistant', session_id: 's1', message: { content: [{ type: 'text', text: '[voice] Here it is' }] } },
+      { type: 'result', session_id: 's1' },
+    ];
+    await turn();
+    await settle();
+    expect(h.voices).toEqual([{ text: 'Here it is', threadId: 't1', opts: { emotion: undefined, transcript: false } }]);
+  });
+
+  it('a tag in the narration is stripped but never run', async () => {
+    h.events = [
+      { type: 'assistant', session_id: 's1', message: { content: [{ type: 'text', text: 'Checking [image: a cat]' }, { type: 'tool_use', id: 'tu1', name: 'Read', input: {} }] } },
+      { type: 'assistant', session_id: 's1', message: { content: [{ type: 'text', text: 'Done.' }] } },
+      { type: 'result', session_id: 's1' },
+    ];
+    await turn();
+    await settle();
+    expect(h.images).toEqual([]);
+    expect(companionMessages()[0].content).not.toContain('[image');
+  });
+
+  it('a partial reply that then errors runs no tags', async () => {
+    h.events = [
+      { type: 'assistant', session_id: 's1', message: { content: [{ type: 'text', text: 'Almost [image: a fox]' }] } },
+      { __throw: true },
+    ];
+    await turn();
+    await settle();
+    expect(h.images).toEqual([]);
+  });
+
+  it('voice mode already speaks the reply: [voice] makes no second voice note', async () => {
+    h.voiceMode = true;
+    say('[voice] Good night.');
+    expect(await turn()).toBe('Good night.');
+    await settle();
+    expect(h.voices).toEqual([]);
   });
 
   it('PULSE_OK, autonomous or not: stripped, never run', async () => {

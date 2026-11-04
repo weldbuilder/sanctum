@@ -41,6 +41,8 @@ export interface TagDef {
   max?: number;
   /** An empty argument is not an action. */
   requiresArg?: boolean;
+  /** The action speaks the reply text, so it does nothing when the reply has none. */
+  needsText?: boolean;
 }
 
 const defs = new Map<string, TagDef>();
@@ -169,8 +171,10 @@ export function parseTags(text: string): ParsedTags {
 export function streamView(cumulative: string): string {
   const { pending } = scan(cumulative);
   const visible = pending === -1 ? cumulative : cumulative.slice(0, pending);
-  // Trailing spaces wait for the next word: a tag that arrives next would have eaten one, and a view must only ever grow.
-  return parseTags(visible).clean.replace(/[ \t]+$/, '');
+  // Trailing whitespace (spaces, tabs AND newlines) waits for the next word: a tag that arrives next would have eaten it,
+  // and a view must only ever grow (the client treats a non-extension as a restart). So "Line one\n" is shown as "Line one"
+  // and the newline appears together with the next word; the final text is unaffected.
+  return parseTags(visible).clean.replace(/\s+$/, '');
 }
 
 /** Stateful form of streamView for a caller that is fed deltas. */
@@ -190,6 +194,15 @@ export function expressionInstructions(): string {
   }
   if (lines.length === 0) return '';
   return ['EXPRESSION (write these inside a reply, in your own words; the app acts on them and removes them from the text; never inside a code block):', ...lines].join('\n');
+}
+
+/** Will at least one honoured tag actually run (offered now, and with text to work on if it needs any)? */
+export function anyTagWillRun(tags: Tag[], cleanText: string): boolean {
+  return tags.some((t) => {
+    if (!t.honoured) return false;
+    const def = defs.get(t.name);
+    try { return !!def && def.offered() && (!def.needsText || cleanText.trim() !== ''); } catch { return false; }
+  });
 }
 
 export interface RunOptions { platform: string; threadId: string; messageId: string; cleanText: string }

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { clearTags, registerTag, parseTags, streamView, StreamTagFilter, expressionInstructions, runTags } from './index.js';
+import { clearTags, registerTag, parseTags, streamView, StreamTagFilter, expressionInstructions, runTags, anyTagWillRun } from './index.js';
 
 const run = vi.fn(async () => {});
 let imageOffered = true;
@@ -7,7 +7,7 @@ let voiceOffered = true;
 beforeEach(() => {
   clearTags(); run.mockClear(); imageOffered = true; voiceOffered = true;
   registerTag('image', { max: 2, requiresArg: true, offered: () => imageOffered, run, instruction: '[image: x] makes a picture' });
-  registerTag('voice', { max: 1, startOnly: true, offered: () => voiceOffered, run, instruction: '[voice] speaks' });
+  registerTag('voice', { max: 1, startOnly: true, needsText: true, offered: () => voiceOffered, run, instruction: '[voice] speaks' });
 });
 
 describe('parseTags', () => {
@@ -108,6 +108,29 @@ describe('parseTags', () => {
     expect(r.clean.slice(r.map(raw.indexOf('is more'))).startsWith('is more')).toBe(true);
     expect(r.map(0)).toBe(0);
     expect(r.map(raw.length)).toBe(r.clean.length);
+  });
+});
+
+describe('streamView never shrinks', () => {
+  it('a tag that starts a new line does not take the newline back', () => {
+    const seq = ['Line one\n', 'Line one\n[ima', 'Line one\n[image: x]', 'Line one\n[image: x]\nLine two'];
+    const views = seq.map((c) => streamView(c));
+    for (let i = 1; i < views.length; i++) expect(views[i].startsWith(views[i - 1])).toBe(true);
+    // Trailing whitespace is held back until the next word arrives; the final view is the stored text.
+    expect(views).toEqual(['Line one', 'Line one', 'Line one', 'Line one\nLine two']);
+    expect(parseTags(seq[3]).clean).toBe('Line one\nLine two');
+  });
+  it('paragraph breaks too', () => {
+    const views = ['Para one.\n\n', 'Para one.\n\n[image: a fox]'].map((c) => streamView(c));
+    expect(views[1].startsWith(views[0])).toBe(true);
+  });
+});
+
+describe('anyTagWillRun', () => {
+  it('needs an honoured, offered tag, and text for a tag that speaks it', () => {
+    const t = parseTags('[voice]').tags;
+    expect(anyTagWillRun(t, '')).toBe(false);
+    expect(anyTagWillRun(t, 'hi')).toBe(true);
   });
 });
 
