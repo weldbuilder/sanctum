@@ -27,7 +27,7 @@ export interface ImageGenProvider {
 
 /** Safe, coarse failure classes. These are the only upstream detail that leaves the adapter. */
 export type ImageGenErrorClass =
-  | 'auth' | 'rate_limit' | 'content_blocked' | 'bad_request' | 'server' | 'network' | 'timeout';
+  | 'auth' | 'billing' | 'rate_limit' | 'content_blocked' | 'bad_request' | 'server' | 'network' | 'timeout';
 
 export class ImageGenError extends Error {
   constructor(public readonly cls: ImageGenErrorClass, public readonly provider: ImageGenProviderName) {
@@ -39,6 +39,7 @@ export class ImageGenError extends Error {
 /** Class from an HTTP status alone. */
 export function classFromStatus(status: number): ImageGenErrorClass {
   if (status === 401 || status === 403) return 'auth';
+  if (status === 402) return 'billing';
   if (status === 429) return 'rate_limit';
   if (status === 408 || status === 504) return 'timeout';
   if (status >= 500) return 'server';

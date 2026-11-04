@@ -115,7 +115,7 @@ import { pluginHelp } from '../services/plugins.js';
 import { getRecentAuditEntries } from '../services/audit.js';
 import { embed, vectorToBuffer } from '../services/embeddings.js';
 import { searchVectors, getCacheStats, type SearchFilter } from '../services/vector-cache.js';
-import { saveFile, saveFileInternal, getContentTypeFromMime, getFile, deleteFile, listFiles } from '../services/files.js';
+import { saveFile, saveFileInternal, getContentTypeFromMime, getFile, deleteFile, listFiles, readFileMeta } from '../services/files.js';
 import { getSafeWritePrefixes } from '../services/hooks.js';
 import { FrameRefused, fsRootOf, protectedFrameSet, readFrame, samePath, underFolder, writeFrame, type ProtectedFrameSet } from '../services/frame-guard.js';
 import { registry } from '../services/ws.js';
@@ -3529,10 +3529,64 @@ router.post('/files/shared/delete', (req, res) => {
   }
 });
 
-// File listing (MUST be before /files/:id)
-router.get('/files/list', (req, res) => {
+// Share a stored file into a thread as the OWNER's message (the Files tab's "send to chat"). Same path as a chat upload that
+// carries an attachment: a user-role message with metadata.attachments, broadcast to every device, then a turn, so the companion
+// is handed the file the way it is handed an uploaded image (buildAttachmentNote: path + Read).
+// Body: { thread_id }. 404 when the file or the thread is missing.
+router.post('/files/:id/share-to-chat', appWriteGate, (req, res) => {
+  const fileParam = String(req.params.id);
   try {
-    const files = listFiles();
+    const threadId = (req.body ?? {}).thread_id;
+    if (typeof threadId !== 'string' || !threadId) { res.status(400).json({ ok: false, error: 'thread_id_required' }); return; }
+    const file = getFile(fileParam);
+    if (!file) { res.status(404).json({ ok: false, error: 'file_not_found' }); return; }
+    const thread = getThread(threadId);
+    if (!thread) { res.status(404).json({ ok: false, error: 'thread_not_found' }); return; }
+
+    const fileId = fileParam;
+    const stored = readFileMeta(fileId);
+    const filename = stored?.filename || file.filename;
+    const contentType = getContentTypeFromMime(file.mimeType);
+    const url = companionPath(`/api/files/${fileId}`);
+    const size = ownStat(file.path).size;
+
+    const now = new Date().toISOString();
+    const message = createMessage({
+      id: crypto.randomUUID(),
+      threadId: thread.id,
+      role: 'user',
+      content: '', // the file rides in metadata.attachments; text here would render under it
+      contentType: 'text',
+      metadata: { source: 'files-share', attachments: [{ fileId, filename, contentType, url, mimeType: file.mimeType, size }] },
+      createdAt: now,
+    });
+    getDb().prepare('UPDATE messages SET delivered_at = ?, read_at = ? WHERE id = ?').run(now, now, message.id);
+    message.delivered_at = now;
+    message.read_at = now;
+    updateThreadActivity(thread.id, now, false);
+    registry.broadcast({ type: 'message', message });
+    res.json({ ok: true, message_id: message.id });
+
+    const agentService = req.app.locals.agentService as AgentService | undefined;
+    if (agentService) {
+      agentService
+        .processMessage(thread.id, '', { name: thread.name, type: thread.type }, { platform: 'web', images: [{ fileId, filename, contentType }] })
+        .then(() => { updateThreadActivity(thread.id, new Date().toISOString(), true); })
+        .catch((err) => { console.error('Share-to-chat processing error:', err instanceof Error ? err.message : 'error'); });
+    }
+  } catch (error) {
+    if (handleUnavailable(error, res)) return;
+    console.error('Share-to-chat error:', error instanceof Error ? error.message : 'error');
+    if (!res.headersSent) res.status(500).json({ ok: false, error: 'internal_error' });
+  }
+});
+
+// File listing (MUST be before /files/:id). GET /files and GET /files/list are the same route: { files: [{ fileId, filename, mimeType, size, contentType, createdAt, inUse, meta? }], totalSize, totalCount, orphanCount }.
+router.get(['/files', '/files/list'], (req, res) => {
+  try {
+    // ?source=image-gen keeps only files the app made itself (sidecar meta.source); uploads have no meta.
+    const source = typeof req.query.source === 'string' && req.query.source ? req.query.source : null;
+    const files = listFiles().filter((f) => !source || f.meta?.source === source);
 
     // Scan messages for fileId references to determine in-use status
     const db = getDb();

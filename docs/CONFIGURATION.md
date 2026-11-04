@@ -459,7 +459,7 @@ Native image generation with FLUX, through Runware or Replicate. The companion c
 | `safety_checker` | `false` | Passed to the provider's own flag (Runware `checkNSFW`; Replicate `disable_safety_checker` is the inverse). |
 | `timeout_ms` | `90000` | How long to wait on the provider before answering 504. |
 
-Keys: `RUNWARE_API_KEY` or `REPLICATE_API_TOKEN` in `.env`. `GET /api/images/status` reports whether it is ready. Prompts are never logged above debug level, and upstream error text is reduced to a class (`auth`, `rate_limit`, `content_blocked`, `bad_request`, `server`, `network`).
+Keys: `RUNWARE_API_KEY` or `REPLICATE_API_TOKEN` in `.env`. `GET /api/images/status` reports `configured` (provider and key set) and `offered` (also needs `agent.app_write`; `reason` is `not_configured` or `app_write_off` when it is false). Generated files are listed in `GET /api/files/list` with `meta` (`source: "image-gen"`, prompt, provider, model), filterable with `?source=image-gen` (`GET /api/files` is the same route as `/api/files/list`). Prompts are never logged above debug level, and upstream error text is reduced to a class (`auth`, `billing` for a 402, `rate_limit`, `content_blocked`, `bad_request`, `server`, `network`, `timeout`).
 
 ### `discord` / `telegram` — chat channels
 

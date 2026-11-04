@@ -6,7 +6,7 @@ import { getSanctumConfig } from '../config.js';
 import { ensureDailyThread, getThread } from '../services/db.js';
 import { registry } from '../services/ws.js';
 import {
-  generateImage, imagegenStatus, isImageGenError, parseSize, ImageGenNotConfigured,
+  generateImage, imagegenStatus, imagegenOffered, isImageGenError, parseSize, ImageGenNotConfigured,
   MAX_PROMPT_LENGTH, type ImageGenProviderName, type ImageSize,
 } from '../services/imagegen/index.js';
 
@@ -63,8 +63,11 @@ export function imageGenerateHandler(resolveThread: ThreadResolver = resolveThre
   };
 }
 
+/** `configured` = a provider and its key are set; `offered` = the app will actually let it run (it also needs app writes on). */
 export function imageStatusHandler(_req: Request, res: Response): void {
-  res.json({ ok: true, ...imagegenStatus() });
+  const s = imagegenStatus();
+  const offered = imagegenOffered();
+  res.json({ ok: true, ...s, offered, ...(offered ? {} : { reason: s.configured ? 'app_write_off' : 'not_configured' }) });
 }
 
 /** Public router, mounted at /api/images after session auth. */

@@ -15,6 +15,11 @@ const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, 
   signal?.addEventListener('abort', () => { clearTimeout(t); reject(new Error('aborted')); }, { once: true });
 });
 
+/** The poll URL is sent with the bearer token, so it must be https on Replicate's own API host. */
+function isReplicateApiUrl(u: string): boolean {
+  try { const p = new URL(u); return p.protocol === 'https:' && p.hostname === 'api.replicate.com'; } catch { return false; }
+}
+
 function outputUrl(output: unknown): string | null {
   const v = Array.isArray(output) ? output[0] : output;
   return typeof v === 'string' && /^https:\/\//.test(v) ? v : null;
@@ -59,7 +64,8 @@ export function createReplicateProvider(token: string, opts: { pollMs?: number }
         if (pred?.status === 'failed' || pred?.status === 'canceled') {
           throw new ImageGenError(classFromText(String(pred?.error ?? ''), 'server'), 'replicate');
         }
-        if (!getUrl || !/^https:\/\//.test(getUrl)) throw new ImageGenError('server', 'replicate');
+        // The poll carries the bearer token: only ever follow it to Replicate's own API host.
+        if (!getUrl || !isReplicateApiUrl(getUrl)) throw new ImageGenError('server', 'replicate');
         try { await sleep(pollMs, req.signal); } catch { throw new ImageGenError('timeout', 'replicate'); }
         const pr = await timedFetch('replicate', getUrl, { headers: auth }, deadline);
         let next: any = null;

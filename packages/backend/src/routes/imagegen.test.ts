@@ -91,7 +91,8 @@ describe('POST /api/images/generate', () => {
     expect(typeof j.ms).toBe('number');
     expect(j.message_id).toBe(h.messages[0].id);
     expect(h.saved).toEqual([{ name: 'generated-image.png', mime: 'image/png', size: Buffer.from('png-bytes').length }]);
-    expect(h.messages[0]).toMatchObject({ threadId: 't1', role: 'companion', contentType: 'image', content: j.url });
+    expect(h.messages[0]).toMatchObject({ threadId: 't1', role: 'companion', contentType: 'image' });
+    expect(h.messages[0].content).toBe(''); // the bubble renders any content as text under the image
     expect(h.messages[0].metadata).toMatchObject({ source: 'image-gen', provider: 'runware', model: 'runware:100@1', prompt: 'a red door', fileId: j.file_id });
     expect(h.messages[0].metadata.attachments).toEqual([expect.objectContaining({ fileId: j.file_id, filename: 'generated-image.png', contentType: 'image' })]);
     expect(h.broadcasts).toEqual([{ type: 'message', message: expect.objectContaining({ id: j.message_id }) }]);
@@ -147,12 +148,18 @@ describe('POST /api/images/generate', () => {
 describe('GET /api/images/status', () => {
   it('reports configured only when provider and key are both present', async () => {
     let j = await (await fetch(`${base}/status`)).json() as any;
-    expect(j).toEqual({ ok: true, configured: true, provider: 'runware', model: 'runware:100@1', providers_with_keys: ['runware'] });
+    expect(j).toEqual({ ok: true, configured: true, offered: true, provider: 'runware', model: 'runware:100@1', providers_with_keys: ['runware'] });
     vi.stubEnv('RUNWARE_API_KEY', '');
     j = await (await fetch(`${base}/status`)).json() as any;
-    expect(j).toEqual({ ok: true, configured: false, provider: null, model: null, providers_with_keys: [] });
+    expect(j).toEqual({ ok: true, configured: false, offered: false, reason: 'not_configured', provider: null, model: null, providers_with_keys: [] });
     h.cfg.provider = 'none'; vi.stubEnv('REPLICATE_API_TOKEN', 't');
     j = await (await fetch(`${base}/status`)).json() as any;
-    expect(j).toMatchObject({ configured: false, provider: null, providers_with_keys: ['replicate'] });
+    expect(j).toMatchObject({ configured: false, offered: false, reason: 'not_configured', provider: null, providers_with_keys: ['replicate'] });
+  });
+
+  it('configured but app_write off: offered false, reason app_write_off, provider and model still reported', async () => {
+    h.appWrite = false;
+    const j = await (await fetch(`${base}/status`)).json() as any;
+    expect(j).toEqual({ ok: true, configured: true, offered: false, reason: 'app_write_off', provider: 'runware', model: 'runware:100@1', providers_with_keys: ['runware'] });
   });
 });

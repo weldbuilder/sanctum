@@ -82,4 +82,18 @@ describe('replicate adapter', () => {
     expect((await createReplicateProvider('T').generate({ ...base, model: '../evil' }).catch((e) => e)).cls).toBe('bad_request');
     expect(f).not.toHaveBeenCalled();
   });
+
+  it('never follows urls.get off api.replicate.com (the poll carries the bearer token): server, and no second request', async () => {
+    for (const get of ['https://evil.example.com/v1/predictions/abc', 'https://api.replicate.com.evil.example/x', 'http://api.replicate.com/v1/predictions/abc']) {
+      const f = vi.fn(async () => json({ status: 'processing', urls: { get } }));
+      vi.stubGlobal('fetch', f);
+      await expect(createReplicateProvider('SECRET', { pollMs: 1 }).generate(base)).rejects.toMatchObject({ cls: 'server' });
+      expect(f).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('402 is classed billing', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ title: 'Payment required' }, 402)));
+    await expect(createReplicateProvider('T').generate(base)).rejects.toMatchObject({ cls: 'billing' });
+  });
 });

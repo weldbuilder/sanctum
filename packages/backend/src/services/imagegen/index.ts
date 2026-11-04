@@ -82,6 +82,8 @@ export interface GenerateImageOptions {
   /** Post a companion image message. Requires threadId. */
   postToChat: boolean;
   threadId?: string;
+  /** Recorded on the posted message (`metadata.triggered_by`): 'tag' for an inline [image:] in a reply. */
+  triggeredBy?: 'tag';
   signal?: AbortSignal;
 }
 
@@ -116,23 +118,24 @@ export async function generateImage(o: GenerateImageOptions): Promise<GenerateIm
   const ms = Date.now() - started;
 
   const ext = out.mime === 'image/jpeg' ? 'jpg' : out.mime === 'image/webp' ? 'webp' : 'png';
-  const fileMeta = saveFile(out.bytes, `generated-image.${ext}`, out.mime);
+  const fileMeta = saveFile(out.bytes, `generated-image.${ext}`, out.mime, { source: 'image-gen', prompt: o.prompt, provider: providerName, model: out.model });
 
   let messageId: string | undefined;
   if (o.postToChat && o.threadId) {
     const now = new Date().toISOString();
-    // hooks.ts handleImageToolResult's shape (content=url, contentType 'image', fileId/filename/size/source) plus metadata.attachments, which is what the chat bubble reads, and provider/model/prompt.
+    // hooks.ts handleImageToolResult's shape (contentType 'image', fileId/filename/size/source) plus metadata.attachments, which is what the chat bubble reads, and provider/model/prompt.
     const message = createMessage({
       id: crypto.randomUUID(),
       threadId: o.threadId,
       role: 'companion',
-      content: fileMeta.url,
+      // Empty on purpose: the bubble renders any non-empty content as text under the image (api.ts /internal/share warns the same).
+      content: '',
       contentType: 'image',
       metadata: {
         fileId: fileMeta.fileId, filename: fileMeta.filename, size: fileMeta.size, source: 'image-gen',
         // What MessageBubble renders (getAttachments -> AttachmentBlock): contentType 'image' + fileId.
         attachments: [{ fileId: fileMeta.fileId, filename: fileMeta.filename, contentType: 'image', url: fileMeta.url, mimeType: fileMeta.mimeType, size: fileMeta.size }],
-        provider: providerName, model: out.model, prompt: o.prompt },
+        provider: providerName, model: out.model, prompt: o.prompt, ...(o.triggeredBy ? { triggered_by: o.triggeredBy } : {}) },
       createdAt: now,
     });
     updateThreadActivity(o.threadId, now, true);
