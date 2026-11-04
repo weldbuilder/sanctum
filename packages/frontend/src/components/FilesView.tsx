@@ -19,6 +19,9 @@ import { useSearchParams } from 'react-router-dom';
 import { BASE } from '../lib/base';
 import { useIdentity } from '../store/identity';
 import { useConfirm } from './ConfirmDialog';
+import { useChatStore } from '../store/chat';
+import { ImageGenPanel } from './files/ImageGenPanel';
+import { NO_CHAT_TITLE, clipPrompt, readGenerated, shareError, type GeneratedItem } from './files/imageGen';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -32,6 +35,9 @@ interface PlacesResponse {
 type SortKey = 'name' | 'type' | 'modified' | 'size';
 type View = 'list' | 'grid';
 /** The open file: a picture is shown as itself; text is read; anything else offers its download. */
+type Filter = 'all' | 'generated';
+/** A generated picture is listed by file id, not by path: its Entry carries this prefix and the id after it. */
+const GEN = 'gen:';
 interface Sheet { entry: Entry; state: 'loading' | 'ready' | 'none' | 'error'; text?: string }
 
 // ─── Kinds ────────────────────────────────────────────────────────────────────
@@ -76,6 +82,8 @@ const PLACE_GLYPH: Record<PlaceKind, GlyphName> = { shared: 'shared', home: 'hom
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const rawUrl = (path: string, download = false) => `${BASE}/api/files/raw?path=${encodeURIComponent(path)}${download ? '&download=1' : ''}`;
+const srcOf = (e: Pick<Entry, 'path'>, download = false) =>
+  e.path.startsWith(GEN) ? `${BASE}/api/files/${encodeURIComponent(e.path.slice(GEN.length))}` : rawUrl(e.path, download);
 const post = (action: 'folder' | 'rename' | 'delete', body: unknown) =>
   fetch(`${BASE}/api/files/shared/${action}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
@@ -234,6 +242,12 @@ export function FilesView() {
   const [busy, setBusy] = useState(false);
   const [dropping, setDropping] = useState(false);
   const [tick, setTick] = useState(0);
+  const [genOpen, setGenOpen] = useState(false);
+  const [filter, setFilter] = useState<Filter>('all');
+  const [generated, setGenerated] = useState<GeneratedItem[]>([]);
+  const [genListing, setGenListing] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [genTick, setGenTick] = useState(0);
+  const threadId = useChatStore(st => st.activeThreadId);
   const fileInput = useRef<HTMLInputElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
 
@@ -287,6 +301,17 @@ export function FilesView() {
       .catch(() => { if (live) { setListError('Could not reach the file service.'); setListing('error'); } });
     return () => { live = false; };
   }, [placesLoaded, dir, shelf, shelfExists, tick]);
+
+  // The generated pictures: the file store's list, narrowed to what image generation made.
+  useEffect(() => {
+    if (filter !== 'generated') return;
+    let live = true;
+    fetch(`${BASE}/api/files?source=image-gen`)
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then(d => { if (live) { setGenerated(readGenerated(d, id => `${BASE}/api/files/${encodeURIComponent(id)}`)); setGenListing('ready'); } })
+      .catch(() => { if (live) setGenListing('error'); });
+    return () => { live = false; };
+  }, [filter, genTick]);
 
   // A notice that something worked fades; one that something failed stays until it is dismissed or replaced.
   useEffect(() => {
@@ -403,6 +428,37 @@ export function FilesView() {
     refresh();
   }, [newFolder, uploadDir, refresh]);
 
+  /** Share a picture into the open chat. A generated one is already in the file store; one from a folder is put there first. */
+  const shareToChat = useCallback(async (e: Entry) => {
+    setMenu(null);
+    if (!threadId) { setNotice({ text: NO_CHAT_TITLE, error: true }); return; }
+    try {
+      let fileId = e.path.startsWith(GEN) ? e.path.slice(GEN.length) : '';
+      if (!fileId) {
+        const pic = await fetch(srcOf(e));
+        if (!pic.ok) throw new Error(String(pic.status));
+        const form = new FormData();
+        form.append('file', await pic.blob(), e.name);
+        const up = await fetch(`${BASE}/api/files`, { method: 'POST', body: form });
+        if (!up.ok) { setNotice({ text: `Could not share ${e.name}: ${await reason(up)}`, error: true }); return; }
+        fileId = ((await up.json()) as { fileId: string }).fileId;
+      }
+      const r = await fetch(`${BASE}/api/files/${encodeURIComponent(fileId)}/share-to-chat`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ thread_id: threadId }),
+      });
+      setNotice(r.ok ? { text: `Shared ${e.name} to chat`, error: false } : { text: shareError(r.status), error: true });
+    } catch {
+      setNotice({ text: 'Could not reach the file service.', error: true });
+    }
+  }, [threadId]);
+
+  const generatedDone = useCallback((provider: string) => {
+    setFilter('generated');
+    setGenListing('loading');
+    setGenTick(t => t + 1);
+    setNotice({ text: provider ? `Generated with ${provider}` : 'Generated', error: false });
+  }, []);
+
   // ─── What is shown ───
   const q = query.trim().toLowerCase();
   const shown = useMemo(() => {
@@ -416,10 +472,15 @@ export function FilesView() {
     // Folders always first; then the chosen order.
     return [...list].sort((a, b) => (a.type === b.type ? 0 : a.type === 'directory' ? -1 : 1) || (sort.asc ? 1 : -1) * by[sort.key](a, b));
   }, [entries, q, sort]);
+  const generatedShown = useMemo(
+    () => (q ? generated.filter(g => `${g.prompt} ${g.name}`.toLowerCase().includes(q)) : generated),
+    [generated, q],
+  );
   const recentShown = q ? recent.filter(f => f.name.toLowerCase().includes(q)) : recent;
   const crumbs = place ? crumbsOf(dir, place) : [];
   const shelfCount = places?.shared.count ?? 0;
 
+  const genEntry = (g: GeneratedItem): Entry => ({ name: g.name, type: 'file', size: g.size, mtime: g.createdAt, path: `${GEN}${g.id}` });
   const setViewKept = (v: View) => {
     setView(v);
     try { localStorage.setItem(VIEW_KEY, v); } catch { /* private window: the choice lasts this visit */ }
@@ -447,7 +508,10 @@ export function FilesView() {
           <span className="fl-menu" role="menu" onClick={ev => ev.stopPropagation()}>
             {/* A recent card opens its file itself; its menu opens upward in the strip and keeps to what fits there. */}
             {where !== 'recent' && <button type="button" role="menuitem" onClick={() => open(e)}>{e.type === 'directory' ? 'Open' : 'Preview'}</button>}
-            {e.type === 'file' && <a role="menuitem" href={rawUrl(e.path, true)} download={e.name} onClick={() => setMenu(null)}>Download</a>}
+            {e.type === 'file' && <a role="menuitem" href={srcOf(e, true)} download={e.name} onClick={() => setMenu(null)}>Download</a>}
+            {e.type === 'file' && isPicture(e.name) && (
+              <button type="button" role="menuitem" disabled={!threadId} title={threadId ? undefined : NO_CHAT_TITLE} onClick={() => void shareToChat(e)}>Share to chat</button>
+            )}
             {mine && <button type="button" role="menuitem" onClick={() => { setMenu(null); setRenaming({ key, path: e.path, name: e.name }); }}>Rename</button>}
             {mine && <button type="button" role="menuitem" className="fl-danger" onClick={() => void remove(e)}>Delete</button>}
           </span>
@@ -468,7 +532,7 @@ export function FilesView() {
 
   const thumb = (e: Entry, size: number) => (
     <span className="fl-thumb">
-      {isPicture(e.name) ? <img src={rawUrl(e.path)} alt="" loading="lazy" decoding="async" /> : <Icon name={kindOf(e).glyph} size={size} />}
+      {isPicture(e.name) ? <img src={srcOf(e)} alt="" loading="lazy" decoding="async" /> : <Icon name={kindOf(e).glyph} size={size} />}
     </span>
   );
 
@@ -514,6 +578,15 @@ export function FilesView() {
               <Icon name="upload" size={16} />
               Upload
             </button>
+            <button
+              type="button"
+              className="fl-upload hearth-press"
+              aria-expanded={genOpen}
+              onClick={() => setGenOpen(o => !o)}
+            >
+              <Icon name="image" size={16} />
+              Generate
+            </button>
             <input
               ref={fileInput}
               type="file"
@@ -530,6 +603,8 @@ export function FilesView() {
             {!busy && <button type="button" className="fl-notice-x" aria-label="Dismiss" onClick={() => setNotice(null)}><Icon name="close" size={14} /></button>}
           </div>
         )}
+
+        {genOpen && <ImageGenPanel onClose={() => setGenOpen(false)} onGenerated={generatedDone} />}
 
         {placesError && !places && <p className="fl-quiet">Could not reach the file service. Is the server running?</p>}
 
@@ -597,7 +672,8 @@ export function FilesView() {
             <div className="fl-panel-head">
               <span className="fl-glyph"><Icon name={place ? PLACE_GLYPH[place.kind] : 'folder'} size={20} /></span>
               <nav className="fl-crumbs" aria-label="Folder path">
-                {crumbs.map((c, i) => (
+                {filter === 'generated' && <span className="fl-crumb" aria-current="page">Generated</span>}
+                {filter === 'all' && crumbs.map((c, i) => (
                   <React.Fragment key={c.path}>
                     {i > 0 && <span className="fl-crumb-sep" aria-hidden="true"><Icon name="chevron" size={13} /></span>}
                     <button type="button" className="fl-crumb" aria-current={i === crumbs.length - 1 ? 'page' : undefined} onClick={() => go(c.path)}>{c.label}</button>
@@ -605,27 +681,56 @@ export function FilesView() {
                 ))}
               </nav>
               <div className="fl-panel-tools">
-                {inShelf(dir) && (
+                <span className="fl-toggle fl-toggle-text" role="group" aria-label="Show">
+                  <button type="button" aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>All</button>
+                  <button type="button" aria-pressed={filter === 'generated'} onClick={() => { setGenListing('loading'); setFilter('generated'); }}>Generated</button>
+                </span>
+                {filter === 'all' && inShelf(dir) && (
                   <button type="button" className="fl-btn hearth-press" onClick={() => setNewFolder(n => (n == null ? '' : null))} aria-expanded={newFolder != null}>
                     <Icon name="newfolder" size={16} />
                     <span className="fl-btn-label">New folder</span>
                   </button>
                 )}
-                <span className="fl-toggle" role="group" aria-label="Show as">
+                {filter === 'all' && <span className="fl-toggle" role="group" aria-label="Show as">
                   <button type="button" aria-pressed={view === 'list'} aria-label="List" onClick={() => setViewKept('list')}><Icon name="list" size={16} /></button>
                   <button type="button" aria-pressed={view === 'grid'} aria-label="Cards" onClick={() => setViewKept('grid')}><Icon name="grid" size={16} /></button>
-                </span>
+                </span>}
               </div>
             </div>
 
-            {newFolder != null && (
+            {filter === 'all' && newFolder != null && (
               <div className="fl-newfolder">
                 <span className="fl-glyph"><Icon name="folder" /></span>
                 <NameField value={newFolder} label="New folder name" onChange={setNewFolder} onSave={() => void makeFolder()} onCancel={() => setNewFolder(null)} />
               </div>
             )}
 
-            {listing === 'loading' ? (
+            {filter === 'generated' ? (
+              genListing === 'loading' ? <p className="fl-quiet-in">Opening…</p>
+              : genListing === 'error' ? <p className="fl-quiet-in">Could not load the generated pictures.</p>
+              : generatedShown.length === 0 ? <p className="fl-quiet-in">{q ? `Nothing generated matches “${query.trim()}”.` : 'Nothing generated yet. Use Generate to make a picture.'}</p>
+              : (
+                <ul className="fl-grid">
+                  {generatedShown.map(g => {
+                    const e = genEntry(g);
+                    return (
+                      <li key={g.id} className="fl-cell">
+                        <button type="button" className="fl-tile-open" onClick={() => open(e)}>
+                          {thumb(e, 30)}
+                          <span className="fl-tile-foot">
+                            <span className="fl-tile-text">
+                              <span className="fl-tile-name" title={g.prompt || g.name}>{clipPrompt(g.prompt || g.name)}</span>
+                              <span className="fl-meta">{[g.provider, g.createdAt ? ago(g.createdAt) : ''].filter(Boolean).join(' · ')}</span>
+                            </span>
+                          </span>
+                        </button>
+                        {actions('gen', e)}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )
+            ) : listing === 'loading' ? (
               <p className="fl-quiet-in">Opening…</p>
             ) : listing === 'error' ? (
               <p className="fl-quiet-in">{listError}</p>
@@ -718,7 +823,7 @@ export function FilesView() {
                 <button ref={closeRef} type="button" className="fl-icon-btn" aria-label="Close" onClick={() => setSheet(null)}><Icon name="close" /></button>
               </header>
               <div className="fl-sheet-body">
-                {isPicture(e.name) ? <img className="fl-sheet-pic" src={rawUrl(e.path)} alt={e.name} />
+                {isPicture(e.name) ? <img className="fl-sheet-pic" src={srcOf(e)} alt={e.name} />
                   : sheet.state === 'loading' ? <p className="fl-quiet-in">Opening…</p>
                   : sheet.state === 'ready' ? <pre className="fl-sheet-text">{sheet.text}</pre>
                   : sheet.state === 'none' ? <p className="fl-quiet-in">There is no preview for this kind of file here. Download it to open it on this device.</p>
@@ -729,7 +834,10 @@ export function FilesView() {
                   <>
                     {mine && <button type="button" className="fl-btn fl-btn-danger hearth-press" onClick={() => void remove(e)}><Icon name="trash" size={16} />Delete</button>}
                     {mine && <button type="button" className="fl-btn hearth-press" onClick={() => setRenaming({ key, path: e.path, name: e.name })}><Icon name="pencil" size={16} />Rename</button>}
-                    <a className="fl-btn fl-btn-primary hearth-press" href={rawUrl(e.path, true)} download={e.name}><Icon name="download" size={16} />Download</a>
+                    {isPicture(e.name) && (
+                      <button type="button" className="fl-btn hearth-press" disabled={!threadId} title={threadId ? undefined : NO_CHAT_TITLE} onClick={() => void shareToChat(e)}>Share to chat</button>
+                    )}
+                    <a className="fl-btn fl-btn-primary hearth-press" href={srcOf(e, true)} download={e.name}><Icon name="download" size={16} />Download</a>
                   </>
                 )}
               </footer>
@@ -829,6 +937,7 @@ export function FilesView() {
           cursor: pointer;
         }
         .fl-upload svg { color: var(--skin-trim, currentColor); }
+        .fl-upload { min-height: 2.5rem; }
         .fl-upload:disabled { opacity: 0.6; cursor: default; }
         .fl-notice {
           align-self: flex-start;
@@ -1020,6 +1129,8 @@ export function FilesView() {
         }
         .fl-toggle button { display: inline-grid; place-items: center; padding: 0.4rem 0.55rem; border: 0; background: none; color: var(--text-muted, #a09689); cursor: pointer; }
         .fl-toggle button[aria-pressed="true"] { background: color-mix(in srgb, var(--skin-trim, #c9a87c) 24%, transparent); color: var(--text-primary, #efe4d0); }
+        .fl-toggle-text button { padding: 0.4rem 0.8rem; min-height: 2.5rem; font-family: var(--font-serif, 'Lora', serif); font-size: 0.92rem; }
+        .fl-menu > *:disabled { opacity: 0.5; cursor: default; }
         .fl-newfolder { display: flex; align-items: center; gap: 0.6rem; padding: 0.7rem 0.5rem 0.2rem; }
         .fl-quiet-in {
           margin: 0;
@@ -1235,9 +1346,9 @@ export function FilesView() {
           .fl-scroll { padding: 0 0.6rem calc(env(safe-area-inset-bottom, 0px) + 3rem); gap: 0.85rem; }
           .fl-head { padding: 1rem 0.25rem 0.25rem; align-items: stretch; }
           .fl-title { font-size: 2.1rem; }
-          .fl-tools { width: 100%; }
-          .fl-search { flex: 1; width: auto; }
-          .fl-upload { padding: 0.5rem 0.85rem; }
+          .fl-tools { width: 100%; flex-wrap: wrap; }
+          .fl-search { flex: 1 1 100%; }
+          .fl-upload { padding: 0.5rem 0.85rem; flex: 1; justify-content: center; }
           .fl-notice { margin: -0.3rem 0.25rem 0; }
           .fl-places { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; }
           .fl-place { padding: 0.7rem 0.75rem; gap: 0.6rem; }
@@ -1254,6 +1365,9 @@ export function FilesView() {
           .fl-tile .fl-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
           .fl-panel { padding: 0.75rem max(0.8rem, calc(var(--plate-corner, 0px) + 0.1rem)) 0.8rem; }
           .fl-crumb { font-size: 1.15rem; }
+          .fl-icon-btn { width: 2.5rem; height: 2.5rem; }
+          .fl-menu > * { padding: 0.7rem 0.75rem; }
+          .fl-btn { min-height: 2.5rem; }
           .fl-btn-label { display: none; }
           .fl-c-type, .fl-c-mod, .fl-c-size { display: none; }
           .fl-row-meta { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
