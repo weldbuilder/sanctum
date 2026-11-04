@@ -9,6 +9,9 @@ import { getFile } from './files.js';
 import { createMessage, updateThreadSession, getThread, updateThreadActivity, createSessionRecord, endSessionRecord, setConfig, getConfig } from './db.js';
 import { registry } from './ws.js';
 import { createHooks, buildOrientationContext, prefetchMindContext, maybeSnapshotTone, type HookContext, type ToolInsertion } from './hooks.js';
+// Keep this after ./hooks.js: tags/builtin pulls in imagegen, and loading it first makes a cycle through outlook -> workspace-mcp -> imagegen.
+import { parseTags, streamView, runTags } from './tags/index.js';
+import './tags/builtin.js';
 import type { MessageSegment } from '@sanctum/shared';
 import type { PushService } from './push.js';
 import { getSanctumConfig, internalBaseUrl } from '../config.js';
@@ -685,10 +688,11 @@ export class AgentService {
     // where the text after the latest tool call starts in fullResponse; the live stream only shows that tail.
     let replyBase = 0;
     let narrationSeq = 0;
-    const replyTail = (): string => fullResponse.slice(replyBase).replace(/^\s+/, '');
+    // The live stream hides inline tags ([image: ...], [voice]): complete ones are removed, a `[` that may still become one is held back.
+    const replyTail = (): string => streamView(fullResponse.slice(replyBase).replace(/^\s+/, ''));
     const sealNarration = (): void => {
       const raw = fullResponse.slice(replyBase);
-      const content = raw.trim();
+      const content = parseTags(raw).clean.trim();
       const start = replyBase;
       replyBase = fullResponse.length;
       if (!content) return;
@@ -1425,12 +1429,29 @@ export class AgentService {
       return '';
     }
 
+    // Inline tags ([image: ...], [voice]) come out of the stored reply; their actions run after it is stored (see finish()).
+    // Tool and thinking offsets point into the raw text, so they move with it.
+    const parsedTags = parseTags(fullResponse);
+    if (parsedTags.tags.length > 0) {
+      for (const t of toolInsertions) t.textOffset = parsedTags.map(t.textOffset);
+      for (const b of thinkingBlocks) {
+        b.textOffset = parsedTags.map(b.textOffset);
+        if (b.endOffset !== undefined) b.endOffset = parsedTags.map(b.endOffset);
+      }
+      fullResponse = parsedTags.clean;
+    }
+    // Not on a held turn (Discord, public or owner: the reply goes out as text and is stripped, never acted on), a stopped turn,
+    // an error, or a PULSE_OK sentinel (nothing was said).
+    const tagsMayRun = !hold && !wasInterrupted && parsedTags.tags.length > 0
+      && !fullResponse.trim().startsWith('PULSE_OK') && !fullResponse.startsWith('[Agent error:');
+
     // Build segments for interleaved tool/thinking display
     const segments = buildSegments(fullResponse, toolInsertions, thinkingBlocks);
     const messageMetadata: Record<string, unknown> | undefined =
       segments.length > 0 ? { segments } : undefined;
 
-    const finalText = fullResponse || '[No response]';
+    // A reply that was only tags stores empty text (the picture or voice note arrives as its own message).
+    const finalText = fullResponse || (parsedTags.tags.length > 0 ? '' : '[No response]');
     // Everything that follows a reply that has been sent. For an ordinary turn that is every reply; for a
     // held one (Discord) it runs only when the caller commits, after the gated send went out.
     const finish = (): void => {
@@ -1471,6 +1492,9 @@ export class AgentService {
         messageId: streamMsgId,
         final: companionMessage,
       });
+
+      // Inline tag actions: after the reply is stored and the stream has ended, never on the reply path.
+      if (tagsMayRun) runTags(parsedTags.tags, { platform, threadId, messageId: streamMsgId, cleanText: fullResponse });
 
       // Push notification for offline user
       if (this.pushService && fullResponse) {

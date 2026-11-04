@@ -263,6 +263,9 @@ function sendError(ws: WebSocket, code: string, message: string): void {
 const voiceLocal = tenantLocal<VoiceService | null>(() => null);
 const voiceInstance = (): VoiceService | null => voiceLocal.get();
 
+/** The current voice service (the tenant's own in tenant mode), or null. */
+export function getVoiceService(): VoiceService | null { return voiceInstance(); }
+
 export function setVoiceService(vs: VoiceService): void {
   voiceLocal.set(vs);
 }

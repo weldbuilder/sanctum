@@ -461,6 +461,15 @@ Native image generation with FLUX, through Runware or Replicate. The companion c
 
 Keys: `RUNWARE_API_KEY` or `REPLICATE_API_TOKEN` in `.env`. `GET /api/images/status` reports `configured` (provider and key set) and `offered` (also needs `agent.app_write`; `reason` is `not_configured` or `app_write_off` when it is false). Generated files are listed in `GET /api/files/list` with `meta` (`source: "image-gen"`, prompt, provider, model), filterable with `?source=image-gen` (`GET /api/files` is the same route as `/api/files/list`). Prompts are never logged above debug level, and upstream error text is reduced to a class (`auth`, `billing` for a 402, `rate_limit`, `content_blocked`, `bad_request`, `server`, `network`, `timeout`).
 
+### Inline expression tags
+
+The companion can write `[image: a short visual description]` or `[voice]` / `[voice:playful|warm|calm]` inside a reply, on any harness, with no tool call. The app removes the tag from the stored (and live-streamed) text, then acts on it after the reply is stored:
+
+- `[image: ...]` generates a picture (the `imagegen` section above) and posts it after the reply. At most two per reply; extras are stripped.
+- `[voice]` is honoured only at the very start of the reply. It sends the reply as a voice note too (needs `voice.enabled`, `ELEVENLABS_API_KEY` and a voice id). The emotion maps to ElevenLabs v3 stability: `playful` 0, `warm` 0.5 (the default), `calm` 1. An unknown emotion is a plain voice note.
+
+The companion is told about a tag only while its capability is on. A tag whose capability is off is still stripped. Tags inside code blocks or inline code are left alone, a `[image:` with no closing `]` is left alone, and the prompt text is never logged above debug. Discord replies, stopped turns, errors and `PULSE_OK` wakes strip tags and never run them.
+
 ### `discord` / `telegram` — chat channels
 
 | Key | Default | Meaning |
