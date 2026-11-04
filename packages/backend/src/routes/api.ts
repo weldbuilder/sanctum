@@ -107,6 +107,8 @@ import { authMiddleware } from '../middleware/auth.js';
 import { AVATAR_MAX_BYTES, avatarFile, getSkin, getStoredAvatarUrl, patchProfile, saveAvatar, sniffAvatar } from '../services/companion-profile.js';
 import { internalOnly } from '../middleware/internal-token.js';
 import { appWriteGate } from '../middleware/app-write.js';
+import { imagesRouter, imageGenerateHandler } from './imagegen.js';
+import { imagegenOffered } from '../services/imagegen/index.js';
 import { handleTool as ccHandleTool, CC_TOOL_NAMES } from './cc-mcp.js';
 import { fullToolHelp, topicHelp } from '../services/tool-help.js';
 import { pluginHelp } from '../services/plugins.js';
@@ -348,7 +350,7 @@ router.post('/internal/meal', internalOnly, appWriteGate, (req, res) => {
 router.get('/internal/help', internalOnly, (req, res) => {
   const cfg = getSanctumConfig();
   const SC = `node ${join(PROJECT_ROOT, 'tools', 'res.mjs').replace(/\\/g, '/')}`;
-  const o = { SC, userName: cfg.identity.user_name, ccEnabled: !!cfg.command_center.enabled, browser: browserToolsConfigured(cfg), telegram: req.query.platform === 'telegram', pluginHelp: pluginHelp() };
+  const o = { SC, userName: cfg.identity.user_name, ccEnabled: !!cfg.command_center.enabled, browser: browserToolsConfigured(cfg), image: imagegenOffered(), telegram: req.query.platform === 'telegram', pluginHelp: pluginHelp() };
   const topic = typeof req.query.topic === 'string' ? req.query.topic : '';
   res.type('text/plain').send(topic ? topicHelp(o, topic) : fullToolHelp(o));
 });
@@ -496,6 +498,13 @@ function resolveInternalThread(explicitThreadId: unknown):
   }
   return { ok: true, thread, redirectedTo: null };
 }
+
+// Image generation for the `res image` verb and the workspace MCP tool: same body and response as POST /api/images/generate.
+// Thread rescue is the voice organ's (a missing thread lands in today's daily; an unknown id is an honest 404).
+router.post('/internal/image', internalOnly, appWriteGate, imageGenerateHandler((explicit) => {
+  const r = resolveInternalThread(explicit);
+  return r.ok ? { ok: true, threadId: r.thread.id } : r;
+}));
 
 // TTS endpoint — companion sends voice notes via the `res` CLI from localhost
 router.post('/internal/tts', internalOnly, async (req, res) => {
@@ -1695,6 +1704,9 @@ router.use((req, res, next) => {
   if (own) { res.status(400).json({ error: own }); return; }
   next();
 });
+
+// Image generation (public: POST /images/generate, GET /images/status).
+router.use('/images', imagesRouter);
 
 // --- Command Center (mounted via initCcRoutes after config loads) ---
 

@@ -63,6 +63,15 @@ import {
   GoogleScopeNotGrantedError,
 } from '../services/google.js';
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { getSanctumConfig } from '../config.js';
+import { ensureDailyThread, getThread } from '../services/db.js';
+import { registry } from '../services/ws.js';
+import {
+  generateImage, imagegenOffered, oneLineResult, isImageGenError, parseSize, ImageGenNotConfigured, MAX_PROMPT_LENGTH, IMAGE_SIZES, type ImageSize,
+} from '../services/imagegen/index.js';
+
 const router = Router();
 
 // ---------------------------------------------------------------------------
@@ -308,6 +317,56 @@ const SEARCH_CONSOLE_TOOL = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// generate_image — native FLUX image generation (Runware / Replicate)
+// ---------------------------------------------------------------------------
+// Advertised ONLY when imagegen is configured (provider set AND its key present) and app writes are on:
+// the companion is never offered a capability the backend cannot deliver. The name is safe against the
+// PostToolUse image hook (hooks.ts IMAGE_GEN_TOOLS matches the exact tool_name, which for this server is
+// `mcp__sanctum-workspace__generate_image`), and the one-line text result carries no path or base64 anyway.
+
+const IMAGE_TOOL = {
+  name: 'generate_image',
+  description:
+    "Generate an image from a text prompt (FLUX) and post it into the chat as your own image message. " +
+    "Describe the picture in the prompt. Returns one line when done; do not describe or re-send the file.",
+  inputSchema: {
+    type: 'object',
+    properties: {
+      prompt: { type: 'string', description: 'What to draw (1-2000 characters).' },
+      size: { type: 'string', enum: [...IMAGE_SIZES], description: 'Optional. Default from config (1024x1024).' },
+    },
+    required: ['prompt'],
+  },
+};
+
+/** The thread of the current chat turn (the marker agent.ts writes into agent.cwd), else today's daily. Never trusts the file's text: the id must name a real thread. */
+function currentThreadId(): string {
+  try {
+    const id = readFileSync(join(getSanctumConfig().agent.cwd, '.sanctum-thread'), 'utf8').trim();
+    if (id && getThread(id)) return id;
+  } catch { /* fall through */ }
+  const { thread, justCreated } = ensureDailyThread();
+  if (justCreated) registry.broadcast({ type: 'thread_created', thread });
+  return thread.id;
+}
+
+async function handleGenerateImage(args: any): Promise<{ text: string; isError?: boolean }> {
+  const prompt = typeof args?.prompt === 'string' ? args.prompt.trim() : '';
+  if (!prompt) return { text: 'prompt is required.', isError: true };
+  if (prompt.length > MAX_PROMPT_LENGTH) return { text: `prompt is too long (max ${MAX_PROMPT_LENGTH} characters).`, isError: true };
+  const size = args?.size ?? getSanctumConfig().imagegen.size;
+  if (typeof size !== 'string' || !parseSize(size)) return { text: `size must be one of ${IMAGE_SIZES.join(', ')}.`, isError: true };
+  try {
+    const r = await generateImage({ prompt, size: size as ImageSize, postToChat: true, threadId: currentThreadId() });
+    return { text: oneLineResult(r) };
+  } catch (e) {
+    if (e instanceof ImageGenNotConfigured) return { text: 'Image generation is not configured.', isError: true };
+    if (isImageGenError(e)) return { text: `Image generation failed (${e.provider}: ${e.cls}).`, isError: true };
+    return { text: 'Image generation failed.', isError: true };
+  }
+}
+
 /** tools/list payload — advertise `google` when any workspace service is usable,
  *  `google_health` ONLY when health is connected+enabled with BOTH scopes, and
  *  `google_search_console` ONLY when search_console is connected+enabled+granted. */
@@ -317,6 +376,7 @@ function activeTools() {
   if (services.length > 0) tools.push(googleTool(services));
   if (healthAvailable()) tools.push(HEALTH_TOOL);
   if (searchConsoleAvailable()) tools.push(SEARCH_CONSOLE_TOOL);
+  if (imagegenOffered()) tools.push(IMAGE_TOOL);
   return tools;
 }
 
@@ -1763,6 +1823,13 @@ router.post('/', async (req, res) => {
 
       case 'tools/call': {
         const { name, arguments: toolArgs } = params || {};
+        if (name === 'generate_image' && imagegenOffered()) {
+          const r = await handleGenerateImage(toolArgs || {});
+          return res.json({
+            jsonrpc: '2.0', id,
+            result: { content: [{ type: 'text', text: r.text }], ...(r.isError ? { isError: true } : {}) },
+          });
+        }
         if (name !== 'google' && name !== 'google_health' && name !== 'google_search_console') {
           return res.json({
             jsonrpc: '2.0', id,

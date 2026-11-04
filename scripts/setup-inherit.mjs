@@ -26,6 +26,7 @@ export const INHERIT_TABLE = Object.freeze([
   { inherit: true, paths: ['tools'], why: 'tool settings' },
   { inherit: true, paths: ['orchestrator.enabled', 'orchestrator.schedules', 'orchestrator.failsafe'], why: 'orchestrator cadence and schedules' },
   { inherit: true, paths: ['voice.*'], why: 'voice flags' },
+  { inherit: true, paths: ['imagegen.*'], why: 'image generation settings (the keys are the tenant\'s own .env)' },
   { inherit: true, paths: ['skins', 'appearance'], why: 'skins and appearance' },
   { inherit: true, paths: ['plugins.enabled', 'plugins.trust'], why: 'which plugins are on and who manages them' },
   { inherit: true, paths: ['command_center.*', 'handoff.*', 'outlook.*'], why: 'Command Center, handoff and outlook settings' },

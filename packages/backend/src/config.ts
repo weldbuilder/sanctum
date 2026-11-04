@@ -145,6 +145,16 @@ export interface SanctumConfig {
     enabled: boolean;
     elevenlabs_voice_id: string;
   };
+  /** Native image generation (FLUX via Runware or Replicate). Keys live in .env: RUNWARE_API_KEY, REPLICATE_API_TOKEN. */
+  imagegen: {
+    provider: 'none' | 'runware' | 'replicate';
+    /** '' = the provider's default (runware:100@1 / black-forest-labs/flux-schnell). */
+    model: string;
+    size: '1024x1024' | '1024x1536' | '1536x1024';
+    /** Passed to the provider's own safety flag (Runware checkNSFW; Replicate disable_safety_checker inverted). */
+    safety_checker: boolean;
+    timeout_ms: number;
+  };
   discord: DiscordConfig;
   telegram: {
     enabled: boolean;
@@ -495,6 +505,13 @@ const DEFAULTS: SanctumConfig = {
   voice: {
     enabled: false,
     elevenlabs_voice_id: '',
+  },
+  imagegen: {
+    provider: 'none',
+    model: '',
+    size: '1024x1024',
+    safety_checker: false,
+    timeout_ms: 90000,
   },
   discord: {
     enabled: false,

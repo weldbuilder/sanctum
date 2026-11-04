@@ -447,6 +447,20 @@ The server never makes a password up for the setup screen (it could not hand one
 | `enabled` | `false` | Turns on voice logging. The actual speech features also self-gate on whether the relevant API keys are present (§6). |
 | `elevenlabs_voice_id` | `""` | Which ElevenLabs voice to speak in. Env: `ELEVENLABS_VOICE_ID`. |
 
+### `imagegen` — pictures from the companion
+
+Native image generation with FLUX, through Runware or Replicate. The companion can ask for an image (the `generate_image` tool on Claude, `res image "..."` on Codex/dsh) and you can ask from the app (`POST /api/images/generate`). The picture is saved as a file and posted into the chat as the companion's image message.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `provider` | `"none"` | `"none"`, `"runware"` or `"replicate"`. The companion is told it can generate images only when this is set **and** the provider's key is in `.env`. |
+| `model` | `""` | Empty = the provider's default: `runware:100@1` (FLUX.1 schnell; `runware:101@1` is FLUX.1 dev) or `black-forest-labs/flux-schnell` (`black-forest-labs/flux-dev` also works). |
+| `size` | `"1024x1024"` | Default size; `"1024x1536"` and `"1536x1024"` are the other two. |
+| `safety_checker` | `false` | Passed to the provider's own flag (Runware `checkNSFW`; Replicate `disable_safety_checker` is the inverse). |
+| `timeout_ms` | `90000` | How long to wait on the provider before answering 504. |
+
+Keys: `RUNWARE_API_KEY` or `REPLICATE_API_TOKEN` in `.env`. `GET /api/images/status` reports whether it is ready. Prompts are never logged above debug level, and upstream error text is reduced to a class (`auth`, `rate_limit`, `content_blocked`, `bad_request`, `server`, `network`).
+
 ### `discord` / `telegram` — chat channels
 
 | Key | Default | Meaning |
@@ -722,6 +736,10 @@ ELEVENLABS_VOICE_ID=     # Which voice to speak in
 GROQ_API_KEY=            # Speech-to-text (Groq Whisper)
 HUME_API_KEY=            # Optional expressive prosody
 
+# ── Image generation (also needs imagegen.provider) ────
+RUNWARE_API_KEY=         # Runware (FLUX)
+REPLICATE_API_TOKEN=     # Replicate (FLUX)
+
 # ── Channels (also need the matching *.enabled: true) ──
 DISCORD_BOT_TOKEN=
 TELEGRAM_BOT_TOKEN=
@@ -764,6 +782,7 @@ of these are optional; the only thing you truly must have is a Claude credential
 | **ElevenLabs** | Text-to-speech — giving your AI a spoken voice. | `voice.enabled: true` in `sanctum.yaml`, then `ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID` in `.env`. |
 | **Groq** | Speech-to-text — transcribing your voice messages (Groq Whisper). | `voice.enabled: true`, then `GROQ_API_KEY` in `.env`. |
 | **Hume** | Optional emotional prosody layer for the voice. | `voice.enabled: true`, then `HUME_API_KEY` in `.env`. |
+| **Runware / Replicate** | Image generation (FLUX) for the companion. | `imagegen.provider` in `sanctum.yaml`, then `RUNWARE_API_KEY` or `REPLICATE_API_TOKEN` in `.env`. |
 | **Google Workspace** | Calendar, Tasks, Gmail, Health data feeding the house "outlook." | Create a desktop OAuth client in Google Cloud, set `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` (in `.env` or the Settings UI), then connect from Settings. |
 | **Discord** | Talk to your AI from Discord. | `discord.enabled: true` + `discord.owner_user_id` in `sanctum.yaml`; `DISCORD_BOT_TOKEN` in `.env` (or Settings). |
 | **Telegram** | Talk to it from Telegram. | `telegram.enabled: true` + `telegram.owner_chat_id` in `sanctum.yaml`; `TELEGRAM_BOT_TOKEN` in `.env` (or Settings). Optional `GIPHY_API_KEY` for `/gif`. |

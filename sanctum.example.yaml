@@ -188,6 +188,16 @@ voice:
   enabled: false
   elevenlabs_voice_id: ""         # (env: ELEVENLABS_VOICE_ID)
 
+# ── Image generation (optional; FLUX via Runware or Replicate; keys live in .env) ─
+# The companion is offered image generation only when a provider is set AND its key
+# (RUNWARE_API_KEY / REPLICATE_API_TOKEN) is present.
+imagegen:
+  provider: "none"                # "none" | "runware" | "replicate"
+  model: ""                       # empty = provider default (runware:100@1 / black-forest-labs/flux-schnell)
+  size: "1024x1024"               # "1024x1024" | "1024x1536" | "1536x1024"
+  safety_checker: false           # passed to the provider's own safety flag
+  timeout_ms: 90000
+
 # ── Discord channel (optional; token in .env or Settings) ─────────────────────
 # Two lanes that never touch (docs/DISCORD-PLAN.md): the owner lane (one channel, one user)
 # and the public lane (listed guilds, mention-only, off by default). Every outgoing message,

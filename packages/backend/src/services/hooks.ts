@@ -29,6 +29,7 @@ import { basename, join, resolve } from 'path';
 // Re-export ConnectionRegistry type from types
 import type { ConnectionRegistry } from '../types.js';
 import { shortToolList, fullToolHelp } from './tool-help.js';
+import { imagegenOffered } from './imagegen/index.js';
 import { pluginHelp } from './plugins.js';
 import { rollingEnabledForActiveProvider } from './rolling-context.js';
 import { mindWakeBlock, mindRecallBlock, MIN_RECALL_QUERY } from './mind-client.js';
@@ -1510,7 +1511,7 @@ export async function buildOrientationContext(
   const cliPath = join(PROJECT_ROOT, 'tools', 'res.mjs').replace(/\\/g, '/');
   if (existsSync(cliPath)) {
     const SC = `node ${cliPath.replace(/\\/g, '/')}`;
-    const helpOpts = { SC, userName, ccEnabled: !!config.command_center.enabled, browser: browserToolsConfigured(config), telegram: ctx.platform === 'telegram', pluginHelp: pluginHelp() };
+    const helpOpts = { SC, userName, ccEnabled: !!config.command_center.enabled, browser: browserToolsConfigured(config), image: imagegenOffered(), telegram: ctx.platform === 'telegram', pluginHelp: pluginHelp() };
     parts.push(rollingEnabledForActiveProvider() ? shortToolList(helpOpts) : fullToolHelp(helpOpts));
   }
 
