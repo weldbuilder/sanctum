@@ -4,14 +4,14 @@ import { ImageGenForm, type ImageGenFormProps } from './ImageGenPanel';
 
 const base: ImageGenFormProps = {
   status: { configured: false, offered: false, reason: 'not_configured' },
-  prompt: '', size: '1024x1024', generating: false, error: '',
-  onPrompt: () => undefined, onSize: () => undefined, onGenerate: () => undefined, onCancel: () => undefined,
+  prompt: '', generating: false, error: '',
+  onPrompt: () => undefined, onGenerate: () => undefined, onCancel: () => undefined,
 };
 
 describe('the image generation panel in Files', () => {
   it('not offered: one plain reason, the controls and Generate disabled', () => {
     const html = renderToStaticMarkup(<ImageGenForm {...base} />);
-    expect(html).toContain("Image generation isn&#x27;t set up: set imagegen.provider in sanctum.yaml and the provider key in .env");
+    expect(html).toContain("Image generation isn&#x27;t set up yet. Ask your companion or see docs/CONFIGURATION.md → imagegen.");
     expect(html).toMatch(/<textarea[^>]*disabled/);
     expect(html).toMatch(/<button type="submit" class="fl-btn fl-btn-primary hearth-press" disabled="">Generate<\/button>/);
     expect(html).toContain('fl-plate');
@@ -27,7 +27,8 @@ describe('the image generation panel in Files', () => {
     expect(renderToStaticMarkup(<ImageGenForm {...base} status={status} />)).toMatch(/type="submit"[^>]*disabled/);
     const ready = renderToStaticMarkup(<ImageGenForm {...base} status={status} prompt="a fox" />);
     expect(ready).not.toMatch(/type="submit"[^>]*disabled/);
-    expect(ready).toContain('runware · m');
+    expect(ready).not.toContain('Provider');
+    expect(ready).not.toContain('hsel-trigger');
   });
 
   it('generating and error lines', () => {

@@ -428,29 +428,26 @@ export function FilesView() {
     refresh();
   }, [newFolder, uploadDir, refresh]);
 
-  /** Share a picture into the open chat. A generated one is already in the file store; one from a folder is put there first. */
+  /** Share a generated picture into the open chat. Only file-store pictures are offered; a picture in a folder has no file id. */
   const shareToChat = useCallback(async (e: Entry) => {
     setMenu(null);
     if (!threadId) { setNotice({ text: NO_CHAT_TITLE, error: true }); return; }
+    if (!e.path.startsWith(GEN)) return;
+    const fileId = e.path.slice(GEN.length);
+    // Name the picture by its prompt, never by the stored id.
+    const prompt = generated.find(g => g.id === fileId)?.prompt;
+    const label = prompt ? clipPrompt(prompt, 40) : 'the picture';
     try {
-      let fileId = e.path.startsWith(GEN) ? e.path.slice(GEN.length) : '';
-      if (!fileId) {
-        const pic = await fetch(srcOf(e));
-        if (!pic.ok) throw new Error(String(pic.status));
-        const form = new FormData();
-        form.append('file', await pic.blob(), e.name);
-        const up = await fetch(`${BASE}/api/files`, { method: 'POST', body: form });
-        if (!up.ok) { setNotice({ text: `Could not share ${e.name}: ${await reason(up)}`, error: true }); return; }
-        fileId = ((await up.json()) as { fileId: string }).fileId;
-      }
       const r = await fetch(`${BASE}/api/files/${encodeURIComponent(fileId)}/share-to-chat`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ thread_id: threadId }),
       });
-      setNotice(r.ok ? { text: `Shared ${e.name} to chat`, error: false } : { text: shareError(r.status), error: true });
+      if (r.ok) { setNotice({ text: `Shared ${label} to chat`, error: false }); return; }
+      const body = await r.json().catch(() => null) as { error?: string } | null;
+      setNotice({ text: shareError(r.status, body), error: true });
     } catch {
       setNotice({ text: 'Could not reach the file service.', error: true });
     }
-  }, [threadId]);
+  }, [threadId, generated]);
 
   const generatedDone = useCallback((provider: string) => {
     setFilter('generated');
@@ -509,7 +506,7 @@ export function FilesView() {
             {/* A recent card opens its file itself; its menu opens upward in the strip and keeps to what fits there. */}
             {where !== 'recent' && <button type="button" role="menuitem" onClick={() => open(e)}>{e.type === 'directory' ? 'Open' : 'Preview'}</button>}
             {e.type === 'file' && <a role="menuitem" href={srcOf(e, true)} download={e.name} onClick={() => setMenu(null)}>Download</a>}
-            {e.type === 'file' && isPicture(e.name) && (
+            {e.type === 'file' && isPicture(e.name) && e.path.startsWith(GEN) && (
               <button type="button" role="menuitem" disabled={!threadId} title={threadId ? undefined : NO_CHAT_TITLE} onClick={() => void shareToChat(e)}>Share to chat</button>
             )}
             {mine && <button type="button" role="menuitem" onClick={() => { setMenu(null); setRenaming({ key, path: e.path, name: e.name }); }}>Rename</button>}
@@ -834,7 +831,7 @@ export function FilesView() {
                   <>
                     {mine && <button type="button" className="fl-btn fl-btn-danger hearth-press" onClick={() => void remove(e)}><Icon name="trash" size={16} />Delete</button>}
                     {mine && <button type="button" className="fl-btn hearth-press" onClick={() => setRenaming({ key, path: e.path, name: e.name })}><Icon name="pencil" size={16} />Rename</button>}
-                    {isPicture(e.name) && (
+                    {isPicture(e.name) && e.path.startsWith(GEN) && (
                       <button type="button" className="fl-btn hearth-press" disabled={!threadId} title={threadId ? undefined : NO_CHAT_TITLE} onClick={() => void shareToChat(e)}>Share to chat</button>
                     )}
                     <a className="fl-btn fl-btn-primary hearth-press" href={srcOf(e, true)} download={e.name}><Icon name="download" size={16} />Download</a>
@@ -937,6 +934,8 @@ export function FilesView() {
           cursor: pointer;
         }
         .fl-upload svg { color: var(--skin-trim, currentColor); }
+        /* The Library's pills are oxblood wood: the skin's dark parchment-icon ink vanishes there, so the icon takes the button's own ink. */
+        :root[data-material="mounted-paper"]:not([data-readability="extra"]) .fl-root .fl-upload svg { color: currentColor; }
         .fl-upload { min-height: 2.5rem; }
         .fl-upload:disabled { opacity: 0.6; cursor: default; }
         .fl-notice {
@@ -1210,8 +1209,9 @@ export function FilesView() {
         }
         .fl-cell .fl-thumb { height: 6.5rem; }
         .fl-cell .fl-tile-foot { padding: 0.55rem 2.7rem 0.65rem 0.7rem; }
-        .fl-cell .fl-tile-name { font-size: 0.92rem; }
-        .fl-cell .fl-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        /* The prompt is a generated picture's only name: two lines, and the meta line wraps rather than clip. */
+        .fl-cell .fl-tile-name { font-size: 0.92rem; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+        .fl-cell .fl-meta { white-space: normal; overflow-wrap: anywhere; }
         .fl-cell .fl-actions { right: 0.3rem; bottom: 0.45rem; }
 
         /* ── buttons, menus and names being typed ── */
@@ -1290,6 +1290,14 @@ export function FilesView() {
           font-family: var(--font-serif, 'Lora', serif);
           font-size: 0.95rem;
         }
+        /* Hedgewitch is a light, paper skin: its fields on the cream plate are light (the popover's own pair), not the
+           Settings glass the tokens above carry for the dark rooms. */
+        :root[data-material="hedgewitch"] .fl-plate .fl-input {
+          background: var(--surface-popover);
+          color: var(--surface-popover-text);
+          border-color: var(--control-border);
+        }
+        :root[data-material="hedgewitch"] .fl-plate .fl-input::placeholder { color: var(--text-muted); }
 
         /* ── the open file ── */
         .fl-scrim {
@@ -1350,6 +1358,7 @@ export function FilesView() {
           .fl-search { flex: 1 1 100%; }
           .fl-upload { padding: 0.5rem 0.85rem; flex: 1; justify-content: center; }
           .fl-notice { margin: -0.3rem 0.25rem 0; }
+          .fl-notice-x { width: 2.5rem; height: 2.5rem; }
           .fl-places { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; }
           .fl-place { padding: 0.7rem 0.75rem; gap: 0.6rem; }
           .fl-medal { width: 2.2rem; height: 2.2rem; }

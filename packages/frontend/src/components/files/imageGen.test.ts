@@ -1,26 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { clipPrompt, generateError, providerLine, readGenerated, shareError, sizeLabel, statusReason } from './imageGen';
+import { clipPrompt, generateError, readGenerated, shareError, statusReason } from './imageGen';
 
 describe('image generation helpers', () => {
-  it('labels sizes', () => {
-    expect(sizeLabel('1024x1536')).toBe('Portrait (1024 × 1536)');
-    expect(sizeLabel('1536x1024')).toBe('Landscape (1536 × 1024)');
-  });
 
   it('turns status into one reason line, or none when offered', () => {
     expect(statusReason(null)).toBeNull();
     expect(statusReason({ configured: true, offered: true })).toBeNull();
     expect(statusReason({ configured: false, offered: false, reason: 'not_configured' }))
-      .toBe("Image generation isn't set up: set imagegen.provider in sanctum.yaml and the provider key in .env");
+      .toBe("Image generation isn't set up yet. Ask your companion or see docs/CONFIGURATION.md → imagegen.");
     expect(statusReason({ configured: true, offered: false, reason: 'app_write_off' }))
       .toBe('Companion app writes are off in Settings → permissions');
   });
 
-  it('shows the provider read-only', () => {
-    expect(providerLine(null)).toBe('none set');
-    expect(providerLine({ configured: true, offered: true, provider: 'runware', model: 'm1' })).toBe('runware · m1');
-    expect(providerLine({ configured: true, offered: true, provider: 'replicate' })).toBe('replicate');
-  });
 
   it('maps provider error classes to a line', () => {
     const e = (detail: string) => generateError(502, { error: 'provider_error', provider: 'runware', detail });
@@ -40,6 +31,8 @@ describe('image generation helpers', () => {
 
   it('says what a failed share means', () => {
     expect(shareError(404)).toBe('No open chat to share into');
+    expect(shareError(404, { error: 'thread_not_found' })).toBe('No open chat to share into');
+    expect(shareError(404, { error: 'file_not_found' })).toBe('That file is gone');
     expect(shareError(500)).toBe('Could not share to chat (500)');
   });
 

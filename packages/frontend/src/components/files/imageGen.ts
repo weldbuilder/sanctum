@@ -1,21 +1,7 @@
 /**
- * Pure helpers for image generation inside the Files page: the sizes on offer, the one-line reasons and errors,
+ * Pure helpers for image generation inside the Files page: the one-line reasons and errors,
  * and the reading of GET /api/files?source=image-gen. No React, no fetch; ImageGenPanel and FilesView call these.
  */
-
-export const IMAGE_SIZES = ['1024x1024', '1024x1536', '1536x1024'] as const;
-export type ImageSize = (typeof IMAGE_SIZES)[number];
-
-const SIZE_LABELS: Record<ImageSize, string> = {
-  '1024x1024': 'Square',
-  '1024x1536': 'Portrait',
-  '1536x1024': 'Landscape',
-};
-
-/** "Square (1024 × 1024)" for the select. */
-export function sizeLabel(size: ImageSize): string {
-  return `${SIZE_LABELS[size]} (${size.replace('x', ' × ')})`;
-}
 
 export const PROMPT_MAX = 2000;
 
@@ -33,13 +19,7 @@ export interface ImageStatus {
 export function statusReason(s: ImageStatus | null): string | null {
   if (!s || s.offered) return null;
   if (s.reason === 'app_write_off') return 'Companion app writes are off in Settings → permissions';
-  return "Image generation isn't set up: set imagegen.provider in sanctum.yaml and the provider key in .env";
-}
-
-/** The provider line shown read-only in the panel. */
-export function providerLine(s: ImageStatus | null): string {
-  if (!s?.provider) return 'none set';
-  return s.model ? `${s.provider} · ${s.model}` : s.provider;
+  return "Image generation isn't set up yet. Ask your companion or see docs/CONFIGURATION.md → imagegen.";
 }
 
 export type ProviderDetail = 'auth' | 'rate_limit' | 'content_blocked' | 'billing' | 'bad_request' | 'server' | 'network' | 'timeout';
@@ -67,8 +47,8 @@ export function generateError(status: number, body: { error?: string; provider?:
 }
 
 /** Share-to-chat outcome as one line. */
-export function shareError(status: number): string {
-  if (status === 404) return 'No open chat to share into';
+export function shareError(status: number, body?: { error?: string } | null): string {
+  if (status === 404) return body?.error === 'file_not_found' ? 'That file is gone' : 'No open chat to share into';
   if (status === 429) return 'Too many at once, try again in a minute';
   return `Could not share to chat (${status})`;
 }
