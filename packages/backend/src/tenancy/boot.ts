@@ -46,6 +46,76 @@ export function announceTenantSetupCodes(runtimes: Iterable<TenantRuntime>): voi
   for (const rt of runtimes) if (!rt.config.auth.password) runInTenant(rt, () => { announceSetupCode(); });
 }
 
+/** What boot knows about each tenant folder after it ran, kept so one tenant can be parked and revived later (tenancy/park.ts) without a restart. The live map
+ *  `runtimes` is the same one the registry, the channel checks and the shutdown walk read. A folder is in `runtimes` (running) or in `inactive`, with why. */
+export interface TenantLifecycle {
+  processCfg: SanctumConfig;
+  dir: string;
+  household: boolean;
+  /** `tenants.default` as the operator wrote it (a skipped or parked default is not a default until it runs again). */
+  configuredDefault?: string;
+  ids: string[];
+  runtimes: Map<string, TenantRuntime>;
+  /** Loosely read configs of tenants that are not running: what they declared they may write stays off limits to the others. */
+  skippedConfigs: Map<string, SanctumConfig>;
+  /** Hosts two tenants claimed: neither serves them, and they stay reserved. */
+  contested: Set<string>;
+  /** The hosts of each tenant that is not running: they answer 503, never someone else. */
+  reservedFor: Map<string, string[]>;
+  /** Why a folder is not running: `start_failed` (boot, or a revive, did not get it up; `why` is the one recorded line) or `operator_parked` (parked on purpose). */
+  inactive: Map<string, { kind: 'start_failed' | 'operator_parked'; why: string; /** the last revive that did not get it up (the tenant stays as it was) */ lastError?: string; /** operator_parked: the runtime that was switched off, so a revive can see its turn still running */ old?: TenantRuntime }>;
+}
+let life: TenantLifecycle | null = null;
+/** The lifecycle bootTenants left behind, or null when tenancy never booted. */
+export function tenantLifecycle(): TenantLifecycle | null { return life; }
+
+/** Every host that must answer 503 now: the contested ones and those of tenants that are not running. */
+export function reservedHostsOf(l: TenantLifecycle): Set<string> {
+  const out = new Set(l.contested);
+  for (const hosts of l.reservedFor.values()) for (const h of hosts) out.add(h);
+  return out;
+}
+/** Say the registry, the default tenant and the reserved hosts again from the live state (after a tenant left or joined the running set). */
+export function republishTenants(l: TenantLifecycle): void {
+  const defaultId = !l.household && l.configuredDefault !== undefined && l.runtimes.has(l.configuredDefault) ? l.configuredDefault : undefined;
+  setTenantRegistry(l.runtimes, defaultId);
+  setReservedHosts(reservedHostsOf(l));
+}
+
+/** One tenant folder's admission, shared by boot and revive: the folder must not hold the app, the runtime must build (config, database, token), the token must be its
+ *  own (`tokenOwner`: token -> id of the running tenants; set here on success). `{ why, rt? }` is the one-line reason the tenant is not admitted (and its runtime, when one
+ *  was built, so the caller can close it). Household mode drops the tenant's own password and hosts, as boot always did. */
+export function admitTenant(processCfg: SanctumConfig, tenantsDir: string, id: string, household: boolean, tokenOwner: Map<string, string>): { rt: TenantRuntime } | { why: string; rt?: TenantRuntime } {
+  // A tenant folder that is, or holds, the app folder (a link to an ancestor of the app) would hand the operator's .env and database to a tenant.
+  const holds = tenantHoldsAppProblem(join(tenantsDir, id), PROJECT_ROOT);
+  if (holds) return { why: holds };
+  let rt: TenantRuntime;
+  try { rt = createTenantRuntime(processCfg, id, join(tenantsDir, id), process.env, household); }
+  catch (err) { return { why: (err instanceof Error ? err.message : String(err)).replace(new RegExp(`^tenant ${id}: `), '').split('\n')[0] }; }
+  const same = tokenOwner.get(rt.token);
+  if (same) return { why: `its internal token is the same as tenant ${same}'s`, rt };
+  tokenOwner.set(rt.token, id);
+  if (household) {
+    // One house, one password: a tenant's own APP_PASSWORD is not a login, and hosts are not read (the prefix names the companion).
+    if (rt.config.auth.password) console.warn(`[tenancy] household mode: the house password applies; a tenant password (APP_PASSWORD in ${id}/.env, or auth.password in its tenant.yaml) is ignored`);
+    if (rt.hosts.length) { console.warn(`[tenancy] household mode: hosts in ${id}/tenant.yaml are not read (the companion is served at /c/${id}/)`); rt.hosts = []; }
+  }
+  return { rt };
+}
+
+/** Start one tenant's services, each inside the tenant, from its runtime. The same code path at boot and at revive. Returns null when everything started, else the one-line
+ *  reason (whatever it had started is stopped first, best effort); never throws, so one tenant failing never stops another or the process (Codex, stage 3b). */
+export function startTenant(processCfg: SanctumConfig, rt: TenantRuntime): string | null {
+  try {
+    runInTenant(rt, () => startTenantServices(processCfg, rt));
+  } catch (err) {
+    const why = (err instanceof Error ? err.message : String(err)).split('\n')[0];
+    try { void stopTenantServices([rt]); } catch { /* partial services: best effort */ }
+    return `its services did not start: ${why}`;
+  }
+  return null;
+}
+
 export function bootTenants(app: Express, processCfg: SanctumConfig): Map<string, TenantRuntime> {
   const block = parseTenantsBlock(processCfg);
   if (!block) throw new Error('bootTenants called without a tenants: block');
@@ -63,33 +133,25 @@ export function bootTenants(app: Express, processCfg: SanctumConfig): Map<string
   if (process.env.INTERNAL_TOKEN) throw new Error('INTERNAL_TOKEN is set in the process environment; in tenant mode each tenant has its own token in <tenant>/data/.internal-token, so unset it');
   if (block.default !== undefined && !household && !ids.includes(block.default)) throw new Error(`tenants.default is ${block.default}, but there is no tenant folder with that id`);
   const runtimes = new Map<string, TenantRuntime>();
-  // Hosts that must answer 503, never someone else: a skipped tenant's, and any host two tenants both claimed.
-  const reserved = new Set<string>();
   const tokenOwner = new Map<string, string>();
-  const skippedConfigs: SanctumConfig[] = [];
+  // Kept after boot (tenantLifecycle()): the hosts that must answer 503 (a skipped tenant's, and any host two tenants both claimed), what each skipped tenant
+  // declared it may write, and why each folder that is not running is not.
+  const state: TenantLifecycle = {
+    processCfg, dir: block.dir, household, configuredDefault: block.default, ids, runtimes,
+    skippedConfigs: new Map(), contested: new Set(), reservedFor: new Map(), inactive: new Map(),
+  };
   const skip = (id: string, why: string, rt?: TenantRuntime) => {
     // What a skipped tenant declared it may write stays off limits to the others (the unions in plugins.ts read these).
-    skippedConfigs.push(readRootsLoosely(rt ? rt.dir : join(block.dir, id)));
+    state.skippedConfigs.set(id, readRootsLoosely(rt ? rt.dir : join(block.dir, id)));
     if (rt) { try { rt.db.close(); } catch { /* already closed */ } }
-    for (const h of rt ? rt.hosts : readHostsLoosely(join(block.dir, id))) reserved.add(h);
+    state.reservedFor.set(id, [...(rt ? rt.hosts : readHostsLoosely(join(block.dir, id)))]);
+    state.inactive.set(id, { kind: 'start_failed', why });
     console.warn(`[tenancy] tenant ${id} skipped: ${why}`);
   };
   for (const id of ids) {
-    let rt: TenantRuntime;
-    // A tenant folder that is, or holds, the app folder (a link to an ancestor of the app) would hand the operator's .env and database to a tenant.
-    const holds = tenantHoldsAppProblem(join(block.dir, id), PROJECT_ROOT);
-    if (holds) { skip(id, holds); continue; }
-    try { rt = createTenantRuntime(processCfg, id, join(block.dir, id), process.env, household); }
-    catch (err) { skip(id, (err instanceof Error ? err.message : String(err)).replace(new RegExp(`^tenant ${id}: `), '').split('\n')[0]); continue; }
-    const same = tokenOwner.get(rt.token);
-    if (same) { skip(id, `its internal token is the same as tenant ${same}'s`, rt); continue; }
-    tokenOwner.set(rt.token, id);
-    if (household) {
-      // One house, one password: a tenant's own APP_PASSWORD is not a login, and hosts are not read (the prefix names the companion).
-      if (rt.config.auth.password) console.warn(`[tenancy] household mode: the house password applies; a tenant password (APP_PASSWORD in ${id}/.env, or auth.password in its tenant.yaml) is ignored`);
-      if (rt.hosts.length) { console.warn(`[tenancy] household mode: hosts in ${id}/tenant.yaml are not read (the companion is served at /c/${id}/)`); rt.hosts = []; }
-    }
-    runtimes.set(id, rt);
+    const admitted = admitTenant(processCfg, block.dir, id, household, tokenOwner);
+    if ('why' in admitted) { skip(id, admitted.why, admitted.rt); continue; }
+    runtimes.set(id, admitted.rt);
   }
   // Where tenants sit: nobody's writable roots may touch another tenant's data/, private/, .env or tenant.yaml, or the process's own files.
   for (const [id, why] of layoutClash([...runtimes.values()], processCfg)) {
@@ -102,7 +164,7 @@ export function bootTenants(app: Express, processCfg: SanctumConfig): Map<string
   for (const rt of runtimes.values()) for (const h of rt.hosts) claims.set(h, [...(claims.get(h) ?? []), rt.id]);
   for (const [h, owners] of claims) {
     if (owners.length < 2) continue;
-    reserved.add(h);
+    state.contested.add(h);
     for (const id of owners) { const rt = runtimes.get(id)!; rt.hosts = rt.hosts.filter((x) => x !== h); }
     console.warn(`[tenancy] host ${h} is claimed by tenants ${owners.join(' and ')}: neither serves it`);
   }
@@ -116,64 +178,19 @@ export function bootTenants(app: Express, processCfg: SanctumConfig): Map<string
   enableTenancy(true);
   // Household mode: open the house store (house.db next to the process's own data) and keep the list of every folder found, started or not.
   if (household) enableHousehold(houseDataDir(processCfg.server.db_path), ids);
-  registerAllTenants({ booted: () => [...runtimes.values()], skipped: () => skippedConfigs });
-  setTenantRegistry(runtimes, defaultId);
-  setReservedHosts(reserved);
+  life = state;
+  registerAllTenants({ booted: () => [...runtimes.values()], skipped: () => [...state.skippedConfigs.values()] });
+  republishTenants(state);
   if (household) syncHousePassword();
   // One tenant's service start failing (a bad cron expression, a watchdog that throws) skips THAT tenant, stops whatever it had started and
   // reserves its hosts; it never stops the others or the process (Codex, stage 3b).
   const startFailed: Array<[TenantRuntime, string]> = [];
   registerChannelTenants(() => [...runtimes.values()]);
   for (const rt of [...runtimes.values()]) {
-    try {
-    runInTenant(rt, () => {
-      loadVectorCache();
-      // One agent per tenant: its own queue, presence, active query, MCP status and turn probe (services/agent.ts keeps them in tenantLocal),
-      // so tenant A's turn never queues behind tenant B's. No push service yet (stage 3): a finished turn is not pushed.
-      const agent = new AgentService();
-      rt.services.agentService = agent;
-      registerAgentService(agent);
-      // Push per tenant: the VAPID keys come from the tenant's own .env (never the process's), the subscriptions from its own database. A tenant
-      // with no keys gets the existing "not configured" answer.
-      const push = new PushService(rt.env.VAPID_PUBLIC_KEY, rt.env.VAPID_PRIVATE_KEY, rt.env.VAPID_CONTACT);
-      rt.services.pushService = push;
-      agent.setPushService(push);
-      // One voice service per tenant, keyed from that tenant's own .env (services/voice.ts reads envFor); one socket registry per tenant
-      // (services/ws.ts keeps it in tenantLocal), which the system-line path and the identity notice broadcast through.
-      const voice = new VoiceService();
-      rt.services.voiceService = voice;
-      setVoiceService(voice);
-      setSystemLineRegistry(registry);
-      startIdentityGate();
-      // The scheduler per tenant, after the agent and the identity gate: its timers, crons and watchers are created here, inside the tenant,
-      // and every callback is bound to it (see bindCurrentTenant in services/orchestrator.ts). Started only when this tenant's config enables it,
-      // as the single-tenant server does; constructed either way so the wake-type routes work.
-      // The operator's switch for background model runs: tenants.background_runs in the process sanctum.yaml (default true) is a ceiling; the
-      // tenant's own background_runs can only turn it off for itself. Off: the orchestrator is built (the routes need it) but not started, the outlook author and the handoff
-      // schedule are not started, and the wake, author, handoff and summarizer entry points refuse (backgroundRunsOff). One line per boot.
-      const background = backgroundRunsFor(processCfg, rt);
-      rt.services.backgroundRuns = background;
-      if (!background) console.log(`[tenancy] tenant ${rt.id}: background model runs are off (orchestrator wakes, outlook author, handoff and summarizer do not run)`);
-      const orchestrator = new Orchestrator(agent, push);
-      rt.services.orchestrator = orchestrator;
-      // (The process's own orchestrator.enabled is the operator's off switch for every tenant; a tenant's own flag can only turn its scheduler off.)
-      if (background && processCfg.orchestrator.enabled && rt.config.orchestrator.enabled) orchestrator.start();
-      else if (!background) { /* said above */ }
-      else console.log('[Orchestrator] Disabled via config.orchestrator.enabled — autonomous wakes off');
-      const watchdog = new MindWatchdog({ broadcast: (status) => runInTenant(rt, () => registry.broadcast({ type: 'mind_status', status })) }); // (answers for this tenant's sockets whoever calls)
-      setMindWatchdog(watchdog);
-      watchdog.start();
-      startOutlookPoller({ agent, orchestrator });
-      if (background) { startOutlookAuthor(); startHandoffSchedule(); }
-      // Discord and Telegram per tenant, last: inside this same catch, so a client that throws or a bad setup skips this tenant and never the process
-      // (a failed login is the client's own log line and leaves everything else running). A token two tenants share parks both (D9).
-      startTenantChannels(rt, agent, voice);
-    });
-    } catch (err) {
-      const why = (err instanceof Error ? err.message : String(err)).split('\n')[0];
-      try { stopTenantServices([rt]); } catch { /* partial services: best effort */ }
+    const why = startTenant(processCfg, rt);
+    if (why) {
       runtimes.delete(rt.id);
-      startFailed.push([rt, `its services did not start: ${why}`]);
+      startFailed.push([rt, why]);
       continue;
     }
     console.log(household ? `[tenancy] tenant ${rt.id}: /c/${rt.id}/` : `[tenancy] tenant ${rt.id}: ${rt.hosts.length ? rt.hosts.join(', ') : 'no hosts'}${defaultId === rt.id ? ' (default)' : ''}`);
@@ -184,9 +201,7 @@ export function bootTenants(app: Express, processCfg: SanctumConfig): Map<string
     // The registry, the default and the reserved hosts were set before the loop: say them again without the tenants that failed.
     const stillDefault = defaultId !== undefined && runtimes.has(defaultId) ? defaultId : undefined;
     if (defaultId !== undefined && stillDefault === undefined) console.warn(`[tenancy] default tenant ${defaultId} was skipped; unclaimed hosts get a 404`);
-    registerAllTenants({ booted: () => [...runtimes.values()], skipped: () => skippedConfigs });
-    setTenantRegistry(runtimes, stillDefault);
-    setReservedHosts(reserved);
+    republishTenants(state);
   }
 
   // (No runtime, token, env, db or password is put on app.locals: plugin routes and anything else holding `req.app` can read it. The registry
@@ -243,11 +258,56 @@ export function bootTenants(app: Express, processCfg: SanctumConfig): Map<string
   return runtimes;
 }
 
+/** The body of startTenant: every per-tenant service, built inside the tenant. */
+function startTenantServices(processCfg: SanctumConfig, rt: TenantRuntime): void {
+    loadVectorCache();
+    // One agent per tenant: its own queue, presence, active query, MCP status and turn probe (services/agent.ts keeps them in tenantLocal),
+    // so tenant A's turn never queues behind tenant B's. No push service yet (stage 3): a finished turn is not pushed.
+    const agent = new AgentService();
+    rt.services.agentService = agent;
+    registerAgentService(agent);
+    // Push per tenant: the VAPID keys come from the tenant's own .env (never the process's), the subscriptions from its own database. A tenant
+    // with no keys gets the existing "not configured" answer.
+    const push = new PushService(rt.env.VAPID_PUBLIC_KEY, rt.env.VAPID_PRIVATE_KEY, rt.env.VAPID_CONTACT);
+    rt.services.pushService = push;
+    agent.setPushService(push);
+    // One voice service per tenant, keyed from that tenant's own .env (services/voice.ts reads envFor); one socket registry per tenant
+    // (services/ws.ts keeps it in tenantLocal), which the system-line path and the identity notice broadcast through.
+    const voice = new VoiceService();
+    rt.services.voiceService = voice;
+    setVoiceService(voice);
+    setSystemLineRegistry(registry);
+    startIdentityGate();
+    // The scheduler per tenant, after the agent and the identity gate: its timers, crons and watchers are created here, inside the tenant,
+    // and every callback is bound to it (see bindCurrentTenant in services/orchestrator.ts). Started only when this tenant's config enables it,
+    // as the single-tenant server does; constructed either way so the wake-type routes work.
+    // The operator's switch for background model runs: tenants.background_runs in the process sanctum.yaml (default true) is a ceiling; the
+    // tenant's own background_runs can only turn it off for itself. Off: the orchestrator is built (the routes need it) but not started, the outlook author and the handoff
+    // schedule are not started, and the wake, author, handoff and summarizer entry points refuse (backgroundRunsOff). One line per boot.
+    const background = backgroundRunsFor(processCfg, rt);
+    rt.services.backgroundRuns = background;
+    if (!background) console.log(`[tenancy] tenant ${rt.id}: background model runs are off (orchestrator wakes, outlook author, handoff and summarizer do not run)`);
+    const orchestrator = new Orchestrator(agent, push);
+    rt.services.orchestrator = orchestrator;
+    // (The process's own orchestrator.enabled is the operator's off switch for every tenant; a tenant's own flag can only turn its scheduler off.)
+    if (background && processCfg.orchestrator.enabled && rt.config.orchestrator.enabled) orchestrator.start();
+    else if (!background) { /* said above */ }
+    else console.log('[Orchestrator] Disabled via config.orchestrator.enabled — autonomous wakes off');
+    const watchdog = new MindWatchdog({ broadcast: (status) => runInTenant(rt, () => registry.broadcast({ type: 'mind_status', status })) }); // (answers for this tenant's sockets whoever calls)
+    setMindWatchdog(watchdog);
+    watchdog.start();
+    startOutlookPoller({ agent, orchestrator });
+    if (background) { startOutlookAuthor(); startHandoffSchedule(); }
+    // Discord and Telegram per tenant, last: inside this same catch, so a client that throws or a bad setup skips this tenant and never the process
+    // (a failed login is the client's own log line and leaves everything else running). A token two tenants share parks both (D9).
+    startTenantChannels(rt, agent, voice);
+}
+
 /** Stop every tenant's scheduler, watchdog and timers (graceful shutdown), each as its own tenant. The databases are closed by the caller after. */
 export function stopTenantServices(runtimes: Iterable<TenantRuntime>): Promise<unknown> {
   const channels: Promise<unknown>[] = [];
   for (const rt of runtimes) {
-    channels.push(stopTenantChannels(rt));
+    // The pollers, the orchestrator and the watchdog first (they read the database), then the channels: a caller closes the database after this returns.
     runInTenant(rt, () => {
       for (const stop of [
         () => (rt.services.orchestrator as Orchestrator | undefined)?.stop(),
@@ -255,6 +315,7 @@ export function stopTenantServices(runtimes: Iterable<TenantRuntime>): Promise<u
         stopOutlookPoller, stopOutlookAuthor, stopHandoffSchedule,
       ]) { try { stop(); } catch { /* one stopper failing must not keep the others, or the exit, waiting */ } }
     });
+    channels.push(stopTenantChannels(rt));
   }
   return Promise.all(channels);
 }

@@ -16,6 +16,8 @@ let registry: Registry = { tenants: new Map(), byHost: new Map() };
 let reserved = new Set<string>();
 export function setReservedHosts(hosts: Iterable<string>): void { reserved = new Set([...hosts].map((h) => h.toLowerCase())); }
 export function isReservedHost(host: string): boolean { return reserved.has(host); }
+/** The host belongs to a companion (running, or reserved for one that is not): per-tenant mode only, household mode serves no host. */
+export function hostNamesTenant(host: string): boolean { return registry.byHost.has(host) || reserved.has(host); }
 
 /** Set once at boot with every tenant. Hosts were checked unique before this. */
 export function setTenantRegistry(tenants: Map<string, TenantRuntime>, defaultId?: string): void {
@@ -159,7 +161,15 @@ function resolveHousehold(req: Request, res: Response, next: NextFunction, token
 
 /** Enter the request's tenant for everything after this. Installed again after any middleware that calls next() from a stream event
  *  (body parsers, multer), because those callbacks run outside the store the request started in. */
-export function tenantEnter(req: Request, _res: Response, next: NextFunction): void {
+export function tenantEnter(req: Request, res: Response, next: NextFunction): void {
   if (!req.tenant) { next(); return; }
-  runInTenant(req.tenant, next);
+  // Resolved before a park, entered after it (a slow body, a queue): no longer running, so 503 before anything reads its (closed) database.
+  if (req.tenant.leaving || req.tenant.parked) { res.status(503).json({ error: 'tenant_unavailable' }); return; }
+  const rt = req.tenant;
+  // A handler that caught a "database is closed" error and answered 500 while this companion was parked answers 503, as a request that came later would.
+  if (typeof res.status === 'function') {
+    const status = res.status.bind(res);
+    res.status = ((code: number) => status(code === 500 && rt.parked ? 503 : code)) as typeof res.status;
+  }
+  runInTenant(rt, next);
 }

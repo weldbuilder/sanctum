@@ -40,6 +40,8 @@ export interface TenantsBlock {
   /** tenants.auth: `household` (one login, a path prefix per companion) or `per-tenant` (a hostname and a login per tenant). Present only when the file says it;
    *  an absent key is household (see `isHousehold`). Process-only, never inherited. */
   auth?: TenantsAuth;
+  /** tenants.operator_routes_remote: true lets a peer that is not loopback use the park and revive routes (with the operator token). Process-only; default false. */
+  operator_routes_remote?: boolean;
 }
 export type TenantsAuth = 'household' | 'per-tenant';
 /** The auth mode of a parsed tenants block: household unless the file says per-tenant. */
@@ -65,6 +67,10 @@ export function parseTenantsBlock(cfg: unknown, base: string = PROJECT_ROOT): Te
   if (t.auth !== undefined && t.auth !== null) {
     if (t.auth !== 'household' && t.auth !== 'per-tenant') throw new Error(`tenants.auth: must be household or per-tenant (got ${JSON.stringify(t.auth)})`);
     out.auth = t.auth;
+  }
+  if (t.operator_routes_remote !== undefined && t.operator_routes_remote !== null) {
+    if (typeof t.operator_routes_remote !== 'boolean') throw new Error('tenants.operator_routes_remote: must be true or false');
+    out.operator_routes_remote = t.operator_routes_remote;
   }
   if (t.background_runs !== undefined && t.background_runs !== null && typeof t.background_runs !== 'boolean') throw new Error('tenants.background_runs: must be true or false');
   return out;

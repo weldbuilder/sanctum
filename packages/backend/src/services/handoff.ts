@@ -394,6 +394,11 @@ export interface HandoffRunResult {
 // Per tenant (tenantLocal): one tenant's run in flight never blocks another's; tenancy off, the one module flag as before.
 const runningLocal = tenantLocal<{ v: boolean }>(() => ({ v: false }));
 
+/** A handoff run is in flight (outside the agent queue): a park counts it as a running turn. */
+export function isHandoffRunning(): boolean {
+  return runningLocal.get().v;
+}
+
 /** Run ONE handoff: collect yesterday's facts → Sonnet author → post the opener
  *  into today's daily + store the carry. Deduplicates against an in-flight run.
  *  Never throws — returns a structured result describing what happened. */
@@ -401,6 +406,7 @@ export async function runHandoff(now: Date = new Date()): Promise<HandoffRunResu
   if (backgroundRunsOff()) return { ran: false, reason: 'background_runs_off' }; // the operator's switch: no model run for this tenant
   const runState = runningLocal.get();
   if (runState.v) return { ran: false, reason: 'already_running' };
+  if (taskLocal.get().stopped) return { ran: false, reason: 'stopped' }; // the schedule was stopped (a park): no model run
 
   // Hale #1 (2026-07-02): don't fire a concurrent query() against the user's
   // subscription mid-interactive-turn. 12:10am is quiet hours, but if a live
@@ -427,6 +433,7 @@ export async function runHandoff(now: Date = new Date()): Promise<HandoffRunResu
     }
 
     const authored = await authorHandoff(facts);
+    if (taskLocal.get().stopped) return { ran: false, reason: 'stopped' }; // stopped during the model call: nothing written (a park closes the database)
     if (!authored) {
       recordResult({ ran: false, reason: 'author_failed' });
       return { ran: false, reason: 'author_failed' };
@@ -550,7 +557,7 @@ export function getHandoffStatus(): HandoffStatus {
 // --- Croner lifecycle (its OWN schedule, NOT the orchestrator) --------------
 
 // Per tenant (tenantLocal): the croner of each tenant, created inside its runInTenant; tenancy off, the one module cron as before.
-const taskLocal = tenantLocal<{ task: Cron | null; retries: Set<NodeJS.Timeout> }>(() => ({ task: null, retries: new Set() }));
+const taskLocal = tenantLocal<{ task: Cron | null; retries: Set<NodeJS.Timeout>; stopped: boolean }>(() => ({ task: null, retries: new Set(), stopped: false }));
 
 /** Start the 12:10am daily handoff cron. The cron always fires; the handler runs
  *  the handoff only when enabled (so a runtime toggle takes effect on the next
@@ -559,6 +566,7 @@ const taskLocal = tenantLocal<{ task: Cron | null; retries: Set<NodeJS.Timeout> 
 export function startHandoffSchedule(): void {
   const st = taskLocal.get();
   if (st.task) return;
+  st.stopped = false;
   const timezone = handoffTimezone();
   // Tenant mode: the tick runs as the tenant that started the schedule (bindCurrentTenant is the function itself with tenancy off).
   st.task = new Cron(HANDOFF_CRON, { timezone }, bindCurrentTenant(() => {
@@ -579,6 +587,7 @@ export function startHandoffSchedule(): void {
 /** Stop the handoff cron (graceful shutdown). */
 export function stopHandoffSchedule(): void {
   const st = taskLocal.get();
+  st.stopped = true;
   if (st.task) {
     st.task.stop();
     st.task = null;

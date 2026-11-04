@@ -161,6 +161,17 @@ class ConnectionRegistry {
     }
   }
 
+  /** Close every socket this registry holds (a tenant being parked). The sockets remove themselves through their own close handlers. */
+  closeAll(code: number, reason: string): number {
+    let closed = 0;
+    for (const connections of [...this.connections.values()]) {
+      for (const ws of [...connections]) {
+        try { ws.close(code, reason); closed++; } catch { /* already going away */ }
+      }
+    }
+    return closed;
+  }
+
   getCount(): number {
     let count = 0;
     for (const connections of this.connections.values()) {
@@ -226,6 +237,7 @@ class RegistryFacade {
   broadcast(message: ServerMessage): void { reg().broadcast(message); }
   broadcastExcept(excludeWs: WebSocket, message: ServerMessage): void { reg().broadcastExcept(excludeWs, message); }
   getCount(): number { return reg().getCount(); }
+  closeAll(code: number, reason: string): number { return reg().closeAll(code, reason); }
   hasConnections(): boolean { return reg().hasConnections(); }
   isUserConnected(): boolean { return reg().isUserConnected(); }
   getLastUserActivity(): Date { return reg().getLastUserActivity(); }
