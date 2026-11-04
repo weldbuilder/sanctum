@@ -187,6 +187,32 @@ replaces them. The Codex base now rides every message at roughly 2,000 tokens a 
 
 ---
 
+# Updating from inside the app
+
+From this version the app updates itself: when a newer version is out, a bar on Home and Chat
+offers **Update and restart**, asks for your password again, keeps a copy of the current
+version in `.update-rollback/` (inside the app folder), builds the new one beside it in `.update-stage/` (the running app is untouched until it is built), and restarts. The new rollback copy is written beside the old one and replaces it only when the swap has succeeded, so a failed swap keeps the previous copy. `npm run update` runs the
+same steps. Two things to know when you move over:
+
+- A git checkout with local changes is refused (the changed files are listed). Commit or
+  discard them first; nothing is stashed.
+- If the app dies during the swap (kill, power cut), the next start puts the previous version back **before anything of the app loads** and starts over from it. The entry point is now
+  `packages/backend/boot.mjs` (`npm start`, pm2, systemd and Docker run `node packages/backend/boot.mjs`; the old `dist/server.js` still imports but recovers nothing): it imports
+  only node's own modules, recovers, then loads the app. Without a supervisor the process re-executes itself; under pm2 or `SANCTUM_SUPERVISED=1` it exits **75** and the supervisor starts it
+  again (the restart must be allowed on exit 75), with a loop guard (`.update-recover.count`: a fourth recovery within 10 minutes is not restarted again). It refuses, and removes nothing, when the
+  update state cannot be read or is in a newer format; if git cannot reset the files it keeps the copy and says so. `npm start` runs the same recovery first (it also works if `dist` was
+  caught missing), and `npm run update -- --recover` runs only that and retries one that could not finish. **If you start the app yourself (a pm2 ecosystem file, a systemd unit, a Dockerfile), change
+  `dist/server.js` or `dist/boot.js` to `packages/backend/boot.mjs`.**
+- While an update installs, messages are refused and kept: the web box keeps your text, Discord and Telegram reply once "Updating, back in a minute.", and a skipped
+  wake or handoff runs once when the pause ends without a restart.
+- Under pm2 (or any supervisor) set nothing new for pm2; for another supervisor add
+  `SANCTUM_SUPERVISED=1` and have it restart the app when it exits. Without either, the app
+  starts its own replacement.
+
+Full detail: [docs/CONFIGURATION.md](docs/CONFIGURATION.md), "Updating from inside the app".
+
+---
+
 # Codex and dsh: the identity moved into the system prompt
 
 On Claude the identity has always ridden in the system prompt, after the harness. Codex and dsh

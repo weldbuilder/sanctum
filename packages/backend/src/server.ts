@@ -1,3 +1,4 @@
+// (A swap that was cut short is put back by packages/backend/boot.mjs, the entry point, before this module is loaded. This file does no recovery.)
 // Node version guard — must run before any other imports that load native addons
 const _nodeVersion = process.versions.node;
 const _nodeMajor = parseInt(_nodeVersion.split('.')[0], 10);
@@ -46,6 +47,8 @@ import { writePluginsEnabled } from './services/plugin-config.js';
 import apiRoutes, { initCcRoutes, ccEnabledGate } from './routes/api.js';
 import setupRoutes from './routes/setup.js';
 import { announceSetupCode } from './services/setup-code.js';
+import houseUpdateRoutes from './routes/house-update.js';
+import { flushUpdateJob, initUpdater, setRestartControl, stopUpdateWork } from './services/updater.js';
 import authPreferencesRoutes from './routes/auth-preferences.js';
 import googleRoutes from './routes/google-routes.js';
 import { startOutlookPoller, stopOutlookPoller } from './services/outlook.js';
@@ -216,6 +219,9 @@ app.use('/api/setup', setupRoutes);
 if (TENANT_MODE) app.use('/api/tenant', tenantInfoRouter);
 // Household mode only: the hallway's list of companions (a house route: the house session, no companion).
 if (TENANT_MODE && householdMode()) app.use('/api/companions', companionsRouter);
+
+// The house's update routes (/api/house/update): unprefixed only, a session plus the password typed again; 404 under a companion's prefix.
+app.use('/api/house/update', houseUpdateRoutes);
 
 // All API routes — auth middleware is applied selectively inside the router
 app.use('/api', apiRoutes);
@@ -417,6 +423,10 @@ if (!TENANT_MODE) startOutlookAuthor();
 // + logged and never crash the process.
 if (!TENANT_MODE) startHandoffSchedule();
 
+// The in-app updater, before the listener opens: a stage a crash left behind is deleted (and its build stopped), a cut-short swap is put back,
+// and the job file is settled (`restarting` is `done` now, with its finish time).
+await initUpdater().catch((err) => console.warn('[updater] boot check failed:', (err as Error).message));
+
 // Start server
 server.listen(PORT, HOST, () => {
   console.log(`Server running at http://${HOST}:${PORT}`);
@@ -452,8 +462,9 @@ server.listen(PORT, HOST, () => {
 });
 
 // Graceful shutdown
-process.on('SIGTERM', async () => {
-  console.log('SIGTERM received, shutting down gracefully...');
+async function gracefulStop(signal: string): Promise<void> {
+  console.log(`${signal} received, shutting down gracefully...`);
+  stopUpdateWork(); // an update's build children (npm, tsc, vite: each its own process group) go with the app, and the stage is deleted at the next start
   orchestrator?.stop(); // (null in tenant mode)
   mindWatchdog?.stop();
   if (tenantRuntimes) await stopTenantServices(tenantRuntimes.values()); // each tenant's orchestrator, watchdog and timers, then its database below
@@ -467,25 +478,22 @@ process.on('SIGTERM', async () => {
     db?.close();
     if (tenantRuntimes) for (const rt of tenantRuntimes.values()) rt.db.close();
     closeHouse();
+    flushUpdateJob(); // (synchronous: a supervised restart ends here, and the swap and restart lines must be on disk first)
     process.exit(0);
   });
-});
+  server.closeAllConnections?.(); // a keep-alive connection must not hold the port open
+}
+process.on('SIGTERM', () => { void gracefulStop('SIGTERM'); });
+process.on('SIGINT', () => { void gracefulStop('SIGINT'); });
 
-process.on('SIGINT', async () => {
-  console.log('SIGINT received, shutting down gracefully...');
-  orchestrator?.stop(); // (null in tenant mode)
-  mindWatchdog?.stop();
-  if (tenantRuntimes) await stopTenantServices(tenantRuntimes.values()); // each tenant's orchestrator, watchdog and timers, then its database below
-  if (!TENANT_MODE) { stopOutlookPoller(); stopOutlookAuthor(); stopHandoffSchedule(); } // (tenant mode: per tenant, in stopTenantServices)
-  if (discordService) await discordService.stop();
-  if (telegramService) await telegramService.stop();
-  wss.clients.forEach(ws => ws.close());
-  wss.close();
-  server.close(() => {
-    console.log('Server closed');
-    db?.close();
-    if (tenantRuntimes) for (const rt of tenantRuntimes.values()) rt.db.close();
-    closeHouse();
-    process.exit(0);
-  });
+// The in-app updater (services/updater.ts) restarts this process through these three.
+setRestartControl({
+  healthUrl: `http://${HOST === '0.0.0.0' || HOST === '::' || HOST === '' ? '127.0.0.1' : HOST}:${PORT}/api/health`,
+  closeListener: () => new Promise<void>((resolve) => {
+    wss.clients.forEach(ws => ws.close()); // (the sockets only; the socket server stays attached for the listener that comes back)
+    server.close(() => resolve());
+    server.closeAllConnections?.();
+  }),
+  relisten: () => { server.listen(PORT, HOST, () => console.log(`[updater] listening again at http://${HOST}:${PORT}`)); },
+  gracefulStop: () => gracefulStop('Update restart'),
 });

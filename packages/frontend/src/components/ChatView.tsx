@@ -14,6 +14,7 @@ import { CanvasPanel } from './CanvasPanel';
 import { HearthSelect, HearthDatePicker, HearthTimePicker } from './hearth';
 
 import { BASE, storageKey } from '../lib/base';
+import { UpdateBar } from './UpdateBar';
 const BASE_CV = BASE;
 
 type ActiveTab = 'daily' | string;
@@ -2986,6 +2987,7 @@ export function ChatView({ embedded = false }: { embedded?: boolean }) {
             )}
           </div>
         </header>
+        <UpdateBar />
 
         {/* Connection tabs — platform switcher */}
         <ConnectionTabs

@@ -121,7 +121,16 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          <style>{`
+          <style>{CDLG_CSS}</style>
+        </div>
+      )}
+    </ConfirmContext.Provider>
+  );
+}
+
+
+/** The dialog's own styles, shared with other dialogs that wear the same panel (the update password dialog). Skins restyle .cdlg-* in theme/skins.css. */
+export const CDLG_CSS = `
             .cdlg-backdrop {
               position: fixed;
               inset: 0;
@@ -252,9 +261,4 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
               outline: 2px solid var(--focus-ring, rgba(220, 140, 120, 0.55));
               outline-offset: 2px;
             }
-          `}</style>
-        </div>
-      )}
-    </ConfirmContext.Provider>
-  );
-}
+`;

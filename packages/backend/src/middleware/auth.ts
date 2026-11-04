@@ -76,6 +76,28 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
   next();
 }
 
+/** Constant-time compare of an entered password with the expected one. */
+function passwordMatches(input: unknown, expected: string): boolean {
+  if (typeof input !== 'string' || !input) return false;
+  const inputBuffer = Buffer.from(input);
+  const expectedBuffer = Buffer.from(expected);
+  const maxLen = Math.max(inputBuffer.length, expectedBuffer.length);
+  const paddedInput = Buffer.alloc(maxLen);
+  const paddedExpected = Buffer.alloc(maxLen);
+  inputBuffer.copy(paddedInput);
+  expectedBuffer.copy(paddedExpected);
+  return crypto.timingSafeEqual(paddedInput, paddedExpected) && inputBuffer.length === expectedBuffer.length;
+}
+
+/** Is a password set at all (the house's, in household mode)? False in the local dev-open setup, where nothing can ask for one. */
+export function passwordConfigured(): boolean { return !!authPassword(); }
+
+/** Does this entered password match the install's (the house's, in household mode)? The same check the login uses; false when no password is set. */
+export function verifyPassword(input: unknown): boolean {
+  const expected = authPassword();
+  return !!expected && passwordMatches(input, expected);
+}
+
 export function loginHandler(req: Request, res: Response): void {
   const expected = authPassword();
   if (!expected) {
@@ -89,17 +111,7 @@ export function loginHandler(req: Request, res: Response): void {
     return;
   }
 
-  const inputBuffer = Buffer.from(password);
-  const expectedBuffer = Buffer.from(expected);
-
-  const maxLen = Math.max(inputBuffer.length, expectedBuffer.length);
-  const paddedInput = Buffer.alloc(maxLen);
-  const paddedExpected = Buffer.alloc(maxLen);
-  inputBuffer.copy(paddedInput);
-  expectedBuffer.copy(paddedExpected);
-
-  const isValid = crypto.timingSafeEqual(paddedInput, paddedExpected) &&
-                  inputBuffer.length === expectedBuffer.length;
+  const isValid = passwordMatches(password, expected);
 
   if (!isValid) {
     res.status(401).json({ error: 'Invalid password' });

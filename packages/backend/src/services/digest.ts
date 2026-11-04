@@ -1,6 +1,7 @@
 // The Scribe — periodic thread digest agent
 // Runs on the autonomous model via Agent SDK, extracts structured daily records from conversation
 import { query } from './providers/index.js';
+import { trackBackgroundRun, updateBlocking } from './update-block.js';
 import { existsSync, readFileSync } from 'fs';
 import { ownAppendFile, ownMkdir } from '../tenancy/own-files.js';
 import { join, dirname } from 'path';
@@ -216,6 +217,11 @@ Write the digest block for this conversation. Remember: output ONLY the markdown
 }
 
 export async function runDigest(agent: AgentService): Promise<void> {
+  if (updateBlocking()) { dlog('Skipped — an update is installing'); return; }
+  return trackBackgroundRun(() => runDigestNow(agent));
+}
+
+async function runDigestNow(agent: AgentService): Promise<void> {
   // Skip if companion is actively processing (don't compete)
   if (agent.isProcessing()) {
     dlog('Skipped — agent is processing');

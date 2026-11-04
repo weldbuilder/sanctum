@@ -17,6 +17,8 @@ import { useThemeStore } from './store/theme';
 import { ConfirmProvider } from './components/ConfirmDialog';
 import { COMPANION_PREFIX } from './lib/base';
 import { Hallway } from './components/Hallway';
+import { UpdateDialog } from './components/UpdateBar';
+import { canSelfUpdate, selfUpdateWhy, showVersionPill, useUpdateStore } from './store/update';
 
 // ─── Cold routes — lazy-loaded on first visit ──────────────────────────────────
 // /home and /chat are the hot path and stay eager; these three only fetch their
@@ -309,7 +311,8 @@ function useVersionCheck(onUpdateAvailable: (buildId?: string) => void) {
 // ─── Newer Sanctum on GitHub ───────────────────────────────────────────────────
 // The server asks GitHub (at most every six hours) whether package.json on main
 // carries a higher version than this install. If so, a pill says which, and
-// opening it shows the one command that updates: npm run update.
+// the pill offers the button that updates from inside the app (Update and restart, which asks for the password again). Where the platform cannot
+// update itself (no git on a git checkout, no tar for a downloaded folder) or the house routes are not there, it says the one command instead: npm run update.
 
 interface UpdateStatus { version: string; latest: string | null; update_available: boolean }
 
@@ -336,9 +339,13 @@ function useNewVersionCheck(onNewVersion: (s: UpdateStatus) => void) {
 
 function NewVersionPill({ status, onDismiss }: { status: UpdateStatus; onDismiss: () => void }) {
   const [open, setOpen] = useState(false);
+  const snapshot = useUpdateStore(st => st.snapshot);
+  const openDialog = useUpdateStore(st => st.openDialog);
+  const canUpdate = canSelfUpdate(snapshot);
+  const why = selfUpdateWhy(snapshot);
   return (
     <div className="update-pill update-pill-version" role="status" aria-live="polite" onClick={() => setOpen(o => !o)}>
-      <span className="update-pill-text">Sanctum {status.latest} is out — how to update</span>
+      <span className="update-pill-text">Sanctum {status.latest} is out{canUpdate ? '' : ' — how to update'}</span>
       <button
         type="button"
         className="update-pill-x"
@@ -350,9 +357,19 @@ function NewVersionPill({ status, onDismiss }: { status: UpdateStatus; onDismiss
       {open && (
         <div className="update-sheet" onClick={(e) => e.stopPropagation()}>
           <p className="update-sheet-line">You have {status.version}. The newest is {status.latest}.</p>
-          <p className="update-sheet-line">In Terminal, inside the app's folder:</p>
-          <pre className="update-sheet-code">npm run update</pre>
-          <p className="update-sheet-line">Then stop the app (Ctrl+C where it runs) and start it again with <code>npm start</code>. Your settings, data and companion folder stay as they are.</p>
+          {canUpdate ? (
+            <>
+              <p className="update-sheet-line">The app downloads it, keeps a copy of this version to roll back to, and restarts. Your settings, data and companion folder stay as they are.</p>
+              <button type="button" className="approval-btn approval-allow" onClick={() => { setOpen(false); openDialog('update'); }}>Update and restart</button>
+            </>
+          ) : (
+            <>
+              {why && <p className="update-sheet-line">{why}</p>}
+              <p className="update-sheet-line">In Terminal, inside the app's folder:</p>
+              <pre className="update-sheet-code">npm run update</pre>
+              <p className="update-sheet-line">Then stop the app (Ctrl+C where it runs) and start it again with <code>npm start</code>. Your settings, data and companion folder stay as they are.</p>
+            </>
+          )}
         </div>
       )}
       <PillStyles />
@@ -535,6 +552,8 @@ function AppShell() {
   const disconnect = useChatStore(s => s.disconnect);
   const location = useLocation();
   const isChat = location.pathname.startsWith('/chat');
+  // The update bar drops down on Home and Chat; elsewhere the version pill carries the same offer.
+  const onBarRoute = isChat || location.pathname === '/home';
   // Marks which view is showing, so a skin can seat the views that are still drawn for dark glass on a solid plate.
   const routeKey = location.pathname.startsWith('/mind/observatory') ? 'observatory' : location.pathname.split('/')[1] || 'home';
 
@@ -567,12 +586,21 @@ function AppShell() {
 
   // A newer Sanctum on GitHub (distinct from a newer local build above).
   // Dismissed per version, so the same release doesn't nag after a reload.
+  const updateUnavailable = useUpdateStore(st => st.unavailable);
   const [newVersion, setNewVersion] = useState<UpdateStatus | null>(null);
   const onNewVersion = React.useCallback((s: UpdateStatus) => {
     try { if (localStorage.getItem('sanctum.dismissedVersion') === s.latest) return; } catch { /* show anyway */ }
     setNewVersion(s);
   }, []);
   useNewVersionCheck(onNewVersion);
+  // The in-app updater's status (the bar, the pill's button, Settings): once at mount, again when the tab comes back.
+  useEffect(() => {
+    void useUpdateStore.getState().refresh();
+    let last = Date.now();
+    function onVisible() { if (document.visibilityState === 'visible' && Date.now() - last > 60_000) { last = Date.now(); void useUpdateStore.getState().refresh(); } }
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, []);
   const dismissNewVersion = React.useCallback(() => {
     setNewVersion(s => {
       if (s?.latest) { try { localStorage.setItem('sanctum.dismissedVersion', s.latest); } catch { /* ignore */ } }
@@ -642,7 +670,8 @@ function AppShell() {
       <MobileDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} isChat={isChat} />
       <ApprovalCard />
       {updateBuildId && <UpdatePill onDismiss={dismissUpdate} />}
-      {!updateBuildId && newVersion && <NewVersionPill status={newVersion} onDismiss={dismissNewVersion} />}
+      <UpdateDialog />
+      {newVersion && showVersionPill({ updateBuildId, onBarRoute, unavailable: updateUnavailable, hasNewVersion: true }) && <NewVersionPill status={newVersion} onDismiss={dismissNewVersion} />}
       <CommandPalette />
       <div className="app-content" data-route={routeKey}>
         <Suspense fallback={<RouteFallback />}>

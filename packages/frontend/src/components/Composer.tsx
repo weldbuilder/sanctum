@@ -1,6 +1,7 @@
 import React, { useRef, useCallback, useEffect, useState, useMemo } from 'react';
 import { VoiceRecorder } from './VoiceRecorder';
 import { useChatStore } from '../store/chat';
+import { UPDATE_REFUSED_NOTICE, mergeRefused, messagesPaused, useUpdateStore } from '../store/update';
 import { useIdentity } from '../store/identity';
 import type { CommandRegistryEntry } from '@sanctum/shared';
 import { resolveEffectiveAttachments } from './attachmentUtils';
@@ -283,6 +284,10 @@ export function Composer({ onSend, onStop, isStreaming, disabled }: Props) {
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  /** "Updating; your message was not sent.": shown when an update is installing and the draft was kept. */
+  const [pausedNotice, setPausedNotice] = useState<string | null>(null);
+  const refusedDraft = useChatStore(s => s.refusedDraft);
+  const clearRefusedDraft = useChatStore(s => s.clearRefusedDraft);
 
   // ─── Drag-over visual state ───────────────────────────────────────────────
   const [dragOver, setDragOver] = useState(false);
@@ -382,6 +387,24 @@ export function Composer({ onSend, onStop, isStreaming, disabled }: Props) {
   useEffect(() => {
     textareaRef.current?.focus();
   }, []);
+
+  // The server refused the last message because an update is installing: the text (and any attachments) come back to the box, never lost.
+  useEffect(() => {
+    if (!refusedDraft) return;
+    const el = textareaRef.current;
+    if (el) {
+      // The person may already be typing the next draft: keep both (refused text first), and union the attachments.
+      const merged = mergeRefused({ text: el.value, attachments }, refusedDraft);
+      el.value = merged.text;
+      saveDraft(activeThreadId, merged.text);
+      setHasText(merged.text.trim().length > 0);
+      autoResize();
+      setAttachments(merged.attachments);
+    }
+    setPausedNotice(UPDATE_REFUSED_NOTICE);
+    setTimeout(() => setPausedNotice(null), 8000);
+    clearRefusedDraft();
+  }, [refusedDraft]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Detect slash trigger from current caret position ────────────────────
   function detectSlash(value: string): string | null {
@@ -535,6 +558,12 @@ export function Composer({ onSend, onStop, isStreaming, disabled }: Props) {
   function sendMessage(content: string, eff?: PendingAttachment[]) {
     const el = textareaRef.current;
     if (!el) return;
+    // An update is installing: the app takes nothing in. Keep the draft and the attachments as they are, and say so.
+    if (messagesPaused(useUpdateStore.getState().snapshot?.job)) {
+      setPausedNotice(UPDATE_REFUSED_NOTICE);
+      setTimeout(() => setPausedNotice(null), 8000);
+      return;
+    }
     const outAtt = (eff && eff.length > 0) ? eff : (attachments.length > 0 ? attachments : undefined);
     onSend(content, outAtt ? [...outAtt] : undefined);
     clearDraft(activeThreadId);
@@ -708,6 +737,10 @@ export function Composer({ onSend, onStop, isStreaming, disabled }: Props) {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {pausedNotice && (
+        <div className="upload-error" role="status" data-testid="update-paused-notice">{pausedNotice}</div>
+      )}
+
       {/* Upload error toast */}
       {uploadError && (
         <div className="upload-error" role="alert">{uploadError}</div>

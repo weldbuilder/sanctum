@@ -1,3 +1,4 @@
+import { UPDATE_REFUSED_NOTICE } from './update';
 import { create } from 'zustand';
 import type {
   ServerMessage,
@@ -107,6 +108,9 @@ interface ChatStore {
   connectionState: ConnectionState;
   reconnectAttempt: number;
   lastError: { code: string; message: string } | null;
+  /** A message the server refused because an update is installing (update_running): the composer puts it back in the box. */
+  refusedDraft: { content: string; attachments?: Array<{ fileId: string; filename: string; contentType: 'image' | 'audio' | 'file'; url: string }> } | null;
+  clearRefusedDraft: () => void;
   /** Permissions the companion is waiting on, oldest first. */
   approvals: Approval[];
   /** The Mind watchdog's last reading; null until the first arrives. The chat header notice derives from it. */
@@ -277,10 +281,14 @@ function startHeartbeat(sendFn: (msg: ClientMessage) => void) {
 
 // ─── Store ────────────────────────────────────────────────────────────────────
 
+/** The last message put on the socket, kept so a refusal (update_running) can give it back. */
+let lastSent: ChatStore['refusedDraft'] = null;
+
 export const useChatStore = create<ChatStore>((set, get) => {
 
   function sendRaw(msg: ClientMessage) {
     if (_ws?.readyState === WebSocket.OPEN) {
+      if (msg.type === 'message') lastSent = { content: msg.content, attachments: (msg.metadata as { attachments?: NonNullable<ChatStore['refusedDraft']>['attachments'] } | undefined)?.attachments };
       _ws.send(JSON.stringify(msg));
     } else if (msg.type === 'message') {
       set(s => ({
@@ -756,6 +764,12 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
       case 'error':
         console.error(`[sanctum] Server error [${m.code}]: ${m.message}`);
+        if (m.code === 'update_running') {
+          // The server took nothing in: hand the text back to the composer, with the one-line notice.
+          set({ lastError: { code: m.code, message: UPDATE_REFUSED_NOTICE }, refusedDraft: lastSent });
+          setTimeout(() => set({ lastError: null }), 10000);
+          break;
+        }
         set({ lastError: { code: m.code, message: m.message } });
         setTimeout(() => set({ lastError: null }), 10000);
         break;
@@ -1392,6 +1406,8 @@ export const useChatStore = create<ChatStore>((set, get) => {
     connectionState: 'disconnected',
     reconnectAttempt: 0,
     lastError: null,
+    refusedDraft: null,
+    clearRefusedDraft: () => set({ refusedDraft: null }),
     approvals: [],
     mindStatus: null,
     identityStatus: null,

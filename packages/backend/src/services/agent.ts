@@ -22,6 +22,7 @@ import { runEnvOption } from '../tenancy/child.js';
 import { listTenantSessions } from '../tenancy/sessions.js';
 import { harnessHomes } from '../tenancy/child.js';
 import { companionPath } from '../tenancy/house.js';
+import { updateBlocking, UpdateBlockedError } from './update-block.js';
 import { backgroundRunsOff, currentTenant, envFor, tenancyEnabled, tenantLocal } from '../tenancy/context.js';
 import crypto from 'crypto';
 import { existsSync } from 'fs';
@@ -600,6 +601,7 @@ export class AgentService {
      *  cannot forget a piece of it. */
     memory?: 'none';
   }): Promise<string> {
+    if (updateBlocking()) throw new UpdateBlockedError(); // an in-app update is installing: no new turn until it ends
     // Determine priority based on platform
     const platform = opts?.platform || 'web';
     let priority: number;

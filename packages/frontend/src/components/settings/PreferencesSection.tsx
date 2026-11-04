@@ -16,6 +16,7 @@ import {
   Btn,
 } from './primitives';
 import { SetupWizard } from '../SetupWizard';
+import { UpdatesBlock } from './UpdatesBlock';
 import { HearthSelect } from '../hearth';
 import { loadTenantInfo, tenantLine, type TenantInfo } from './tenantState';
 
@@ -587,6 +588,8 @@ export function PreferencesSection({ base }: { base: string }) {
           mono
         />
       </Group>
+
+      <UpdatesBlock />
 
       {/* ── Long-conversation memory (rolling context) ── */}
       <Eyebrow label="long-conversation memory" sub="rolling context: the app's own compaction" />

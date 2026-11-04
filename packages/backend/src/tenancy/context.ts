@@ -14,6 +14,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { join } from 'node:path';
 import type BetterSqlite3 from 'better-sqlite3';
 import type { SanctumConfig } from '../config.js';
+import { updateBlocking } from '../services/update-block.js';
 
 export interface TenantRuntime {
   id: string;
@@ -186,8 +187,9 @@ export function tenantTmpRoot(): string | undefined {
 }
 
 /** Operator switch (tenants.background_runs, and a tenant's own background_runs): true when the CURRENT tenant's background model runs (orchestrator
- *  wakes, the outlook author, handoff, the rolling summarizer) are switched off. Tenancy off, or outside a tenant: false, so nothing reads the key. */
+ *  wakes, the outlook author, handoff, the rolling summarizer) are switched off, or while an in-app update is installing, building or restarting (every tenant). Tenancy off, or outside a tenant: false, so nothing reads the key. */
 export function backgroundRunsOff(): boolean {
+  if (updateBlocking()) return true; // an in-app update is installing, building or restarting: nothing starts a model run until it ends (services/update-block.ts)
   const rt = currentTenant();
   return !!rt && rt.services.backgroundRuns === false;
 }

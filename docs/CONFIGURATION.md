@@ -533,6 +533,128 @@ See [PLUGINS.md](PLUGINS.md), including "Where to put the house".
 |---|---|---|
 | `origins` | `[]` | Any origin a browser opens the app from. The live connection is refused silently (the header shows *Disconnected*) when the browser's origin is missing; the raw Tailscale IP and the `.ts.net` name are two different origins. Loopback, and `http://<server.host>:<port>` when `server.host` is not loopback, are always allowed. |
 
+### `updates` — the newer-version notice and the in-app update
+
+| Key | Default | Meaning |
+|---|---|---|
+| `check` | `true` | Ask GitHub (at most every six hours) whether the project's `package.json` carries a higher version. The only thing the app sends out on its own. `false` turns the notice off; `npm run update` still works. |
+| `repo` | `""` | `owner/name` on GitHub. `""` = the `repository` line in `package.json`. A private project needs `GITHUB_TOKEN` in `.env`. |
+| `branch` | `main` | The branch whose head is installed (and whose `package.json` version is "newest"). Tags are not used. A git checkout must be on this branch to update. |
+
+Process-only (see `tenants`).
+
+#### Updating from inside the app
+
+**Update and restart** (the bar on Home, in the page above the welcome, and on Chat, under the header, the pill elsewhere, Settings → Preferences → Updates) calls `POST /api/house/update/start`
+with the house password typed again; `POST /api/house/update/rollback` does the same for a roll back; `GET /api/house/update` is the status. They are
+house routes, never under a companion's prefix, and a companion's tools cannot reach them. One job runs at a time (a second is `409`), and none starts
+while a conversation turn or a background model run (the outlook author, the handoff, the digest, the summarizer) is in progress in any companion.
+With no password set (the local dev-open setup) there is nothing to type again: the routes answer `403 no_password` ("Set a password, or run npm run
+update"), and the page shows the terminal command instead of the dialog.
+
+**The design: stage, then swap.** The running folder is not changed until the new version is fully built.
+
+1. **checking**: read the settings, ask GitHub for the newest version. A git checkout reads it from the repository its `origin` points at: when only
+   `package.json` names the repository, a fork's clone follows its origin; when `updates.repo` is set and is not the origin, the update is refused
+   with that message.
+2. A **git checkout** with anything in `git status --porcelain` (untracked files too) is refused, and the list is the error. Nothing is stashed or
+   overwritten. A checkout that is not on `updates.branch`, or that has commits the branch does not have, is refused too.
+3. **fetching**: a git checkout runs `git fetch` and makes a `git worktree` of the target commit in **`<app>/.update-stage/`**. A **downloaded folder**
+   (no `.git`) downloads the branch tarball and unpacks it into `.update-stage/`, minus the paths that are yours: never `.env`, `sanctum.yaml`,
+   `.mcp.json`, `data/`, `companion-home/` (nor the folder `agent.cwd` names when it is inside the app folder, compared after resolving symlinks,
+   so a home that is a link into the app is protected too).
+4. **installing**: `npm ci --include=dev` (`npm install --include=dev` only when there is no lockfile, and the log says so), then **building**:
+   `npm run build`, both **in the stage**. The app keeps running on its own files and `node_modules` meanwhile. The npm, tsc and vite children are
+   their own process groups and are killed with the app (or on an abort).
+5. **While it installs, builds and restarts**, new interactive turns are refused (`503` on the HTTP routes; on the socket an `update_running` error) and
+   the orchestrator's wakes, the outlook author, the handoff and the summarizer do not start; they resume when the job ends, whether it succeeds or fails.
+   **A refused message is not lost.** The web composer keeps what you typed (and any attachment) in the box and says "Updating; your message was not sent."
+   (it does not send at all while the job is installing, building or restarting; a refusal that still reaches the server puts the text back). Discord and
+   Telegram answer once per channel with "Updating, back in a minute." and ignore the channel until the pause ends. A **wake or the midnight handoff that
+   was skipped** during the pause runs once when the pause ends without a restart (a failed update, or one that only installed): each skipped wake type
+   once, the handoff once, and nothing if nothing was skipped. (After a successful update the app restarts, and the wake schedule starts fresh in the new
+   process: a wake that fell inside the pause is not carried across the restart.)
+6. **The swap** runs only at restart time, after the turn fence (a turn already running at the end of the build gets up to five minutes; if it is still
+   running, the update stops with nothing changed). It checks the tree is still clean, runs `git merge --ff-only` to the staged commit, and then
+   renames the stage's `node_modules`, `packages/*/dist` and `packages/frontend/build` into place (the stage is inside the app folder, so every
+   rename is on one filesystem). What they replace is moved to **`<app>/.update-rollback.next/<previous version>/`** with a `manifest.json` (phase `swapping`,
+   written before anything moves). A downloaded folder also moves its staged tracked files in, and the files they replace are copied there. Only when
+   every step has succeeded is the manifest marked `swapped`, the previous `.update-rollback/` deleted and `.update-rollback.next/` renamed over it, and the stage
+   deleted. **The previous rollback copy therefore survives a failed swap**: if anything in the swap fails, it is undone, `.update-rollback.next/` is dropped, the
+   job is `failed`, and the Roll back button still offers the copy from before. When the staged commit is the commit you are already on and its version is not
+   newer (a `--force` with nothing new), nothing is built or swapped: the log says "already on X.Y" and the rollback copy is left alone.
+7. **restarting**: see below. The states are `checking, fetching, installing, building, restarting, done, failed, rolled_back`.
+
+**If the app dies mid-job before the swap, nothing was changed.** Everything before the swap happens in the stage, so a crash, a `SIGKILL` or a power cut leaves the
+running folder exactly as it was. At the next boot an existing stage is deleted (a build it left running is stopped only when its recorded pid *and* its start time
+in `/proc/<pid>/stat` still match, so a pid reused after a reboot is never killed; with no `/proc` nothing is killed) and the job is marked `failed`:
+"The update did not finish; nothing was changed." A `.update-stage` that is a symbolic link is never followed, read or deleted through: the update refuses it.
+
+**If the app dies during the swap, the previous version is put back before anything of the app loads, and the app starts over.** A swap cut short leaves the folder
+part new and part old, so the booting code could be the new backend on whatever `node_modules` came with it. The app's entry point is therefore **`packages/backend/boot.mjs`**
+(`npm start`, pm2, systemd and Docker all run it, and so does the updater's own respawn; `dist/server.js` still imports on its own but recovers nothing). Node links a program's whole
+import graph before it evaluates any of it, so a recovery that was merely the first import of `server.js` could not run first: with `node_modules` moved aside, `import 'dotenv'` failed
+before it. `boot.mjs` imports nothing but node's own modules and carries its **own, vendored copy of the recovery** (`scripts/boot-recover.mjs`, generated from `packages/backend/src/boot-recover.ts`; it never imports
+`scripts/updater-core.mjs`, so a new version's code can never run an old version's recovery). It recovers, and only then loads the app with a dynamic import of `dist/server.js`.
+`npm start` also runs the same recovery first from `scripts/boot-recover.mjs` (a generated copy of that file; `scripts/update.mjs --recover --boot`), which still works when `dist` is missing
+(killed between moving it aside and moving the new one in), and `npm run update` runs it before anything else.
+
+The recovery reads the manifest in `.update-rollback.next/` (or `.update-rollback/`). Every manifest carries its `format` (1) and a description of its own states, and is written
+atomically (a temp file, then a rename). The states:
+
+- `swapping` (or `rolling_back`): **restore**. On a git checkout `git reset --hard <manifest sha>` and `git checkout -- .` run **always**, even when HEAD already is that sha (a power cut in
+  the middle of the fast-forward's checkout leaves a half-written tree); then each moved directory is renamed back (the current one set aside first, so each is in exactly one place at every
+  instant, a directory is never deleted without its replacement in hand, and a crash in the recovery itself is simply run again), and then the copy is removed. A directory the swap had not
+  reached yet stays as it is.
+- `swapped` in `.update-rollback.next/`: the swap had succeeded; its copy is moved over the previous one (the job reads `done`: "restarted on <new version>; the stage was cleaned up at boot").
+- `rolled_back`: only the set-aside copies are left to delete.
+- `recovery_failed`: an earlier recovery could not finish (the reason is in the manifest). A boot only says so; `npm run update -- --recover` tries again.
+
+**What it refuses, and what it never does.** A manifest that cannot be read (truncated, not JSON, not shaped like a manifest), whose `format` is newer than the code knows, or whose state is
+unknown is **never acted on**: nothing is deleted or moved, `.update-rollback.next` and the stage stay, the app boots as it is, the job is marked `failed` ("could not read the update state;
+nothing was removed. Run: npm run update -- --recover"), and the log says why. A failed `git reset --hard` (git missing, a held `index.lock`) moves the directories back where it can (a rename; nothing is
+deleted), keeps the copy, marks it `recovery_failed` and reports git's error, with no "previous version was put back" claim. A copy that lacks one of its directories restores the others, leaves
+the live directory of the missing one where it is, keeps the copy and names what is missing. After a restore it checks HEAD, the three directories and the lockfile against the restored version
+(`node_modules/.package-lock.json` against `package-lock.json`) and says precisely what does not match; the job then reads `failed` with that text. A swap that is cut short again does not
+start another update over it: the updater refuses to overwrite a copy that is not settled, and says to run `npm run update -- --recover`.
+
+If the recovery changed anything the process **starts over**: without a supervisor it spawns `process.execPath` with its own node arguments (minus any `--inspect*` flag, which the idle parent
+would otherwise keep holding the inspector port for) and the same script, passes `SIGINT`/`SIGTERM`/`SIGHUP` on to it and exits with its exit code, so what serves is the restored code;
+under pm2 or `SANCTUM_SUPERVISED=1` (in the environment or in `.env`) it exits with code **75** and the supervisor starts it again. It cannot loop: the child is told it is the restart, and
+the supervised exit has a **loop guard**: `.update-recover.count` in the app folder is incremented at every such exit, a recovery number 4 within 10 minutes is refused (it is logged, the
+supervisor is not asked to restart again, and the app boots as it is), and the count is cleared once a boot has stayed up for 30 seconds. The restart must be allowed on exit 75 (pm2 does it; systemd needs
+`Restart=always` or `on-failure`, Docker `restart: always` or `on-failure`). The outcome is written to `.update-recovery.json` and read once by the updater at boot to word the job: a swap put
+back reads `failed` ("the previous version was put back"), a roll back the recovery finished reads `rolled_back`, a swap that had completed reads `done`, and a recovery that found nothing to do
+changes no message. A `.update-stage` that is a symbolic link is never reported as `done`.
+
+A failure while installing or building deletes the stage and marks the job `failed` with the reason: from the last 60 lines of the failing step, the first line that looks
+like an error (`error`, `ERR!`, `TS1234`, `Error:`; `npm warn` lines are skipped) and the two after it, else the last three lines. The app keeps running the old build.
+
+**Roll back** (crash-safe the same way, by the same code: the current directories are renamed aside first, the old ones moved back, the manifest set to `rolled_back`, and only then the
+set-aside copies deleted; the pre-boot recovery finishes one that was cut short) moves the previous `node_modules`, `dist` and build back (and runs `git reset --hard <previous commit>` on a git checkout, which must be
+clean and still on the commit the update left), so `node_modules` comes back with the code (an install runs only when the copy has no `node_modules` and
+the lockfile differs). It also happens at restart time, after the turn fence, then restarts. It is offered only while a copy exists, and the copy is spent
+by it. `npm run update -- --rollback` does the same from a terminal and needs nothing from the app but node and git: it works when the app cannot start.
+
+**Two restart modes.**
+
+- *Supervised*: when `pm_id` (pm2) or `SANCTUM_SUPERVISED=1` is in the environment, the app writes the job file (synchronously, so the swap and restart lines are kept), stops gracefully and exits 0, and the supervisor starts it again. The supervisor must restart on exit 0 (pm2 does; systemd needs `Restart=always`, Docker `restart: always`). Set `SANCTUM_SUPERVISED=1` for anything that is not pm2.
+- *Respawn* (the default): the app closes its listener, starts a detached replacement (`node packages/backend/boot.mjs`, same folder and environment, output in `<data dir>/update-restart.log`), waits up to 60 seconds for it to answer `/api/health` on the same port, then stops. From the moment the replacement is started this process writes nothing more to `update-job.json`, so its last words cannot land on top of the `done` the replacement writes at its boot (it writes again only if the replacement fails). If it never answers it is stopped (SIGTERM, SIGKILL after five seconds, and awaited) before anything else happens, then the app listens again, the previous files are put back, and the job is `failed`. For those seconds the replacement and the old process both run (a Discord or Telegram connection may complain once).
+
+The page reconnects until `/api/version` reports a new build, then reloads.
+
+**Files in the data folder** (next to `sanctum.db`; the process's own folder, never a companion's):
+
+- `update-job.json`: the last job, its state and its log (timestamped lines), so it survives the restart. It is written on every state change and at most a second behind the log, and carries the `pid` and start time of the process that wrote it. A job caught mid-way by a crash reads as `failed` at boot; one that was `restarting` reads as `done` (or `rolled_back`) at boot, with its finish time set then, **only when another process wrote that `restarting`** (its predecessor); one this very process wrote is still in progress, and a job that is already `done` is never touched.
+- `update-restart.log`: what the respawned replacement printed.
+
+**Folders in the app folder** (all are git-ignored; an older checkout's `.git/info/exclude` gets them too):
+
+- `.update-recovery.json` and `.update-recover.count` (files): the last recovery's outcome (read once at boot) and the loop guard's count.
+- `.update-stage/`: where the new version is built while an update runs. Safe to delete when none is running; it is deleted at every boot.
+- `.update-rollback.next/<version>/`: the copy of a swap in progress (see above); it exists only while one runs or after one was cut short, and the next boot settles it.
+- `.update-rollback/<version>/`: the previous `node_modules`, `dist` and frontend build (moved, not copied) and, on a downloaded folder, the files the update replaced, with a `manifest.json` (version, mode, commits, every item, whether it was moved or copied or did not exist). It lives in the app folder, not the data folder, so the swap is a rename on one filesystem.
+
 ### `tenants` — several people in one process (optional)
 
 Absent by default; without it nothing here applies. With it the app serves one tenant per folder under `dir`, each with its own
@@ -862,6 +984,7 @@ Inside `data/` you'll find:
 - **`.internal-token`** — an auto-generated secret the app uses to talk to itself.
 - **`.google-key`** — an auto-generated key that encrypts stored Google tokens.
 - **`identity/`** — the identity ledger (`identity.ledger_dir` moves it): `ledger.json` (the digest of the identity files you ratified, who ratified it and when), `journal.jsonl` (one line for every change to the identity folder: when, which files, and whether it was you, your companion, something else on disk, a rollback or the first look) and `snapshots/` (the ratified copy that your companion actually runs on, and the one before it). It is separate from `plugins/`. Back up the whole folder: without `snapshots/` the app cannot serve the ratified copy and says so in Settings > Identity.
+- **`update-job.json`, `update-restart.log`** — the in-app updater's last job and the log of the restart (the rollback copy is `.update-rollback/` in the app folder). Safe to delete when no update is running; see "Updating from inside the app" under `updates`.
 - **`plugins/`** — `audit.json`: every change to a plugin's files, as it was noticed (the last 20 per plugin), which Settings > Plugins reads for "changed since you last looked". If you chose `plugins.trust: person`, it also holds `ratified.json` (which plugin code you have approved, by hash) and `snapshots/` (the approved copy that actually runs); a plugin whose files differ from that record does nothing until you approve it again. Back up the whole folder. If you set `plugins.ledger_dir`, it lives there instead.
 
 The database is created automatically the first time you run the app — the schema

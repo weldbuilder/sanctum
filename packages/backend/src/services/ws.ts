@@ -2,6 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { IncomingMessage, Server as HTTPServer } from 'http';
 import { parse as parseCookie } from 'cookie';
 import crypto from 'crypto';
+import { updateBlocking, UPDATE_BLOCK_NOTICE } from './update-block.js';
 import type {
   ClientMessage,
   ServerMessage,
@@ -662,6 +663,8 @@ async function handleMessageSend(
   ws: ExtendedWebSocket,
   agentService: AgentService
 ): Promise<void> {
+  // An in-app update is installing, building or restarting: say so, in one line, and take nothing in (the person re-sends when it is over).
+  if (updateBlocking()) { sendError(ws, 'update_running', UPDATE_BLOCK_NOTICE); return; }
   const now = new Date().toISOString();
   const config = getSanctumConfig();
 

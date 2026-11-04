@@ -41,6 +41,7 @@ import type { OrchestratorTaskStatus, Thread } from '@sanctum/shared';
 import { runDigest } from './digest.js';
 import { rollingWatch } from './rolling-watch.js';
 import { backgroundRunsOff, bindCurrentTenant, currentTenant } from '../tenancy/context.js';
+import { createCatchUp, updateBlocking } from './update-block.js';
 import { companionPath } from '../tenancy/house.js';
 import { appendCapped } from '../tenancy/console.js';
 import { ownMkdir, ownReadDir, ownWriteFile, readOwnOrApp, readOwnText } from '../tenancy/own-files.js';
@@ -343,6 +344,11 @@ export class Orchestrator {
   private wakePromptsDir = '';
   /** Set by stop(), cleared by start(): a config call that arrives after stop (an API request, a late async path) must not start a timer of a stopped scheduler. */
   private stopped = false;
+  /** Wakes that fired while an in-app update paused the app: each is run once when the pause ends without a restart (a failed update, or one that only installed). */
+  private catchUp = createCatchUp(bindCurrentTenant((types: string[]) => {
+    if (this.stopped) return;
+    for (const t of types) { olog(`${t} — catching up after the update pause`); void this.handleWake(t); }
+  }));
 
   constructor(agent: AgentService, pushService?: PushService) {
     this.agent = agent;
@@ -671,6 +677,7 @@ export class Orchestrator {
   stop(): void {
     this.stopped = true;
     olog('Stopping...');
+    this.catchUp.dispose();
     for (const [, managed] of this.tasks) {
       managed.task.stop();
     }
@@ -1015,6 +1022,13 @@ export class Orchestrator {
     const prompt = this.wakePrompts[wakeType] || getConfig(`custom_routine.${wakeType}.prompt`);
     if (!prompt) {
       olog(`ERROR: Unknown wake type: ${wakeType}`);
+      return;
+    }
+
+    // An in-app update is installing: the wake is remembered and run once when the pause ends (see catchUp).
+    if (updateBlocking()) {
+      olog(`${wakeType} — skipped (an update is installing); it runs once when the update ends`);
+      this.catchUp.skipped(wakeType);
       return;
     }
 

@@ -14,134 +14,24 @@
 // Where "GitHub" is: the "repository" line in package.json (one place to
 // change if the project moves), or updates.repo / updates.branch in
 // sanctum.yaml to override. GITHUB_TOKEN in .env if the project is private.
+//
+// The steps live in scripts/updater-core.mjs, the same module the in-app "Update and
+// restart" uses: a git checkout with local changes is refused (the list is shown), a
+// update is built in <app>/.update-stage/ first (the running folder is untouched until that has built), the previous node_modules, dist
+// and build are kept in <app>/.update-rollback/, and `npm run update -- --rollback` puts them back by hand (a copy is written as .update-rollback.next and replaces the previous one only once the swap succeeded). --rollback needs nothing
+// from the app but node and git, so it works when the app cannot start.
 
-import { execSync, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { UpdateError, discardStage, killAllChildren, readEnvFile, readUpdateSettings, readVersion, recoverDetailed, rollbackInfo, runRollback, runUpdate } from './updater-core.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const force = process.argv.includes('--force');
 
 function say(msg) { console.log(`[update] ${msg}`); }
 function fail(msg) { console.error(`[update] ${msg}`); process.exit(1); }
-
-// ---- settings ---------------------------------------------------------------
-function readEnvFile() {
-  const p = join(root, '.env');
-  if (!existsSync(p)) return;
-  for (const line of readFileSync(p, 'utf-8').split(/\r?\n/)) {
-    const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line);
-    if (!m || line.trim().startsWith('#')) continue;
-    const val = m[2].replace(/^(["'])(.*)\1$/, '$2');
-    if (process.env[m[1]] === undefined) process.env[m[1]] = val;
-  }
-}
-// "owner/name" from package.json's repository line: "github:owner/name",
-// "https://github.com/owner/name.git", or { url: ... }.
-function repoFromPackage(pkg) {
-  const r = typeof pkg.repository === 'string' ? pkg.repository : pkg.repository?.url || '';
-  const m = /(?:github:|github\.com[/:])([^/\s]+\/[^/\s#]+?)(?:\.git)?\/?$/.exec(r) || /^([^/\s]+\/[^/\s]+)$/.exec(r);
-  return m ? m[1] : '';
-}
-async function readUpdateSettings() {
-  const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
-  const out = { repo: repoFromPackage(pkg), branch: 'main' };
-  for (const name of ['sanctum.yaml', 'sanctum.yml', 'resonant.yaml', 'resonant.yml']) {
-    const p = join(root, name);
-    if (!existsSync(p)) continue;
-    try {
-      const yaml = (await import('js-yaml')).default;
-      const cfg = yaml.load(readFileSync(p, 'utf-8')) || {};
-      if (cfg.updates?.repo) out.repo = String(cfg.updates.repo);
-      if (cfg.updates?.branch) out.branch = String(cfg.updates.branch);
-    } catch { /* unreadable yaml: defaults */ }
-    break;
-  }
-  if (process.env.SANCTUM_REPO) out.repo = process.env.SANCTUM_REPO;
-  if (process.env.SANCTUM_BRANCH) out.branch = process.env.SANCTUM_BRANCH;
-  if (!out.repo) fail('no GitHub address: set "repository" in package.json (github:owner/name) or updates.repo in sanctum.yaml');
-  return out;
-}
-
-// ---- GitHub -----------------------------------------------------------------
-function ghHeaders(accept) {
-  const h = { 'User-Agent': 'sanctum-mobile-updater', Accept: accept };
-  if (process.env.GITHUB_TOKEN) h.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
-  return h;
-}
-async function remoteVersion(repo, branch) {
-  // Public project: the raw file host, no rate limit, no token. Private, or
-  // anything else wrong: the API, which honours GITHUB_TOKEN.
-  const tries = [
-    { url: `https://raw.githubusercontent.com/${repo}/${encodeURIComponent(branch)}/package.json`, accept: 'text/plain' },
-    { url: `https://api.github.com/repos/${repo}/contents/package.json?ref=${encodeURIComponent(branch)}`, accept: 'application/vnd.github.raw+json' },
-  ];
-  let last = '';
-  for (const t of tries) {
-    try {
-      const res = await fetch(t.url, { headers: ghHeaders(t.accept), signal: AbortSignal.timeout(15_000) });
-      if (!res.ok) { last = `GitHub answered ${res.status} for ${repo}`; continue; }
-      return String(JSON.parse(await res.text()).version || '');
-    } catch (err) { last = err.message; }
-  }
-  throw new Error(last || 'unreachable');
-}
-function isNewer(a, b) {
-  const pa = String(a).split('.').map(n => parseInt(n, 10) || 0);
-  const pb = String(b).split('.').map(n => parseInt(n, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const x = pa[i] ?? 0, y = pb[i] ?? 0;
-    if (x !== y) return x > y;
-  }
-  return false;
-}
-async function downloadTarball(repo, branch, into) {
-  const tries = [
-    `https://codeload.github.com/${repo}/tar.gz/refs/heads/${encodeURIComponent(branch)}`, // public
-    `https://api.github.com/repos/${repo}/tarball/${encodeURIComponent(branch)}`,          // private, with GITHUB_TOKEN
-  ];
-  let last = '';
-  for (const url of tries) {
-    try {
-      const res = await fetch(url, { headers: ghHeaders('application/vnd.github+json'), redirect: 'follow', signal: AbortSignal.timeout(120_000) });
-      if (!res.ok) { last = `GitHub answered ${res.status} for the download`; continue; }
-      const file = join(into, 'sanctum.tar.gz');
-      writeFileSync(file, Buffer.from(await res.arrayBuffer()));
-      return file;
-    } catch (err) { last = err.message; }
-  }
-  throw new Error(last || 'unreachable');
-}
-
-// ---- the two ways to update ---------------------------------------------------
-function haveGit() {
-  return existsSync(join(root, '.git')) && spawnSync('git', ['--version'], { stdio: 'ignore' }).status === 0;
-}
-function updateWithGit(branch) {
-  const dirty = execSync('git status --porcelain', { cwd: root }).toString().trim();
-  if (dirty) {
-    fail(`This folder has local changes git would have to overwrite:\n${dirty}\nCommit or discard them (git stash), then run npm run update again.`);
-  }
-  say(`git pull origin ${branch}`);
-  execSync(`git pull --ff-only origin ${branch}`, { cwd: root, stdio: 'inherit' });
-}
-async function updateWithTarball(repo, branch) {
-  const tmp = mkdtempSync(join(tmpdir(), 'sanctum-update-'));
-  try {
-    say(`downloading ${repo}@${branch}`);
-    const file = await downloadTarball(repo, branch, tmp);
-    const r = spawnSync('tar', ['-xzf', file, '-C', tmp], { stdio: 'inherit' });
-    if (r.status !== 0) fail('could not unpack the download (is `tar` installed?)');
-    const extracted = readdirSync(tmp, { withFileTypes: true }).find(d => d.isDirectory());
-    if (!extracted) fail('the download was empty');
-    say('copying the new files over this folder (your settings and data stay)');
-    cpSync(join(tmp, extracted.name), root, { recursive: true, force: true });
-  } finally {
-    rmSync(tmp, { recursive: true, force: true });
-  }
-}
 
 // ---- the Mind ---------------------------------------------------------------
 // One line: did the configured Mind answer? The freshly built app does the asking (it reads the same
@@ -155,40 +45,58 @@ function mindLine() {
 }
 
 // ---- main ---------------------------------------------------------------------
-readEnvFile();
-const { repo, branch } = await readUpdateSettings();
-const current = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8')).version || '0.0.0';
-say(`you have ${current}`);
-
-let latest = '';
+readEnvFile(root);
+// First of all: a swap or a roll back that an earlier run was cut short in (kill, power cut) is finished from its manifest, so this run starts from a whole folder.
+// `--recover` does only that. `npm start` runs it as `--recover --boot` before the app (it works when packages/backend/dist is missing, which a swap cut short can cause, and it
+// never fails the start: packages/backend/boot.mjs runs the same recovery and the app's update job says what was found). A plain `--recover` also retries a recovery an earlier attempt could not
+// finish (git missing, a lock file) and exits 1 when it still cannot; `--boot` does not retry.
+const recoverOnly = process.argv.includes('--recover');
+const booting = process.argv.includes('--boot');
+let recovered = null;
 try {
-  latest = await remoteVersion(repo, branch);
-} catch (err) {
-  fail(`could not check GitHub: ${err.message}.\n` +
-    `  - No internet? Try again later.\n` +
-    `  - If the project on GitHub is private, put GITHUB_TOKEN=<a token with read access> in .env.\n` +
-    `  - Or download the ZIP from GitHub again and copy it over this folder, then: npm install && npm run build`);
+  recovered = recoverDetailed(root, { log: say, retry: recoverOnly && !booting });
+  if (recovered.outcome === 'restored') say('the files an interrupted update had changed are back as they were.');
+  else if (recovered.outcome === 'adopted') say('an update that had finished was settled: its rollback copy is kept.');
+  else if (recovered.outcome === 'failed' || recovered.outcome === 'refused') say(`recovery: ${recovered.detail}`);
+} catch (err) { say(`could not check for an interrupted update: ${err.message}`); }
+if (recoverOnly) {
+  if (!booting && recovered?.outcome === 'nothing') say('nothing to recover.');
+  process.exit(!booting && (recovered?.outcome === 'failed' || recovered?.outcome === 'refused') ? 1 : 0);
 }
-if (!force && !isNewer(latest, current)) {
-  say(`newest is ${latest}. You already have it. (npm run update -- --force reinstalls anyway.)`);
+// Ctrl+C stops the npm/tsc/vite children too (they are their own process groups) and deletes the stage: nothing in the app was changed.
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { killAllChildren(); discardStage(root).finally(() => process.exit(130)); });
+if (process.argv.includes('--rollback')) {
+  // Nothing here reads the settings or the app: the copy and its manifest are all it needs.
+  if (!rollbackInfo(root).available) fail('there is no rollback copy (one is kept each time an update runs).');
+  try { await runRollback({ root, log: say }); } catch (err) { fail(err.message); }
+  mindLine();
+  say('Now restart the app: press Ctrl+C in the window where it runs, then:  npm start');
+  process.exit(0);
+}
+
+let settings;
+try { settings = await readUpdateSettings(root); } catch (err) { fail(err.message); }
+
+let result;
+try {
+  result = await runUpdate({ root, force, settings, log: say });
+} catch (err) {
+  if (err instanceof UpdateError) {
+    fail(`update stopped: ${err.message}\n[update] ${err.restored ? 'The previous version was put back.' : 'Nothing in the app was changed.'}\n` +
+      '  - Or download the ZIP from GitHub again and copy it over this folder, then: npm install && npm run build');
+  }
+  throw err;
+}
+if (result.upToDate && result.already) {
+  say(`already on ${result.current}: this checkout is on the newest commit, so nothing was rebuilt.`);
   mindLine();
   process.exit(0);
 }
-say(`newest is ${latest}, updating`);
-
-try {
-  if (haveGit()) updateWithGit(branch);
-  else await updateWithTarball(repo, branch);
-} catch (err) {
-  fail(`update stopped: ${err.message}`);
+if (result.upToDate) {
+  say(`newest is ${result.latest}. You already have it. (npm run update -- --force reinstalls anyway.)`);
+  mindLine();
+  process.exit(0);
 }
-
-say('installing');
-execSync('npm install --include=dev --no-audit --no-fund', { cwd: root, stdio: 'inherit' }); // dev deps build the frontend; NODE_ENV=production would skip them
-say('building');
-execSync('npm run build', { cwd: root, stdio: 'inherit' });
-
-const now = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8')).version;
-say(`done: ${current} -> ${now}`);
+say(`done: ${result.from} -> ${readVersion(root)}`);
 mindLine();
 say('Now restart the app: press Ctrl+C in the window where it runs, then:  npm start');
