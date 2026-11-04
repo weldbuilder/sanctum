@@ -33,6 +33,10 @@ export interface TenantRuntime {
   /** The tenant's own .env, parsed. process.env is never written to. */
   env: Record<string, string>;
   db: BetterSqlite3.Database;
+  /** Set by a park the moment the runtime leaves the running set: a request that resolved to it earlier and enters it now is answered 503. */
+  leaving?: boolean;
+  /** Set by a park just before the database is closed: getDb() then throws TenantParked (a 503), not a driver error (a 500). */
+  parked?: boolean;
   /** The tenant's internal token (x-internal-token). */
   token: string;
   /** Per-tenant values behind tenantLocal(). */

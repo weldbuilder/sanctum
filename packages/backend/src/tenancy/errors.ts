@@ -20,7 +20,13 @@ export class TenantServiceUnavailable extends Error {
 export function handleUnavailable(err: unknown, res: Response): boolean {
   // The tenant file layer refused a write (a link, a second hard link): a 400 with the sentence (relative paths only), never a 500.
   if (err instanceof OwnFileRefused) { if (!res.headersSent) res.status(400).json({ error: err.message }); return true; }
+  if (err instanceof TenantParked) { if (!res.headersSent) res.status(503).json({ error: 'tenant_unavailable' }); return true; }
   if (!(err instanceof TenantServiceUnavailable)) return false;
   if (!res.headersSent) res.status(503).json({ error: 'service_unavailable', service: err.service });
   return true;
+}
+
+/** getDb() for a companion the operator has parked (its database is closed): the answer is 503, never the driver's "connection is not open" 500. */
+export class TenantParked extends Error {
+  constructor() { super('this companion is parked'); this.name = 'TenantParked'; this.stack = `${this.name}: ${this.message}`; }
 }

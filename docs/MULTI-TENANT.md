@@ -242,6 +242,7 @@ tenants:
   inherit: true                 # optional, default true: tenants start from this file (see "What a tenant inherits")
   background_runs: true         # optional, default true: false stops every tenant's orchestrator wakes, outlook author,
                                 #   handoff and summarizer from starting model runs; a ceiling: a tenant's own background_runs can only turn it off for itself; true or false only (anything else is refused); a tenant's reload applies the tenant's own flip at once (off stops its timers, on starts them); a change to this operator value needs a restart; null or missing means not set
+  operator_routes_remote: false  # optional, default false: true lets a peer that is not loopback use the park and revive routes (with the operator token)
 ```
 
 Tenants are discovered when the app starts. Adding one is: make the folder, run the wizard, restart (below).
@@ -532,6 +533,44 @@ What it is **not**:
 - **One clock.** A tenant whose `identity.timezone` differs from the process's is refused at boot; the local-time sites
   are an audit for later.
 - **One process.** A crash, a runaway loop or an out-of-memory in one tenant's work takes every tenant down.
+- **Parking is not isolation.** A parked companion is switched off, not walled off (see "Parking a companion"): a harness child mid-turn is asked to stop, not killed, and the files and token stay where they were. The operator token that parks a companion is a file the server's OS user can read, and every companion's harness child runs as that user: under the one-OS-user setup a companion (or anyone who can prompt-inject one over a channel) can read it and park a neighbour. This is the same limit the walls section above states for reads, and the same fix: one OS user per tenant, or a sandbox in `spawnWrapper`.
+
+### Parking a companion
+
+One companion can be switched off and on again without restarting the process, with the operator's token (not a companion's):
+
+```sh
+curl -X POST -H "x-internal-token: $(cat <process data dir>/.operator-token)" http://127.0.0.1:<port>/api/internal/tenants/<id>/park
+curl -X POST -H "x-internal-token: $(cat <process data dir>/.operator-token)" http://127.0.0.1:<port>/api/internal/tenants/<id>/revive
+```
+
+(`GET /api/internal/tenants` lists every folder as `running`, `parked` or `failed`, with the last error.) The token is the file `.operator-token` in the process's
+data folder (the folder that holds the process's database), made owner-only at boot. It must be a regular file with no group or world permission bits: a symlink,
+a directory or a file with mode wider than 600 is refused, one line is logged, and the routes are off until it is fixed (the file is never overwritten). The file
+is read on every request, so deleting it revokes the token at once (and the routes stay off until the next restart creates a new one); replacing its contents
+revokes the old token. The routes are inside the normal middleware chain (security headers, rate limiter, body parsers) and answer 404, like the other internal
+routes, for a missing or wrong token (a companion's own internal token included), for a peer whose TCP address is not loopback, for a request a tunnel or proxy
+forwarded (`X-Forwarded-For` and similar headers are never trusted, and their presence is refused), and for a companion's own prefix or host. Set
+`tenants.operator_routes_remote: true` in the process config to let a non-loopback peer use them (with the token). The routes exist only in tenant mode: with no
+`tenants:` block they are as unknown as any path.
+
+**Park** stops that companion's scheduler, watchdog, pollers and channels (the same stop as a shutdown, for it alone), asks a turn in flight to stop, closes its
+websocket clients (code 1013) and its database, and keeps its hosts reserved: its prefix (household) or hosts answer 503, its socket path answers 503, and the
+house list says `unavailable`. It does not touch another companion: their routes, sockets, scheduler and Revien are as they were. **Revive** builds the companion
+again from its files as they are now, by the code path boot uses (the same admission, the same layout check a reload makes, the same service start under the same
+catch), so a companion whose files were fixed while it was parked comes back; one that fails to start stays down, the answer is a 500 with the line, and the line is
+kept (`GET` shows it). A companion that did not start at boot (listed `failed`) is revived with the same call. A park of one that is not running, or a revive of one
+that is, is 409; a name with no folder is 404. The folder list is the one read at boot: a new folder still needs a restart.
+
+What a park is not: it is one process still, so it is not a security measure against the companion (it keeps its files and its token). The loopback rule keeps the
+routes off public hostnames, not off the host: the token is a file the server's OS user can read, and every companion's harness child runs as that user, so under
+the one-OS-user setup a companion (or anyone who can prompt-inject one over a channel) can read it and park a neighbour. It is the same limit the walls section states
+for reads, and one OS user per tenant, or a sandbox in `spawnWrapper`, is the real fix. A turn in flight is asked to stop and the park waits for it (up to 30 s)
+before it closes the database; a harness child that ignores the stop is not killed: the park returns with `turn_still_running: true`, and a revive is refused with
+409 until that turn and its child have ended. A request already inside the companion when the database closes answers 503, not 500. A plugin's own module state is not reset (one module is shared by every companion). The
+words are not interchangeable with the per-service parks above (a duplicate bot token or Revien address parks one service and leaves the companion up). A companion
+that held a bot token another companion also holds stays parked on that service until it is toggled, and a revive checks the token again, so a token another
+companion took while it was away parks it on that service.
 
 ### Compared with OpenClaw and Hermes Agent
 
@@ -548,9 +587,10 @@ Both projects were read for how they isolate (their docs and issue trackers, mai
 | Sandbox | per agent or session, optional, documented as not a perfect boundary | none in-process | none in-process; the `spawnWrapper` seam |
 | Trust statement | one trust boundary per gateway; adversarial users need a separate gateway and OS user | in-process isolation is not enough for adversarial profiles | the same: option (a), or the seam |
 
-What they have and this does not: a filesystem sandbox per agent, per-agent tool allow and deny lists, hot park and revive of one
-tenant without a restart, and a full per-profile HOME as an option (here it is the only mode). Those are in the roadmap. A doctor
-command exists now: `npm run doctor` (below); an audit of a running process's state does not. Their open reports are the checklist this was built against: a singleton that wrote one profile's memory into
+What they have and this does not: a filesystem sandbox per agent, per-agent tool allow and deny lists, and a full per-profile
+HOME as an option (here it is the only mode). Those are in the roadmap. A doctor command exists now: `npm run doctor` (below); an
+audit of a running process's state does not. Hot park and revive of one tenant exists too ("Parking a companion", below). Their open
+reports are the checklist this was built against: a singleton that wrote one profile's memory into
 another, configuration bridged into the process environment, scope lost across an executor or a watcher task, a same-named MCP
 server shared across profiles, a reload with no secret scope. Each has a counterpart here (per-tenant state behind `tenantLocal`,
 the environment never written, bound callbacks, MCP keyed by tenant, `rt.reload()` reading the tenant's own files) and a test.

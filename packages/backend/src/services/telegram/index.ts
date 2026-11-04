@@ -30,6 +30,10 @@ export class TelegramService {
   private registry: ConnectionRegistry;
   private debouncer: TelegramDebouncer;
   private started = false;
+  /** Bumped by stop(): a start() still awaiting getMe() sees it changed and abandons (no polling, no health interval). */
+  private generation = 0;
+  /** The start() in flight (settles once it has launched or abandoned), so stop() can wait for its abandonment. */
+  private pendingStart: Promise<void> | null = null;
   private lastPollingActivity: number = 0;
   private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
   private restartAttempts = 0;
@@ -669,15 +673,23 @@ export class TelegramService {
   }
 
   async start(): Promise<void> {
+    const run = this.startInner();
+    this.pendingStart = run;
+    try { await run; } finally { if (this.pendingStart === run) this.pendingStart = null; }
+  }
+
+  private async startInner(): Promise<void> {
     const token = getBotToken('telegram');
     if (!token) {
       console.error('[Telegram] no token in DB or env — gateway disabled');
       return;
     }
 
+    const gen = this.generation;
     try {
       // Verify bot token is valid
       const me = await this.bot.telegram.getMe();
+      if (gen !== this.generation) { console.log('[Telegram] start abandoned: stopped while verifying the bot'); return; } // stop() came during getMe: no polling, no interval
       console.log(`[Telegram] Bot verified: @${me.username}`);
 
       // launch() starts long-polling and never resolves — don't await it
@@ -738,6 +750,12 @@ export class TelegramService {
   }
 
   async stop(): Promise<void> {
+    this.generation++; // whatever start() still has in flight (getMe) is over
+    const pending = this.pendingStart;
+    if (pending) { // (bounded: a getMe that never answers must not hold a park; start abandons on its own when it does)
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try { await Promise.race([pending, new Promise<void>((r) => { timer = setTimeout(r, 5000); timer.unref?.(); })]); } catch { /* start logs its own failure */ } finally { if (timer) clearTimeout(timer); }
+    }
     if (!this.started) return;
     console.log('[Telegram] Shutting down gateway...');
     if (this.healthCheckInterval) {

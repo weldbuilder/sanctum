@@ -19,6 +19,7 @@ data/.google-key
 data/.internal-token
 .google-key
 .internal-token
+.operator-token
 .tv-token
 logs/
 *.db

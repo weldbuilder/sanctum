@@ -15,6 +15,7 @@ import type {
 } from '@sanctum/shared';
 import { getSanctumConfig } from '../config.js';
 import { tenantOrNull, tenantLocal } from '../tenancy/context.js';
+import { TenantParked } from '../tenancy/errors.js';
 import { embed, vectorToBuffer } from './embeddings.js';
 import { cacheEmbedding, removeEmbedding } from './vector-cache.js';
 
@@ -361,7 +362,7 @@ export function openDb(dbPath: string): Database.Database {
 
 export function getDb(): Database.Database {
   const tenant = tenantOrNull('getDb');
-  if (tenant) return tenant.db;
+  if (tenant) { if (tenant.parked) throw new TenantParked(); return tenant.db; }
   if (!db) {
     throw new Error('Database not initialized. Call initDb() first.');
   }

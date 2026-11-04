@@ -16,7 +16,7 @@ things each verification pass left behind. Update it when a PR merges.*
 | – | In-app setup wizard (first-run page, Run setup again, CLI on one declarative plan with a byte-identical replay) | `CONFIGURATION.md`, README step 8 |
 | – | `npm run doctor`: config, tenants (boot scan, clashes, never-inherited table, file modes, homes) and process health checks, OK / WARN / FAIL, `--tenant`, `--json`, no secrets | `MULTI-TENANT.md`, `CONFIGURATION.md` |
 | – | Skins: six rooms and materials, Extra readable, safe preview | `CONFIGURATION.md` §7 |
-| 9 | Multi-tenant: built (option b): several tenants in one process, each with its own database, login, channels, scheduler and harness homes, inheriting the operator's `sanctum.yaml`; the wizard per tenant (`--tenant`) and the first-run page; household mode (the default: one login, a `/c/<id>/` path prefix per companion, `tenants.auth: per-tenant` for the hostname shape); option (a) one clone per tenant stays documented | `MULTI-TENANT.md` |
+| 9 | Multi-tenant: built (option b): several tenants in one process, each with its own database, login, channels, scheduler and harness homes, inheriting the operator's `sanctum.yaml`; the wizard per tenant (`--tenant`) and the first-run page; household mode (the default: one login, a `/c/<id>/` path prefix per companion, `tenants.auth: per-tenant` for the hostname shape); hot park and revive of one tenant without a restart (`POST /api/internal/tenants/<id>/park` and `/revive`, behind the operator token); option (a) one clone per tenant stays documented | `MULTI-TENANT.md` |
 | – | In-app update: a bar on Home and Chat ("Update and restart", password asked again), one job at a time, a rollback copy and a roll back, a dirty git tree refused, restart under pm2 or by the app's own replacement process; a swap cut short is put back before the app loads (`packages/backend/boot.mjs`, a dependency-free pre-boot recovery and re-exec); messages during the update are refused and kept, skipped wakes catch up once; `npm run update` shares the steps | `CONFIGURATION.md` "Updating from inside the app", `MULTI-TENANT.md` |
 
 ## Next, in the agreed order
@@ -57,7 +57,6 @@ Small, each a few lines; none blocks anything.
 
 **Multi-tenant (item 9, built)**
 - Per-tenant tool allow and deny lists, and skill allowlists.
-- Hot park and revive of one tenant without a process restart.
 - An OS-user or sandbox boundary per tenant for adversarial tenants (the `spawnWrapper` seam in `tenancy/child.ts` does nothing yet).
 - A real-SDK two-tenant soak (two real logins, real turns); the local runbook is in `MULTI-TENANT.md`.
 - dsh's `/tmp` exclude; an audit of the ~20 local-time sites so a tenant may have its own timezone.
