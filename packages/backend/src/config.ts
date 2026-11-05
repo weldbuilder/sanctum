@@ -773,7 +773,27 @@ const PRISTINE_DEFAULTS: SanctumConfig = structuredClone(DEFAULTS);
  *  override, and loadConfig then writes into the result: the process may do that to the one config it has, but two tenants must not
  *  write into one shared DEFAULTS, so a tenant merges over a copy. (loadConfig keeps calling deepMerge on DEFAULTS as it always did.) */
 export function mergeConfigDefaults(fileConfig: Record<string, unknown>): SanctumConfig {
-  return deepMerge(structuredClone(PRISTINE_DEFAULTS) as unknown as Record<string, unknown>, fileConfig) as unknown as SanctumConfig;
+  const merged = deepMerge(structuredClone(PRISTINE_DEFAULTS) as unknown as Record<string, unknown>, fileConfig) as unknown as SanctumConfig;
+  coerceSwitches(merged);
+  return merged;
+}
+
+/** Make every switch in a merged config a real boolean. A key is a switch when its shipped default is a boolean, so a new switch inherits this
+ *  with no list to update. yaml words (yes/on/1, no/off/0, "true", "false", any case) go through the settings service's parseBoolWord; anything
+ *  else is false (badSwitchWarning says so once at load); an empty value (`~`) is "not set", so the default stands. Readers of cfg then agree
+ *  with GET /api/preferences, which has always read the same words. */
+export function coerceSwitches(merged: SanctumConfig, defaults: SanctumConfig = PRISTINE_DEFAULTS): void {
+  const walk = (cur: Record<string, unknown>, def: Record<string, unknown>): void => {
+    for (const [k, d] of Object.entries(def)) {
+      if (typeof d === 'boolean') {
+        const v = cur[k];
+        cur[k] = v === undefined || v === null ? d : parseBoolWord(v) ?? false;
+      } else if (d && typeof d === 'object' && !Array.isArray(d) && cur[k] && typeof cur[k] === 'object' && !Array.isArray(cur[k])) {
+        walk(cur[k] as Record<string, unknown>, d as Record<string, unknown>);
+      }
+    }
+  };
+  walk(merged as unknown as Record<string, unknown>, defaults as unknown as Record<string, unknown>);
 }
 
 /** The environment-variable overrides on a merged config (env wins over yaml). A pure function of `merged` and the `env` it is given:
@@ -919,6 +939,7 @@ export function loadConfig(configPath?: string): SanctumConfig {
 
   // Merge: defaults <- yaml <- env overrides
   const merged = deepMerge(DEFAULTS as unknown as Record<string, unknown>, fileConfig) as unknown as SanctumConfig;
+  coerceSwitches(merged); // before the env overrides: they set real booleans
 
   // Environment variable overrides
   applyEnvOverrides(merged, process.env);

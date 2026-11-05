@@ -597,3 +597,36 @@ describe('single-tenant config golden', () => {
     }
   });
 });
+
+describe('yaml switch words are coerced to booleans at load', () => {
+  const load = async (yamlText: string) => {
+    vi.resetModules();
+    const { mkdtempSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const file = join(mkdtempSync(join(tmpdir(), 'sanctum-cfg-')), 'sanctum.yaml');
+    writeFileSync(file, yamlText);
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const m = await import('./config.js');
+    return { cfg: m.loadConfig(file) as any, warn };
+  };
+  it('no / off / "false" are false and yes is true, whatever the key (every boolean default is a switch)', async () => {
+    const { cfg, warn } = await load('agent:\n  app_write: no\n  codex:\n    network_access: "off"\norchestrator:\n  enabled: off\nvoice:\n  enabled: "false"\nimagegen:\n  safety_checker: yes\ncommand_center:\n  enabled: On\n');
+    expect(cfg.agent.app_write).toBe(false);
+    expect(cfg.agent.codex.network_access).toBe(false);
+    expect(cfg.orchestrator.enabled).toBe(false);
+    expect(cfg.voice.enabled).toBe(false);
+    expect(cfg.imagegen.safety_checker).toBe(true);
+    expect(cfg.command_center.enabled).toBe(true);
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes('switch'))).toHaveLength(0);
+  });
+  it('a word that is not one is false with one warning; an empty value leaves the default', async () => {
+    const { cfg, warn } = await load('agent:\n  app_write: maybe\norchestrator:\n  enabled: ~\n');
+    expect(cfg.agent.app_write).toBe(false);
+    expect(cfg.orchestrator.enabled).toBe(true); // the shipped default
+    const lines = warn.mock.calls.map((c) => String(c[0])).filter((t) => t.includes('not true/false/yes/no/on/off/1/0'));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('agent.app_write: "maybe"');
+  });
+});

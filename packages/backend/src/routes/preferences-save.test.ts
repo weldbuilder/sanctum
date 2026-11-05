@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 
-const h = vi.hoisted(() => ({ root: '' }));
+const h = vi.hoisted(() => ({ root: '', cfg: null as any }));
 vi.mock('../config.js', async () => {
   const actual = await vi.importActual<typeof import('../config.js')>('../config.js');
   const { mkdtempSync } = await import('node:fs');
@@ -20,6 +20,7 @@ vi.mock('../config.js', async () => {
     server: { host: '127.0.0.1', port: 3099, db_path: ':memory:' }, auth: { password: '' }, agent: { model: 'file-model', model_autonomous: '' },
     discord: actual.normalizeDiscordConfig({}, '/srv/home', { warn: () => {} }),
   };
+  h.cfg = cfg;
   return { ...actual, PROJECT_ROOT: h.root, getSanctumConfig: () => cfg };
 });
 vi.mock('../middleware/auth.js', async () => {
@@ -31,6 +32,9 @@ import router from './api.js';
 import { initDb, setConfig } from '../services/db.js';
 import { updateAuthPreferences } from '../services/auth-preferences.js';
 import { registerProcessFile } from '../tenancy/context.js';
+import { mergeConfigDefaults } from '../config.js';
+import { appWriteGate } from '../middleware/app-write.js';
+import yaml from 'js-yaml';
 
 const YAML = 'identity:\n  companion_name: FromFile\nagent:\n  model: file-model\n  model_autonomous: ""\ndiscord:\n  enabled: false\n';
 let server: Server;
@@ -91,6 +95,34 @@ describe('PUT /api/preferences writes only what changes the yaml layer', () => {
     const r = await put({ voice: { enabled: false, elevenlabs_voice_id: '' }, hooks: { extra_write_paths: [] }, agent: { app_write: true } });
     expect(r.written).toEqual([]);
     expect(readFileSync(file(), 'utf8')).toBe(YAML);
+  });
+});
+
+describe('a yaml switch word is read the same by the runtime and by Settings', () => {
+  it('agent.app_write: no -> GET shows false, the posted false has nothing to write, and the app-write gate answers 403', async () => {
+    const yamlText = YAML.replace('agent:\n', 'agent:\n  app_write: no\n');
+    writeFileSync(file(), yamlText);
+    const parsed = yaml.load(yamlText) as Record<string, any>;
+    expect(parsed.agent.app_write).toBe('no'); // js-yaml 1: a string
+    registerProcessFile(() => parsed);
+    const saved = h.cfg.agent;
+    h.cfg.agent = { ...saved, app_write: mergeConfigDefaults(parsed).agent.app_write }; // what loadConfig hands the runtime
+    try {
+      expect(h.cfg.agent.app_write).toBe(false);
+      expect((await get('/preferences')).agent.app_write).toBe(false);
+      const r = await put({ agent: { app_write: false } });
+      expect(r.success).toBe(true);
+      expect(r.written).toEqual([]); // correct: the effective value is already false
+      expect(readFileSync(file(), 'utf8')).toBe(yamlText);
+      const gated = express();
+      gated.post('/w', appWriteGate, (_req, res) => { res.json({ ok: true }); });
+      const gs: Server = await new Promise((ok) => { const x = gated.listen(0, '127.0.0.1', () => ok(x)); });
+      try {
+        const res = await fetch(`http://127.0.0.1:${(gs.address() as AddressInfo).port}/w`, { method: 'POST' });
+        expect(res.status).toBe(403);
+        expect((await res.json()).error).toBe('app_write_off');
+      } finally { await new Promise((ok) => gs.close(ok)); }
+    } finally { h.cfg.agent = saved; }
   });
 });
 

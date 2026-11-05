@@ -98,6 +98,22 @@ This is handy when you want to change one thing temporarily without editing your
 Because every key has a default, **a nearly-empty `sanctum.yaml` is completely
 valid.** You only need to write down the things you want to change.
 
+### Yes/no switches: the words you can write
+
+Every on/off key (`enabled`, `app_write`, `network_access`, `safety_checker`,
+and so on) reads the same words, in any case, at load time. The app turns them
+into a real true or false before anything uses them, so Settings and the running
+app always agree.
+
+| You write | It means |
+| --- | --- |
+| `true`, `yes`, `on`, `1` | on |
+| `false`, `no`, `off`, `0` | off |
+| anything else (`maybe`, `2`, `""`) | **off**, with one warning in the log |
+
+A key left empty (`enabled: ~`) counts as not set, so its default applies.
+Quoting makes no difference: `"false"` is off.
+
 ### A gotcha worth knowing up front
 
 Any path you write in `sanctum.yaml` (like `./data/sanctum.db`) is measured
