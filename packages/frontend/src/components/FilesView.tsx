@@ -449,11 +449,11 @@ export function FilesView() {
     }
   }, [threadId, generated]);
 
-  const generatedDone = useCallback((provider: string) => {
+  const generatedDone = useCallback(() => {
     setFilter('generated');
     setGenListing('loading');
     setGenTick(t => t + 1);
-    setNotice({ text: provider ? `Generated with ${provider}` : 'Generated', error: false });
+    setNotice({ text: 'Picture generated', error: false });
   }, []);
 
   // ─── What is shown ───
@@ -717,7 +717,7 @@ export function FilesView() {
                           <span className="fl-tile-foot">
                             <span className="fl-tile-text">
                               <span className="fl-tile-name" title={g.prompt || g.name}>{clipPrompt(g.prompt || g.name)}</span>
-                              <span className="fl-meta">{[g.provider, g.createdAt ? ago(g.createdAt) : ''].filter(Boolean).join(' · ')}</span>
+                              <span className="fl-meta">{g.createdAt ? ago(g.createdAt) : ''}</span>
                             </span>
                           </span>
                         </button>

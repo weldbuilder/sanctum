@@ -25,7 +25,6 @@ export interface ImageGenFormProps {
 export function ImageGenForm(p: ImageGenFormProps) {
   const reason = statusReason(p.status);
   const offered = p.status?.offered === true;
-  const provider = p.status?.provider || 'the provider';
   const canGo = offered && !p.generating && p.prompt.trim().length > 0;
   return (
     <section className="fl-gen fl-panel fl-plate" aria-label="Generate an image">
@@ -44,7 +43,7 @@ export function ImageGenForm(p: ImageGenFormProps) {
           />
         </div>
         {reason && <p className="fl-gen-line" role="status">{reason}</p>}
-        {p.generating && <p className="fl-gen-line" role="status">Generating with {provider}…</p>}
+        {p.generating && <p className="fl-gen-line" role="status">Generating…</p>}
         {p.error && !p.generating && <p className="fl-gen-line fl-gen-error" role="alert">{p.error}</p>}
         <div className="fl-gen-actions">
           <button type="submit" className="fl-btn fl-btn-primary hearth-press" disabled={!canGo}>Generate</button>
@@ -78,8 +77,8 @@ export function ImageGenForm(p: ImageGenFormProps) {
 
 export function ImageGenPanel({ onClose, onGenerated }: {
   onClose: () => void;
-  /** The server made a picture; the page refetches and shows it. `provider` is for the confirmation line. */
-  onGenerated: (provider: string) => void;
+  /** The server made a picture; the page refetches and shows it. */
+  onGenerated: () => void;
 }) {
   const [status, setStatus] = useState<ImageStatus | null>(null);
   const [prompt, setPrompt] = useState('');
@@ -110,7 +109,7 @@ export function ImageGenPanel({ onClose, onGenerated }: {
       });
       const body = await r.json().catch(() => null) as { error?: string; provider?: string; detail?: string } | null;
       if (!r.ok) { setError(generateError(r.status, body)); return; }
-      onGenerated((body as { provider?: string } | null)?.provider || status?.provider || '');
+      onGenerated();
     } catch (e) {
       if ((e as { name?: string }).name !== 'AbortError') setError(generateError(0, { provider: status?.provider, detail: 'network' }));
     } finally {

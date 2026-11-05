@@ -33,7 +33,7 @@ describe('the image generation panel in Files', () => {
 
   it('generating and error lines', () => {
     const status = { configured: true, offered: true, provider: 'runware' };
-    expect(renderToStaticMarkup(<ImageGenForm {...base} status={status} prompt="x" generating />)).toContain('Generating with runware…');
+    expect(renderToStaticMarkup(<ImageGenForm {...base} status={status} prompt="x" generating />)).toContain('Generating…');
     expect(renderToStaticMarkup(<ImageGenForm {...base} status={status} prompt="x" error="Provider key was rejected" />)).toContain('Provider key was rejected');
   });
 });
