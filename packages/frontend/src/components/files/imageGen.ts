@@ -42,7 +42,7 @@ export function generateError(status: number, body: { error?: string; provider?:
     case 'billing': return 'Provider account is out of credit';
     case 'rate_limit': return 'Rate limited, try again in a minute';
     case 'timeout': return 'The provider took too long';
-    default: return `Generation failed (${provider})`;
+    default: return 'Generation failed';
   }
 }
 

@@ -20,13 +20,13 @@ describe('image generation helpers', () => {
     expect(e('billing')).toBe('Provider account is out of credit');
     expect(e('rate_limit')).toBe('Rate limited, try again in a minute');
     expect(e('timeout')).toBe('The provider took too long');
-    expect(e('server')).toBe('Generation failed (runware)');
-    expect(e('network')).toBe('Generation failed (runware)');
+    expect(e('server')).toBe('Generation failed');
+    expect(e('network')).toBe('Generation failed');
     expect(generateError(504, null)).toBe('The provider took too long');
     expect(generateError(400, { error: 'prompt_required' })).toBe('Write a prompt first');
     expect(generateError(403, null)).toContain('Companion app writes are off');
     expect(generateError(409, null)).toContain("isn't set up");
-    expect(generateError(500, null)).toBe('Generation failed (provider)');
+    expect(generateError(500, null)).toBe('Generation failed');
   });
 
   it('says what a failed share means', () => {
