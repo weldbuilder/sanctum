@@ -49,20 +49,48 @@ chmod 600 .env
 Then open each in any text editor and fill in what you want. Both templates are
 heavily commented, so you can often just read down the file and edit in place.
 
-### How the two files fit together (and who wins)
+### How the layers fit together (and who wins)
 
-Every setting has a **built-in default** baked into the code. On top of that,
-`sanctum.yaml` overrides the defaults, and `.env` overrides `sanctum.yaml`.
-The rule, in order of who wins:
+Every setting has a **built-in default** baked into the code. Four layers can say something about it, and **one rule** decides, for every setting, in one
+place (the settings service, `packages/backend/src/services/settings`):
 
 ```
-built-in default   ←   sanctum.yaml   ←   .env
-(weakest)                                   (strongest — env always wins)
+built-in default   <   sanctum.yaml   <   .env   <   SQLite
+(weakest)                                           (strongest)
 ```
 
-So if `sanctum.yaml` says `port: 3099` but your `.env` says `PORT=4000`, the app
-runs on `4000`. The environment variable wins. This is handy when you want to
-change one thing temporarily without editing your main config.
+"SQLite" is the app's own database: the `config` table, plus the tables that already acted as overrides (`auth_preferences` for the model and the
+Anthropic credential, the stored bot tokens, `google_auth` for the Google client). So the **.env does not always win**: where a setting has a
+database home, a value saved there beats both `.env` and `sanctum.yaml`. If `sanctum.yaml` says `port: 3099` and `.env` says `PORT=4000`, the app runs
+on `4000` (port has no database home); if `sanctum.yaml` says `discord.enabled: true` and `.env` says `DISCORD_ENABLED=true`, but you switched Discord
+off in Settings, it stays off.
+
+**A save in Settings lands in the database, and therefore wins over `sanctum.yaml` and `.env`.** To go back to what the files say, clear the
+database value.
+
+Settings that have a database home today:
+
+| Setting | Database home |
+|---|---|
+| `discord.enabled`, `telegram.enabled`, `handoff.enabled` | `config` rows of the same names |
+| `orchestrator.failsafe.*`, `pulse.enabled`, `pulse.frequency` | `config` rows `failsafe.*`, `pulse.*` |
+| a wake's schedule, switch, model and target | `config` rows `cron.<type>.schedule / enabled / model / target` |
+| `integrations.mind_cloud.enabled / mcp_url / mind_id` and the Mind key | `config` rows `mind.*` (the key beats `MIND_API_KEY`, which beats the companion's `.mcp.json` bearer) |
+| the chat and autonomous model (`agent.model`, `agent.model_autonomous`) | `auth_preferences.preferred_model(_autonomous)`, and the `config` row `agent.model` that the `/model` command writes |
+| Discord and Telegram bot tokens | encrypted `config` rows (beat `DISCORD_BOT_TOKEN`, `TELEGRAM_BOT_TOKEN`) |
+| `telegram.owner_chat_id` | `config` row `telegram.ownerChatId` |
+| Google client id and secret | `google_auth` (beats `GOOGLE_CLIENT_ID/SECRET`, which beat `google.*`) |
+| the Anthropic API key and auth mode | `auth_preferences` |
+
+Every other setting is `default < sanctum.yaml < .env` (the `.env` layer only where a variable exists, see section 4). Two things sit above the rule and are
+not settings: the per-thread model picker and a scheduled wake's own model. The login password has no database home: `APP_PASSWORD` (from the environment
+the program was started with, else `.env`) beats `auth.password`.
+
+Two quirks kept as they were: `DISCORD_ENABLED` and `TELEGRAM_ENABLED` count only when they say `true` (a `false` there is ignored), and
+`GET /api/preferences` and `GET /api/settings` answer with the effective value and a `sources` map saying which layer each came from (`default`,
+`yaml`, `env`, `db`; the Mind URL can also be `mcp_json`). Secrets are only ever reported as `{ set, source }`.
+
+This is handy when you want to change one thing temporarily without editing your main config.
 
 Because every key has a default, **a nearly-empty `sanctum.yaml` is completely
 valid.** You only need to write down the things you want to change.
@@ -430,7 +458,6 @@ The server never makes a password up for the setup screen (it could not hand one
 
 | Key | Default | Meaning |
 |---|---|---|
-| `context_injection` | `true` | Feed your AI its identity, your context cards, and memory each turn. Leave on. |
 | `safe_write_prefixes` | `[]` | Legacy extra write-allowed path prefixes. |
 | `workspace_root` | `""` | A folder the agent is allowed to write within. Env: `WORKSPACE_ROOT`. |
 | `vault_path` | `""` | A notes/vault folder the agent may write within. Env: `VAULT_PATH`. |
@@ -524,7 +551,6 @@ Saving a `mind.*` setting while a check is running queues exactly one more check
 
 | Key | Default | Meaning |
 |---|---|---|
-| `enabled` | `false` | Legacy master gate. (The Workspace tools mount is always present now and self-gates per app; you normally connect Google from the Settings UI, not here.) |
 | `client_id` | `""` | Desktop OAuth client id from your Google Cloud project. Env: `GOOGLE_CLIENT_ID`. |
 | `client_secret` | `""` | Desktop OAuth client secret. Env: `GOOGLE_CLIENT_SECRET`. |
 
@@ -535,9 +561,8 @@ Saving a `mind.*` setting while a check is running queues exactly one more check
 | `enabled` | `false` | Turn on the relational dashboard (calendar, care, cycle, finances, lists, pets, planner, stats) and its tool mount. |
 | `default_person` | `"user"` | Whose care rows the page reads and writes. |
 | `currency_symbol` | `"$"` | Symbol shown on the finances view. |
-| `care_categories.toggles` | `[breakfast, lunch, dinner, snacks, medication, movement, shower]` | Yes/no things to track each day. |
-| `care_categories.ratings` | `[sleep, energy, wellbeing, mood]` | Things rated on a scale. |
-| `care_categories.counters` | `[{name: water, max: 10}]` | Countable things, with a daily max. |
+
+(`care_categories`, `hooks.context_injection` and `google.enabled` were removed: nothing read them. A yaml that still carries one is told so at startup and the value is ignored. Care categories are kept in the database, edited in the Command Center.)
 
 ### `plugins` — who manages plugins, and which are on
 
@@ -754,7 +779,7 @@ DISCORD_BOT_TOKEN=
 TELEGRAM_BOT_TOKEN=
 GIPHY_API_KEY=           # Optional, for Telegram's /gif command
 
-# ── Google Workspace (also needs google.enabled: true) ─
+# ── Google Workspace (the client; or connect it from Settings) ─
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_TOKEN_SECRET=     # Auto-generated if unset (data/.google-key)

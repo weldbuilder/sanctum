@@ -1,5 +1,6 @@
 import { getDb } from './db.js';
 import { tenancyEnabled, tenantLocal } from '../tenancy/context.js';
+import { resolveSetting } from './settings/index.js';
 
 export type AuthMode = 'subscription' | 'api_key';
 
@@ -130,13 +131,15 @@ export function applyAuthToEnv(): Record<string, string | undefined> {
 }
 
 /**
- * Returns the effective model for a given role, with preference override
- * falling back to the YAML default.
+ * The effective model for a role, from the settings service's one rule (default < sanctum.yaml < .env < SQLite). The db layer is this
+ * table's preferred_model / preferred_model_autonomous, then the KV row agent.model (the /model command). `fallback` is what the caller
+ * would use when the service holds nothing (it never is, short of a missing registry entry).
+ *
+ * Above this, in agent.ts and not config: the per-thread model (threads.model) and a scheduled wake's own modelOverride.
  */
-export function effectiveModel(role: 'interactive' | 'autonomous', yamlDefault: string): string {
-  const prefs = getAuthPreferences();
-  if (role === 'interactive') return prefs.preferred_model ?? yamlDefault;
-  return prefs.preferred_model_autonomous ?? yamlDefault;
+export function effectiveModel(role: 'interactive' | 'autonomous', fallback: string): string {
+  const r = resolveSetting(role === 'interactive' ? 'agent.model' : 'agent.model_autonomous');
+  return typeof r.value === 'string' ? r.value : fallback;
 }
 
 /**

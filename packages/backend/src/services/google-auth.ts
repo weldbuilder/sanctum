@@ -31,6 +31,7 @@ import { getDb } from './db.js';
 import { getSanctumConfig } from '../config.js';
 import { tenantLocal, envFor, tenantOrNull } from '../tenancy/context.js';
 import { issueTenantState, parseTenantState, consumeNonce } from '../tenancy/google-state.js';
+import { resolveSetting, resolveSecret } from './settings/index.js';
 
 // Derive the OAuth2Client / Credentials types from `google.auth.OAuth2` itself,
 // NOT from a direct `google-auth-library` import. googleapis bundles its own
@@ -594,19 +595,18 @@ function readStoredCreds(): GoogleCreds | null {
   return { clientId, clientSecret };
 }
 
-/** Read creds from env / sanctum.yaml (power-user fallback / override). */
-function readEnvCreds(): GoogleCreds | null {
-  const cfg = getSanctumConfig().google;
-  const env = envFor('google credentials'); // tenant mode: the tenant's own .env only
-  const clientId = env.GOOGLE_CLIENT_ID || cfg?.client_id || '';
-  const clientSecret = env.GOOGLE_CLIENT_SECRET || cfg?.client_secret || '';
-  if (!clientId || !clientSecret) return null;
-  return { clientId, clientSecret };
+/** The creds saved through Settings (the typed google_auth row), for the settings service; null unless both halves are there and decrypt. */
+export function storedGoogleCreds(): GoogleCreds | null {
+  return readStoredCreds();
 }
 
-/** Effective creds, precedence: UI-saved FIRST, then env/config. */
+/** Effective creds through the settings service: the Settings-saved pair (google_auth) first, then GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET from
+ *  .env (the tenant's own in tenant mode), then sanctum.yaml's google.client_id / client_secret. Both halves must be there. */
 function readCreds(): GoogleCreds | null {
-  return readStoredCreds() ?? readEnvCreds();
+  const clientId = String(resolveSetting('google.client_id').value ?? '');
+  const clientSecret = resolveSecret('google.client_secret') ?? '';
+  if (!clientId || !clientSecret) return null;
+  return { clientId, clientSecret };
 }
 
 /** Persist UI-supplied creds. clientId plain; clientSecret ENCRYPTED. */

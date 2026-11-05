@@ -30,7 +30,7 @@ export const INHERIT_TABLE = Object.freeze([
   { inherit: true, paths: ['skins', 'appearance'], why: 'skins and appearance' },
   { inherit: true, paths: ['plugins.enabled', 'plugins.trust'], why: 'which plugins are on and who manages them' },
   { inherit: true, paths: ['command_center.*', 'handoff.*', 'outlook.*'], why: 'Command Center, handoff and outlook settings' },
-  { inherit: true, paths: ['discord.*', 'telegram.*', 'google.enabled'], why: 'channel switches and limits (the bots and their tokens are the tenant\'s own)' },
+  { inherit: true, paths: ['discord.*', 'telegram.*'], why: 'channel switches and limits (the bots and their tokens are the tenant\'s own)' },
   { inherit: true, paths: ['(any other key)'], why: 'a key this table does not name is inherited, unless its name looks like a secret (the last row below)' },
   // ── never inherited ────────────────────────────────────────────────────────
   { inherit: false, paths: ['agent.cwd', 'agent.claude_md_path', 'agent.mcp_json_path', 'agent.system_prompt_file', 'agent.dsh.home', 'agent.dsh.command', 'agent.dsh.base_instructions_file', 'agent.codex.base_instructions_file', 'agent.codex.additional_directories', 'agent.rolling.summarizer_instructions_file'], why: 'a path: every tenant has its own folder' },

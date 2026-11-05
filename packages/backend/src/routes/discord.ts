@@ -4,7 +4,8 @@
 import { Router } from 'express';
 import { registry } from '../services/ws.js';
 import { hasBotToken } from '../services/bot-token.js';
-import { getConfig, setConfig, getConfigBool } from '../services/db.js';
+import { getConfig, setConfig } from '../services/db.js';
+import { resolveSetting } from '../services/settings/index.js';
 import { getSanctumConfig } from '../config.js';
 import { eventSummary } from '../services/logs.js';
 import { DiscordService } from '../services/discord/index.js';
@@ -33,7 +34,7 @@ const settingsView = () => {
 discordRouter.get('/status', (req, res) => {
   try {
     const discordService = req.app.locals.discordService as DiscordService | null;
-    const configEnabled = getConfigBool('discord.enabled', false);
+    const configEnabled = resolveSetting('discord.enabled').value === true; // the effective switch (default < yaml < .env < db), what boot used
     const hasToken = hasBotToken('discord');
     // Lane state, gate state (counts and states, never entries), paused, the private folder. Read-only.
     const lanes = buildDiscordStatus(getSanctumConfig().discord, getDiscordPaths(), { words: wordGateStatus(), names: nameGuardStatus() }, { ownerUserIdOverride: getConfig('discord.ownerUserId') || '', exclusions: exclusionsStatus(), publicHarnessSupported: publicHarnessSupported(), recentFailures: eventSummary('discord') });

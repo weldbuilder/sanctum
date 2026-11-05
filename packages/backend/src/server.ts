@@ -330,13 +330,13 @@ const pushService = TENANT_MODE ? (null as never) : new PushService(
 if (!TENANT_MODE) agentService.setPushService(pushService);
 
 // Initialize Discord gateway (config-gated with env fallback)
-import { getConfigBool } from './services/db.js';
+import { resolveSetting } from './services/settings/index.js';
 import { hasBotToken } from './services/bot-token.js';
 
 let discordService: DiscordService | null = null;
 
-// Check config DB first, fall back to config file / env var for first boot
-const discordEnabled = !TENANT_MODE && getConfigBool('discord.enabled', config.discord.enabled);
+// The settings service's one rule: default < sanctum.yaml < .env < the database (a Settings toggle lives there).
+const discordEnabled = !TENANT_MODE && resolveSetting('discord.enabled').value === true;
 if (discordEnabled && hasBotToken('discord')) {
   discordService = new DiscordService(agentService, registry);
   discordService.start();
@@ -345,7 +345,7 @@ if (discordEnabled && hasBotToken('discord')) {
 // Initialize Telegram gateway (config-gated with env fallback)
 let telegramService: TelegramService | null = null;
 
-const telegramEnabled = !TENANT_MODE && getConfigBool('telegram.enabled', config.telegram.enabled);
+const telegramEnabled = !TENANT_MODE && resolveSetting('telegram.enabled').value === true;
 if (telegramEnabled && hasBotToken('telegram')) {
   telegramService = new TelegramService(agentService, registry, voiceService);
   telegramService.start();

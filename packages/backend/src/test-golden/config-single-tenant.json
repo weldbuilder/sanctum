@@ -86,7 +86,6 @@
       "enabled": false
     },
     "hooks": {
-      "context_injection": true,
       "safe_write_prefixes": [],
       "workspace_root": "",
       "vault_path": "",
@@ -145,37 +144,13 @@
       }
     },
     "google": {
-      "enabled": false,
       "client_id": "",
       "client_secret": ""
     },
     "command_center": {
       "enabled": false,
       "default_person": "user",
-      "currency_symbol": "$",
-      "care_categories": {
-        "toggles": [
-          "breakfast",
-          "lunch",
-          "dinner",
-          "snacks",
-          "medication",
-          "movement",
-          "shower"
-        ],
-        "ratings": [
-          "sleep",
-          "energy",
-          "wellbeing",
-          "mood"
-        ],
-        "counters": [
-          {
-            "name": "water",
-            "max": 10
-          }
-        ]
-      }
+      "currency_symbol": "$"
     },
     "cors": {
       "origins": []
@@ -282,7 +257,6 @@
       "enabled": false
     },
     "hooks": {
-      "context_injection": true,
       "safe_write_prefixes": [],
       "workspace_root": "",
       "vault_path": "",
@@ -341,37 +315,13 @@
       }
     },
     "google": {
-      "enabled": false,
       "client_id": "",
       "client_secret": ""
     },
     "command_center": {
       "enabled": false,
       "default_person": "user",
-      "currency_symbol": "$",
-      "care_categories": {
-        "toggles": [
-          "breakfast",
-          "lunch",
-          "dinner",
-          "snacks",
-          "medication",
-          "movement",
-          "shower"
-        ],
-        "ratings": [
-          "sleep",
-          "energy",
-          "wellbeing",
-          "mood"
-        ],
-        "counters": [
-          {
-            "name": "water",
-            "max": 10
-          }
-        ]
-      }
+      "currency_symbol": "$"
     },
     "cors": {
       "origins": []

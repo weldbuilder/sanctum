@@ -56,6 +56,7 @@ import { runEnvOption } from '../tenancy/child.js';
 import { backgroundRunsOff, bindCurrentTenant, tenantLocal } from '../tenancy/context.js';
 import { isInteractiveAgentBusy } from './agent.js';
 import { registry } from './ws.js';
+import { resolveSetting } from './settings/index.js';
 
 // --- Tuning constants -------------------------------------------------------
 
@@ -523,9 +524,7 @@ function recordResult(result: HandoffRunResult): void {
  *  Settings toggle persists without a yaml write — same pattern the orchestrator
  *  uses for `cron.*.schedule`). */
 export function isHandoffEnabled(): boolean {
-  const override = getConfig('handoff.enabled');
-  if (override !== null) return override === 'true' || override === '1';
-  return getSanctumConfig().handoff.enabled;
+  return resolveSetting('handoff.enabled').value === true; // default < sanctum.yaml < the KV row (no env twin)
 }
 
 /** Flip the enabled flag (persists in KV). Returns the new value. */

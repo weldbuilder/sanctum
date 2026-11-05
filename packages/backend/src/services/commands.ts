@@ -22,6 +22,7 @@ import {
 import { AgentService } from './agent.js';
 import { Orchestrator } from './orchestrator.js';
 import { getSanctumConfig } from '../config.js';
+import { resolveSetting } from './settings/index.js';
 import { tenantLocal } from '../tenancy/context.js';
 import type { ConnectionRegistry } from '../types.js';
 
@@ -231,7 +232,7 @@ function handleRename(threadId: string | undefined, args: string | undefined): S
 function handleModel(args: string | undefined): ServerMessage {
   const modelId = args?.trim();
   if (!modelId) {
-    const current = getConfig('agent.model') || getSanctumConfig().agent.model;
+    const current = resolveSetting('agent.model').value as string; // what the next message runs on (a thread's own model, if set, is above this)
     return {
       type: 'command_result',
       name: 'model',
@@ -241,13 +242,19 @@ function handleModel(args: string | undefined): ServerMessage {
     };
   }
 
+  // The KV row agent.model is a real candidate of the settings service (SQLite layer: beats sanctum.yaml and AGENT_MODEL). Say what is in effect
+  // afterwards, so a typed override above it (auth_preferences.preferred_model) cannot make this toast a lie.
   setConfig('agent.model', modelId);
+  const now = resolveSetting('agent.model');
+  const message = now.value === modelId
+    ? `Model switched to ${modelId}`
+    : `Saved ${modelId}, but ${String(now.value)} is in effect (set in ${now.candidates[now.candidates.length - 1]?.via ?? now.source})`;
 
   return {
     type: 'command_result',
     name: 'model',
     success: true,
-    data: { message: `Model switched to ${modelId}` },
+    data: { message },
     display: 'toast',
   };
 }

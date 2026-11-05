@@ -26,7 +26,7 @@ import { getSanctumConfig } from '../../config.js';
 import { query } from '../providers/index.js';
 import { applyAuthToEnv, effectiveModel } from '../auth-preferences.js';
 import { runEnvOption } from '../../tenancy/child.js';
-import { envFor, tenantLocal } from '../../tenancy/context.js';
+import { tenantLocal } from '../../tenancy/context.js';
 import { loadCompanionIdentity } from '../../identity/load.js';
 import { fillIdentityNames, renderIdentityPrompt } from '../../identity/render.js';
 import { errorClass } from '../error-class.js';
@@ -165,7 +165,7 @@ export async function runPublicTurn(input: PublicTurnInput, deps: PublicRuntimeD
     let failed = false;
     let hitMaxTurns = false; // a second model step was asked for (the model called a tool it does not have)
     try {
-      const model = effectiveModel('interactive', cfg.agent.model || envFor('the public lane model').AGENT_MODEL || 'claude-sonnet-5-5');
+      const model = effectiveModel('interactive', cfg.agent.model || 'claude-sonnet-5-5');
       for await (const msg of query({
         prompt,
         options: {

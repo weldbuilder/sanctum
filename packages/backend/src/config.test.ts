@@ -296,6 +296,28 @@ describe('plugins block (BLOCKER A)', () => {
     expect(cfg.plugins.dir).toBe('');
     expect(warn.mock.calls.flat().join('\n')).toMatch(/plugins_dir.*plugins\.dir/s);
   });
+  it('removed keys (nothing read them): one startup line names them, the values never reach the config, and live keys are not named', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { cfg } = await load('hooks:\n  context_injection: true\n  workspace_root: ""\ngoogle:\n  enabled: true\n  client_id: gid\ncommand_center:\n  enabled: true\n  care_categories:\n    toggles: [a]\ntelegram:\n  owner_chat_id: "77"\n');
+    const lines = warn.mock.calls.flat().map(String).filter((l) => l.includes('removed in this version'));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/hooks\.context_injection, google\.enabled, command_center\.care_categories: ignored, removed in this version/);
+    expect(lines[0]).not.toMatch(/owner_chat_id|client_id/);
+    expect(cfg.hooks).not.toHaveProperty('context_injection');
+    expect(cfg.google).not.toHaveProperty('enabled');
+    expect(cfg.command_center).not.toHaveProperty('care_categories');
+    expect(cfg.google.client_id).toBe('gid');
+    expect(cfg.telegram.owner_chat_id).toBe('77'); // still read (telegram/config.ts), so still a key
+  });
+  it('a yaml with none of the removed keys gets no such line, and GOOGLE_ENABLED is no longer read', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    process.env.GOOGLE_ENABLED = 'true';
+    try {
+      const { cfg } = await load('agent:\n  model: x\n');
+      expect(warn.mock.calls.flat().map(String).join('\n')).not.toMatch(/removed in this version/);
+      expect(cfg.google).not.toHaveProperty('enabled');
+    } finally { delete process.env.GOOGLE_ENABLED; }
+  });
   it('S6: the legacy warning names the new key and the value it would have migrated', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await load('plugins_dir: "/my/old/plugins"\n');
@@ -449,6 +471,17 @@ describe('the app password is held by the config, not in process.env (provider c
     expect(m.loadConfig(file).auth.password).toBe('from-the-env');
     expect(process.env.APP_PASSWORD).toBeUndefined();
     expect(m.reloadConfig().auth.password).toBe('from-the-env'); // a reload keeps it
+  });
+  it('the environment value beats auth.password in sanctum.yaml (default < yaml < env)', async () => {
+    const { m, file } = await load('from-the-env');
+    const { writeFileSync } = await import('node:fs');
+    writeFileSync(file, 'auth:\n  password: from-the-yaml\n');
+    expect(m.loadConfig(file).auth.password).toBe('from-the-env');
+    expect(m.getAppPasswordSource()).toBe('parent_env');
+    const again = await load(undefined);
+    writeFileSync(again.file, 'auth:\n  password: from-the-yaml\n');
+    expect(again.m.loadConfig(again.file).auth.password).toBe('from-the-yaml');
+    expect(again.m.getAppPasswordSource()).toBe('yaml');
   });
   it('setAppPassword changes what a reload signs in with, and still puts nothing in process.env', async () => {
     const { m, file } = await load('old-one');

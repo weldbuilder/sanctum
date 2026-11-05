@@ -434,7 +434,7 @@ by `tenancy/config.ts`); the code, the wizard and this list all read it, and a t
 | `skins`, `appearance` | skins and appearance |
 | `plugins.enabled`, `plugins.trust` | which plugins are on and who manages them |
 | `command_center.*`, `handoff.*`, `outlook.*` | Command Center, handoff and outlook settings |
-| `discord.*`, `telegram.*`, `google.enabled` | channel switches and limits (the bots and their tokens are the tenant's own) |
+| `discord.*`, `telegram.*` | channel switches and limits (the bots and their tokens are the tenant's own) |
 | `(any other key)` | a key this table does not name is inherited, unless its name looks like a secret (the last row below) |
 
 **Never inherited** (a tenant gets the default, or what its own `tenant.yaml` says):

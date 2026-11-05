@@ -5,7 +5,9 @@
 # Every key below has a built-in default, so a minimal file works — this template
 # just shows the whole surface with generic values. Relative paths resolve
 # against the project root (not your shell's cwd). A matching env var (see
-# .env.example) overrides the value here where the two overlap.
+# .env.example) overrides the value here where the two overlap, and a value saved in
+# the app's Settings (its database) beats both. One rule: default < this file < .env < database
+# (docs/CONFIGURATION.md section 1).
 
 # ── Who lives here ────────────────────────────────────────────────────────────
 identity:
@@ -86,7 +88,7 @@ agent:
   # local_recall: true            # Sanctum's own memory: before each message, the most relevant lines from earlier
                                   # conversations, found by meaning on this computer (nothing to install; every harness).
                                   # Unset: used only while a chosen Revien cannot be reached. false: never.
-  provider: "codex"               # "claude" | "codex" | "dsh"  (env: AGENT_PROVIDER)
+  provider: "codex"               # "claude" | "codex" | "dsh"  (env: AGENT_PROVIDER). This template sets "codex"; with no value the built-in default is "claude".
   # DeepSeek Harness, the third harness (alpha; see docs/DSH.md). Used only when provider is "dsh".
   # Install it yourself and pin the version: npm i -g @deepseek-ai/dsh@0.2.1-alpha.2
   dsh:
@@ -177,7 +179,7 @@ handoff:
 
 # ── Agent write-gate (PreToolUse allowlist) ───────────────────────────────────
 hooks:
-  context_injection: true         # inject context (identity, cards, memory) each turn
+  # (context_injection was removed: nothing read it. A yaml that still has it is told so at startup.)
   safe_write_prefixes: []         # extra path prefixes the agent may write to
   workspace_root: ""              # a root dir the agent may write within (env: WORKSPACE_ROOT)
   vault_path: ""                  # a notes/vault dir the agent may write within (env: VAULT_PATH)
@@ -261,12 +263,7 @@ command_center:
   enabled: false
   default_person: "user"          # whose care rows the page reads/writes
   currency_symbol: "$"
-  care_categories:
-    toggles: ["breakfast", "lunch", "dinner", "snacks", "medication", "movement", "shower"]
-    ratings: ["sleep", "energy", "wellbeing", "mood"]
-    counters:
-      - name: "water"
-        max: 10
+  # (care_categories was removed from this file: nothing read it. Categories live in the database, edited in the Command Center.)
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
 cors:

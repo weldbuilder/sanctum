@@ -40,7 +40,7 @@ function makeConfig(overrides: Partial<SanctumConfig> = {}): SanctumConfig {
       failsafe: { enabled: false, gentle_minutes: 120, concerned_minutes: 720, emergency_minutes: 1440 },
     },
     handoff: { enabled: false },
-    hooks: { context_injection: true, safe_write_prefixes: [], workspace_root: '', vault_path: '', extra_write_paths: [] },
+    hooks: { safe_write_prefixes: [], workspace_root: '', vault_path: '', extra_write_paths: [] },
     voice: { enabled: false, elevenlabs_voice_id: '' },
     imagegen: { provider: 'none', model: '', size: '1024x1024', safety_checker: false, timeout_ms: 90000 },
     discord: {
@@ -50,12 +50,11 @@ function makeConfig(overrides: Partial<SanctumConfig> = {}): SanctumConfig {
     },
     telegram: { enabled: false, owner_chat_id: '' },
     integrations: { life_api_url: '', browser_url: '', mind_cloud: { enabled: false, mcp_url: '', mind_id: '' } },
-    google: { enabled: false, client_id: '', client_secret: '' },
+    google: { client_id: '', client_secret: '' },
     command_center: {
       enabled: false,
       default_person: 'user',
       currency_symbol: '$',
-      care_categories: { toggles: [], ratings: [], counters: [] },
     },
     cors: { origins: [] },
     revien: { enabled: false, url: 'http://127.0.0.1:7437', recall_limit: 6, timeout_ms: 2500 },

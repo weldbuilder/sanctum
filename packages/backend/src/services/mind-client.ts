@@ -19,6 +19,7 @@ import { existsSync } from 'node:fs';
 import { readOwnText } from '../tenancy/own-files.js';
 import { getConfig } from './db.js';
 import { getSanctumConfig } from '../config.js';
+import { resolveSetting, resolveSecret, resolveSettingFrom, resolveSecretFrom, type Layers } from './settings/index.js';
 
 export interface MindSettings { root: string; bearer: string; mindId: string }
 
@@ -67,14 +68,20 @@ export interface MindSettingsSources {
   env?: Record<string, string | undefined>;
 }
 
-/** The bearer and where it came from: the Settings → Mind card (DB), then MIND_API_KEY from the environment. */
-function savedKey(src: MindSettingsSources): { key: string; source: 'settings' | 'environment' } | null {
-  const fromDb = src.read('mind.api_key') || src.read('integrations.mind_api_key');
-  if (fromDb) return { key: fromDb, source: 'settings' };
-  // Tenant mode: only the tenant's own .env; the process environment (the operator's key) is never read.
-  const fromEnv = String((src.env ?? envFor('mind-client')).MIND_API_KEY ?? '').trim();
-  return fromEnv ? { key: fromEnv, source: 'environment' } : null;
+/** The layers the Mind's keys resolve from, for one set of sources: the app's own, or the updater's read-only ones.
+ *  The rule is the settings service's (default < sanctum.yaml < .env < the Settings → Mind card in SQLite); the .mcp.json entry is the Mind's
+ *  one extra layer, kept below all of them (see settings/registry.ts). */
+function mindLayers(src: MindSettingsSources, read: (key: string) => string): Layers {
+  return {
+    raw: { integrations: { mind_cloud: src.yaml ?? {} } },
+    // Tenant mode: only the tenant's own .env; the process environment (the operator's key) is never read.
+    env: src.env ?? envFor('mind-client'),
+    kv: (key) => read(key) || null,
+    mcp: () => mindFromMcpJson(src.mcpJsonPath),
+  };
 }
+
+const KEY_SOURCE: Record<string, MindKeySource> = { db: 'settings', env: 'environment', mcp_json: 'mcp_json' };
 
 /**
  * Where the Mind's settings come from, in order: the Settings → Mind card (DB
@@ -83,24 +90,21 @@ function savedKey(src: MindSettingsSources): { key: string; source: 'settings' |
  * bearer. No logging; callers decide what to say.
  */
 export function describeMindSettingsFrom(src: MindSettingsSources): MindSettingsReport {
-  const yaml = src.yaml;
   const read = (key: string): string => { try { return (src.read(key) ?? '').trim(); } catch { return ''; } };
-  const enabledDb = read('mind.enabled');
-  const enabled = enabledDb !== '' ? enabledDb === 'true' : !!yaml?.enabled;
+  const L = mindLayers(src, read);
+  const enabled = resolveSettingFrom('integrations.mind_cloud.enabled', L).value === true;
   if (!enabled) return { enabled: false, settings: null, missing: [] };
   // The .mcp.json entry is one unit: its bearer is used only when its URL is
-  // the one selected. A key from one service is never sent to a host named
-  // elsewhere.
-  const configuredUrl = read('mind.url') || (yaml?.mcp_url ?? '').trim();
-  const fromMcp = configuredUrl ? null : mindFromMcpJson(src.mcpJsonPath);
+  // the one selected (the card's or sanctum.yaml's URL beats it). A key from one service is never sent to a host named
+  // elsewhere; the settings service enforces the pairing for mind.api_key.
+  const urlRes = resolveSettingFrom('integrations.mind_cloud.mcp_url', L);
+  const configuredUrl = urlRes.source === 'default' ? '' : String(urlRes.value);
   let root = '';
-  try { root = mindRootFrom(configuredUrl || fromMcp?.url || ''); } catch { root = ''; }
-  // The bearer comes from the same source as the URL: a key stored for the Mind card (or MIND_API_KEY) is
-  // never sent to the host named in .mcp.json (only selected when no card/yaml URL exists), and vice versa.
-  const saved = fromMcp ? null : savedKey({ ...src, read });
-  const bearer = fromMcp ? (fromMcp.bearer || '') : (saved?.key || '');
-  const keySource: MindKeySource | null = fromMcp ? (fromMcp.bearer ? 'mcp_json' : null) : (saved?.source ?? null);
-  const mindId = read('mind.mind_id') || yaml?.mind_id || '';
+  try { root = mindRootFrom(configuredUrl); } catch { root = ''; }
+  const key = resolveSecretFrom('mind.api_key', L);
+  const bearer = key.value ?? '';
+  const keySource: MindKeySource | null = key.value ? (KEY_SOURCE[key.source] ?? null) : null;
+  const mindId = String(resolveSettingFrom('integrations.mind_cloud.mind_id', L).value ?? '');
   const missing = [!root && 'url', !bearer && 'api key', !mindId && 'mind id'].filter((x): x is string => Boolean(x));
   // A malformed id is treated like a missing one: the service would answer every call with invalid_input.
   const invalid = mindId && mindIdProblem(mindId) ? [MIND_ID_RULE] : [];
@@ -125,16 +129,12 @@ export function keyFingerprint(key: string): string {
 
 /** Where the key in use comes from and its masked tail, for Settings → Mind. Never the key itself. */
 export function mindKeyInfo(): { source: MindKeySource | null; fingerprint: string | null } {
-  let cfg: ReturnType<typeof getSanctumConfig> | null = null;
-  try { cfg = getSanctumConfig(); } catch { cfg = null; }
-  const read = (key: string): string => { try { return (getConfig(key) ?? '').trim(); } catch { return ''; } };
   // The key is reported whether or not the Mind is switched on, so the card can show it while the toggle is off.
-  // Same rule as describeMindSettingsFrom: the card/environment key pairs with a card or yaml URL; the
-  // .mcp.json entry supplies its own bearer.
-  const hasConfiguredUrl = !!(read('mind.url') || (cfg?.integrations?.mind_cloud?.mcp_url ?? '').trim());
-  const saved = hasConfiguredUrl ? savedKey({ read }) : null;
-  const key = hasConfiguredUrl ? (saved?.key ?? '') : (mindFromMcpJson(cfg?.agent?.mcp_json_path)?.bearer ?? '');
-  const source: MindKeySource | null = saved?.source ?? (key ? 'mcp_json' : null);
+  // The card/environment key pairs with a card or yaml URL; the .mcp.json entry supplies its own bearer (the service enforces the pairing).
+  // With no URL in effect anywhere there is nothing for a key to pair with, and none is reported.
+  if (resolveSetting('integrations.mind_cloud.mcp_url').source === 'default') return { source: null, fingerprint: null };
+  const key = resolveSecret('mind.api_key');
+  const source = key ? KEY_SOURCE[resolveSetting('mind.api_key').source] ?? null : null;
   return { source, fingerprint: key ? keyFingerprint(key) : null };
 }
 
@@ -142,25 +142,15 @@ export type MindUrlSource = 'settings' | 'yaml' | 'mcp_json';
 
 /** The URL in effect and where it comes from, by the same order the watchdog and the hooks use: the card, sanctum.yaml, the .mcp.json entry. */
 export function mindUrlInfo(): { source: MindUrlSource | null; url: string } {
-  let cfg: ReturnType<typeof getSanctumConfig> | null = null;
-  try { cfg = getSanctumConfig(); } catch { cfg = null; }
-  const read = (key: string): string => { try { return (getConfig(key) ?? '').trim(); } catch { return ''; } };
-  const card = read('mind.url');
-  if (card) return { source: 'settings', url: card };
-  const yaml = (cfg?.integrations?.mind_cloud?.mcp_url ?? '').trim();
-  if (yaml) return { source: 'yaml', url: yaml };
-  const mcp = mindFromMcpJson(cfg?.agent?.mcp_json_path);
-  return mcp ? { source: 'mcp_json', url: mcp.url } : { source: null, url: '' };
+  const r = resolveSetting('integrations.mind_cloud.mcp_url');
+  if (r.source === 'default') return { source: null, url: '' };
+  return { source: r.source === 'db' ? 'settings' : (r.source as MindUrlSource), url: String(r.value) };
 }
 
 /** The key that goes with `root` for a draft test that leaves the key blank, and where it comes from. Only for the host it belongs to. */
 /** The mind_id in effect: the card's, else sanctum.yaml's (integrations.mind_cloud.mind_id), else ''. */
 export function savedMindId(): string {
-  let cfg: ReturnType<typeof getSanctumConfig> | null = null;
-  try { cfg = getSanctumConfig(); } catch { cfg = null; }
-  let card = '';
-  try { card = (getConfig('mind.mind_id') ?? '').trim(); } catch { card = ''; }
-  return card || (cfg?.integrations?.mind_cloud?.mind_id ?? '').trim();
+  return String(resolveSetting('integrations.mind_cloud.mind_id').value ?? '').trim();
 }
 
 export function savedMindKeyFor(root: string): { key: string; source: MindKeySource } | null {
@@ -168,14 +158,9 @@ export function savedMindKeyFor(root: string): { key: string; source: MindKeySou
   let savedRoot = '';
   try { savedRoot = mindRootFrom(info.url); } catch { savedRoot = ''; }
   if (!savedRoot || savedRoot !== root) return null;
-  if (info.source === 'mcp_json') {
-    let cfg: ReturnType<typeof getSanctumConfig> | null = null;
-    try { cfg = getSanctumConfig(); } catch { cfg = null; }
-    const bearer = mindFromMcpJson(cfg?.agent?.mcp_json_path)?.bearer ?? '';
-    return bearer ? { key: bearer, source: 'mcp_json' } : null;
-  }
-  const read = (key: string): string => { try { return (getConfig(key) ?? '').trim(); } catch { return ''; } };
-  return savedKey({ read });
+  const key = resolveSecret('mind.api_key'); // (the .mcp.json bearer when that is the URL in effect, else the card's or the environment's)
+  const source = KEY_SOURCE[resolveSetting('mind.api_key').source];
+  return key && source ? { key, source } : null;
 }
 
 /** Settings for a call, or null when the Mind is off or incomplete (logged once until it resolves). */

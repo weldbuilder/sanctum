@@ -4,6 +4,7 @@ import { join, resolve, dirname, sep } from 'path';
 import { fileURLToPath } from 'url';
 import yaml from 'js-yaml';
 import { tenantOrNull, registerProcessConfig, registerProcessFile } from './tenancy/context.js';
+import { pickWinner } from './services/settings/rule.js';
 
 // Derive project root from this module's location (packages/backend/src/config.ts → ../../..)
 // This is stable regardless of process.cwd(), which npm workspaces can change.
@@ -131,7 +132,6 @@ export interface SanctumConfig {
     enabled: boolean;
   };
   hooks: {
-    context_injection: boolean;
     safe_write_prefixes: string[];
     // Write-gate roots. workspace_root + vault_path are added as directory
     // prefixes; extra_write_paths entries are directories (prefix match) unless
@@ -173,13 +173,9 @@ export interface SanctumConfig {
     };
   };
   google: {
-    // Master gate for the Workspace MCP mount. Per-app toggles live in the DB
-    // (google_integrations); this flag only controls whether /mcp/workspace is
-    // mounted at all.
-    enabled: boolean;
     // Desktop OAuth client creds — the user supplies from their Google Cloud project.
-    // Env (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET) overrides these. Empty =
-    // "not configured".
+    // The settings service's one rule applies (default < this < GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET in .env < the pair saved in Settings).
+    // Empty = "not configured". (The old `google.enabled` master gate is gone: /mcp/workspace is always mounted.)
     client_id: string;
     client_secret: string;
   };
@@ -187,11 +183,6 @@ export interface SanctumConfig {
     enabled: boolean;
     default_person: string;
     currency_symbol: string;
-    care_categories: {
-      toggles: string[];
-      ratings: string[];
-      counters: { name: string; max: number }[];
-    };
   };
   cors: {
     origins: string[];
@@ -496,7 +487,6 @@ const DEFAULTS: SanctumConfig = {
     enabled: false,
   },
   hooks: {
-    context_injection: true,
     safe_write_prefixes: [],
     workspace_root: '',
     vault_path: '',
@@ -538,7 +528,6 @@ const DEFAULTS: SanctumConfig = {
     },
   },
   google: {
-    enabled: false,
     client_id: '',
     client_secret: '',
   },
@@ -546,11 +535,6 @@ const DEFAULTS: SanctumConfig = {
     enabled: false,
     default_person: 'user',
     currency_symbol: '$',
-    care_categories: {
-      toggles: ['breakfast', 'lunch', 'dinner', 'snacks', 'medication', 'movement', 'shower'],
-      ratings: ['sleep', 'energy', 'wellbeing', 'mood'],
-      counters: [{ name: 'water', max: 10 }],
-    },
   },
   cors: {
     origins: [],
@@ -806,7 +790,6 @@ export function applyEnvOverrides(merged: SanctumConfig, env: Record<string, str
   if (env.TZ) merged.identity.timezone = env.TZ;
   if (env.DISCORD_ENABLED === 'true') merged.discord.enabled = true;
   if (env.TELEGRAM_ENABLED === 'true') merged.telegram.enabled = true;
-  if (env.GOOGLE_ENABLED === 'true') merged.google.enabled = true;
   if (env.GOOGLE_CLIENT_ID) merged.google.client_id = env.GOOGLE_CLIENT_ID;
   if (env.GOOGLE_CLIENT_SECRET) merged.google.client_secret = env.GOOGLE_CLIENT_SECRET;
   // Write-gate roots (env wins over yaml). EXTRA_WRITE_PATHS is comma-separated.
@@ -821,9 +804,34 @@ export function applyEnvOverrides(merged: SanctumConfig, env: Record<string, str
   merged.agent.model_autonomous = resolveAutonomousModel(merged.agent.model, merged.agent.model_autonomous);
 }
 
+/** Settings that had no reader and were removed. A yaml that still carries one is told so once at startup, and the value never reaches the config. */
+export const REMOVED_KEYS = ['hooks.context_injection', 'google.enabled', 'command_center.care_categories'] as const;
+
+function hasPath(obj: unknown, path: string): boolean {
+  let cur: unknown = obj;
+  for (const k of path.split('.')) {
+    if (!cur || typeof cur !== 'object' || Array.isArray(cur) || !(k in (cur as Record<string, unknown>))) return false;
+    cur = (cur as Record<string, unknown>)[k];
+  }
+  return true;
+}
+
+/** The one startup line for a yaml (or tenant.yaml) that still carries a removed key; null when it carries none. */
+export function removedKeysWarning(fileCfg: unknown, label = 'sanctum.yaml'): string | null {
+  const present = REMOVED_KEYS.filter((k) => hasPath(fileCfg, k));
+  return present.length ? `[config] ${label} sets ${present.join(', ')}: ignored, removed in this version (nothing read it). Delete the line${present.length > 1 ? 's' : ''}.` : null;
+}
+
+function stripRemovedKeys(merged: SanctumConfig): void {
+  delete (merged.hooks as unknown as Record<string, unknown>)?.context_injection;
+  delete (merged.google as unknown as Record<string, unknown>)?.enabled;
+  delete (merged.command_center as unknown as Record<string, unknown>)?.care_categories;
+}
+
 /** Resolve every path in a merged config against `base` (the project root for the process, the tenant folder for a tenant).
  *  `fileCfg` is the raw yaml, for what only the file can say (was db_path given, the legacy keys); `env` is the environment in force. */
 export function resolveConfigPaths(merged: SanctumConfig, base: string, fileCfg: Record<string, unknown>, env: Record<string, string | undefined>): void {
+  stripRemovedKeys(merged);
   // Resolve relative paths against the project root (not cwd)
   // A leading `~` is the home directory (a shell would have expanded it; yaml does not).
   const resolveFromRoot = (p: string) => resolve(base, p === '~' ? homedir() : p.startsWith('~/') ? join(homedir(), p.slice(2)) : p);
@@ -886,6 +894,9 @@ export function loadConfig(configPath?: string): SanctumConfig {
     }
   }
 
+  const removedWarning = removedKeysWarning(fileConfig);
+  if (removedWarning) console.warn(removedWarning);
+
   // A copy of the file as read, before the merge shares its values and the environment overrides touch them: what a tenant inherits.
   const pristineFile = structuredClone(fileConfig);
 
@@ -895,7 +906,12 @@ export function loadConfig(configPath?: string): SanctumConfig {
   // Environment variable overrides
   applyEnvOverrides(merged, process.env);
   takeAppPasswordFromEnv();
-  if (appPassword) merged.auth.password = appPassword;
+  // The login password through the one rule: sanctum.yaml's is the yaml layer, the one held from the environment (parent env or .env) is the env layer and wins.
+  merged.auth.password = pickWinner<string>([
+    { source: 'default', value: '' },
+    ...(merged.auth.password ? [{ source: 'yaml' as const, value: merged.auth.password }] : []),
+    ...(appPassword ? [{ source: 'env' as const, value: appPassword }] : []),
+  ])!.value;
 
   // The project's GitHub address lives in package.json unless yaml overrides it.
   if (!merged.updates.repo) merged.updates.repo = repoFromPackageJson();

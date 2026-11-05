@@ -15,7 +15,6 @@ import {
   updateThreadSession,
   updateThreadActivity,
   getConfigBool,
-  getConfigNumber,
   getConfig,
   setConfig,
   getConfigsByPrefix,
@@ -37,6 +36,7 @@ import type { TriggerContext } from './triggers.js';
 import { fetchLifeStatus } from './hooks.js';
 import { getOutlook } from './outlook.js';
 import { getSanctumConfig } from '../config.js';
+import { resolveSetting } from './settings/index.js';
 import type { OrchestratorTaskStatus, Thread } from '@sanctum/shared';
 import { runDigest } from './digest.js';
 import { rollingWatch } from './rolling-watch.js';
@@ -519,25 +519,19 @@ export class Orchestrator {
     migrateWakePromptsToDir(this.wakePromptsDir, config.orchestrator.wake_prompts_path, userName);
     this.loadWakePromptsIntoState();
 
-    // Load failsafe config from DB, falling back to yaml config, then defaults
-    this.failsafeEnabled = getConfigBool('failsafe.enabled', config.orchestrator.failsafe.enabled);
-    this.failsafeGentle = getConfigNumber('failsafe.gentle', config.orchestrator.failsafe.gentle_minutes || DEFAULT_FAILSAFE_GENTLE);
-    this.failsafeConcerned = getConfigNumber('failsafe.concerned', config.orchestrator.failsafe.concerned_minutes || DEFAULT_FAILSAFE_CONCERNED);
-    this.failsafeEmergency = getConfigNumber('failsafe.emergency', config.orchestrator.failsafe.emergency_minutes || DEFAULT_FAILSAFE_EMERGENCY);
+    // Failsafe and pulse: the settings service's one rule (default < sanctum.yaml < .env < the database).
+    this.failsafeEnabled = resolveSetting('orchestrator.failsafe.enabled').value === true;
+    this.failsafeGentle = resolveSetting('orchestrator.failsafe.gentle_minutes').value as number;
+    this.failsafeConcerned = resolveSetting('orchestrator.failsafe.concerned_minutes').value as number;
+    this.failsafeEmergency = resolveSetting('orchestrator.failsafe.emergency_minutes').value as number;
 
-    // Load pulse config from DB
-    this.pulseEnabled = getConfigBool('pulse.enabled', false);
-    this.pulseFrequency = getConfigNumber('pulse.frequency', 15);
+    this.pulseEnabled = resolveSetting('pulse.enabled').value === true;
+    this.pulseFrequency = resolveSetting('pulse.frequency').value as number;
 
     // Apply any schedule overrides from config + register custom wake types
     const defaultWakeTypes = new Set(DEFAULT_TASKS.map(d => d.wakeType));
-    const taskDefs: TaskDefinition[] = DEFAULT_TASKS.map(def => {
-      const overrideCron = config.orchestrator.schedules[def.wakeType];
-      if (overrideCron) {
-        return { ...def, cronExpr: overrideCron };
-      }
-      return def;
-    });
+    // (A default wake type keeps its built-in schedule here; yaml's orchestrator.schedules and the KV row are applied by the service below.)
+    const taskDefs: TaskDefinition[] = DEFAULT_TASKS.map(def => ({ ...def }));
 
     // Add custom schedule entries not in DEFAULT_TASKS
     for (const [wakeType, cronExpr] of Object.entries(config.orchestrator.schedules)) {
@@ -558,12 +552,13 @@ export class Orchestrator {
 
     // Register all scheduled tasks
     for (const def of taskDefs) {
-      const savedCron = getConfig(`cron.${def.wakeType}.schedule`);
-      const cronExpr = savedCron || def.cronExpr;
-      const enabled = getConfigBool(`cron.${def.wakeType}.enabled`, true);
-      const savedModel = getConfig(`cron.${def.wakeType}.model`) || undefined;
-      const savedTarget = getConfig(`cron.${def.wakeType}.target`) || undefined;
-      if (savedCron) olog(`  ${def.wakeType}: using saved schedule ${cronExpr}`);
+      // cron.<type>.schedule: built-in < orchestrator.schedules.<type> in yaml < the saved KV row
+      const schedule = resolveSetting(`cron.${def.wakeType}.schedule`, { default: def.cronExpr });
+      const cronExpr = schedule.value as string;
+      const enabled = resolveSetting(`cron.${def.wakeType}.enabled`).value === true;
+      const savedModel = (resolveSetting(`cron.${def.wakeType}.model`).value as string) || undefined;
+      const savedTarget = (resolveSetting(`cron.${def.wakeType}.target`).value as string) || undefined;
+      if (schedule.source === 'db') olog(`  ${def.wakeType}: using saved schedule ${cronExpr}`);
 
       // (bindCurrentTenant: in tenant mode a cron tick runs as the tenant that registered it; tenancy off it is the function itself.)
       const handler = bindCurrentTenant(() => {
@@ -619,9 +614,10 @@ export class Orchestrator {
       this.addRoutine({
         wakeType,
         label: routineConfig.label,
-        cronExpr: getConfig(`cron.${wakeType}.schedule`) || routineConfig.cronExpr,
+        // (yaml's orchestrator.schedules never moved a routine the person added; the KV row and the routine's own time are the two layers)
+        cronExpr: resolveSetting(`cron.${wakeType}.schedule`, { default: routineConfig.cronExpr, skip: ['yaml'] }).value as string,
         prompt: routineConfig.prompt,
-        enabled: getConfigBool(`cron.${wakeType}.enabled`, true),
+        enabled: resolveSetting(`cron.${wakeType}.enabled`).value === true,
       });
     }
 
@@ -855,8 +851,8 @@ export class Orchestrator {
     const task = new Cron(params.cronExpr, { timezone: config.identity.timezone, paused: !enabled }, handler);
 
     // A per-task model override + target may have been persisted by setScheduleForWakeType.
-    const savedModel = getConfig(`cron.${params.wakeType}.model`) || undefined;
-    const savedTarget = getConfig(`cron.${params.wakeType}.target`) || undefined;
+    const savedModel = (resolveSetting(`cron.${params.wakeType}.model`).value as string) || undefined;
+    const savedTarget = (resolveSetting(`cron.${params.wakeType}.target`).value as string) || undefined;
 
     this.tasks.set(params.wakeType, {
       task,

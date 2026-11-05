@@ -32,6 +32,9 @@ export interface TenantRuntime {
   config: SanctumConfig;
   /** The tenant's own .env, parsed. process.env is never written to. */
   env: Record<string, string>;
+  /** The yaml layer this tenant's config was built from: what it inherits from the operator's file with its own tenant.yaml on top, as read (before the
+   *  environment touched anything). The settings service reads it to say which layer a value came from. Absent where a runtime is built by hand. */
+  file?: Record<string, unknown>;
   db: BetterSqlite3.Database;
   /** Set by a park the moment the runtime leaves the running set: a request that resolved to it earlier and enters it now is answered 503. */
   leaving?: boolean;

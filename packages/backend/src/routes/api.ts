@@ -121,7 +121,9 @@ import { FrameRefused, fsRootOf, protectedFrameSet, readFrame, samePath, underFo
 import { registry } from '../services/ws.js';
 import { getSanctumConfig, PROJECT_ROOT, CONFIG_FILE_NAMES, browserFrameOrigin, checkBrowserUrl, resolveBrowserUrlUpdate } from '../config.js';
 import { browserToolsConfigured } from '../services/browser-gate.js';
-import { mergeProviderAndDsh, readDshPrefs } from '../services/preferences-merge.js';
+import { mergeProviderAndDsh } from '../services/preferences-merge.js';
+import { resolveAll, resolveSetting } from '../services/settings/index.js';
+import { overlay } from '../../../../scripts/setup-inherit.mjs';
 import { getUsageSummary } from '../services/usage-log.js';
 import { readLogs, type LogSourceFilter } from '../services/logs.js';
 import { getOutlook, refreshOutlook } from '../services/outlook.js';
@@ -1741,74 +1743,89 @@ router.get('/preferences', (req, res) => {
     }
     const raw = readConfigText(configPath);
     const parsed = yaml.load(raw) as Record<string, unknown> || {};
-    // Only expose safe, editable fields — not server internals
     const config = getSanctumConfig();
-    const browserSaved: string = String((parsed as any)?.integrations?.browser_url ?? config.integrations.browser_url ?? '');
+    // Every value below is the EFFECTIVE one, from the settings service's rule (default < sanctum.yaml < .env < SQLite), and `sources` says which
+    // layer each came from, so the panel shows what the runtime uses (a database row beats the file the panel edits). The yaml layer is the file
+    // on disk, so a save made a moment ago still shows; what the process captured at boot waits for a restart, as the PUT says.
+    const tenant = tenantOrNull('GET /preferences');
+    const fileLayer = tenant ? (overlay(tenant.file ?? {}, parsed) as Record<string, unknown>) : parsed;
+    const { effective: e, sources } = resolveAll({ yaml: fileLayer });
+    // Two fields are shown as what the person's file says, because the editor saves its whole draft back and a value that is not theirs would be
+    // pinned into the file: '' on model_autonomous means "follow the chat model", and a Mind URL that only the companion's .mcp.json supplies.
+    const autonomous = resolveSetting('agent.model_autonomous', { yaml: fileLayer });
+    const mindUrl = resolveSetting('integrations.mind_cloud.mcp_url', { yaml: fileLayer });
+    const legacyRolling = (k: 'model' | 'model_provider') => {
+      if (sources[`agent.rolling.${k}`] !== 'default') return e[`agent.rolling.${k}`];
+      const legacy = (parsed as any)?.agent?.codex?.rolling?.[k];
+      if (legacy !== undefined) sources[`agent.rolling.${k}`] = 'yaml';
+      return legacy ?? '';
+    };
+    const browserSaved = String(e['integrations.browser_url'] ?? '');
     res.json({
       identity: {
-        companion_name: config.identity.companion_name,
-        user_name: config.identity.user_name,
-        timezone: config.identity.timezone,
+        companion_name: e['identity.companion_name'],
+        user_name: e['identity.user_name'],
+        timezone: e['identity.timezone'],
       },
       agent: {
-        model: config.agent.model,
-        // The yaml value, not the resolved one: '' means "same as model", and
-        // echoing the resolved id back would pin it on the next save.
-        model_autonomous: (parsed as any)?.agent?.model_autonomous ?? '',
-        provider: config.agent.provider,
-        app_write: config.agent.app_write !== false,
-        // dsh route: yaml values; api_key_env is the NAME of an env var, never a key.
-        dsh: readDshPrefs((parsed as any)?.agent),
-        // Codex-path models. All yaml values; '' means "follow the one above".
+        model: e['agent.model'],
+        model_autonomous: autonomous.source === 'default' ? '' : autonomous.value,
+        provider: e['agent.provider'],
+        app_write: e['agent.app_write'] !== false,
+        // dsh route: api_key_env is the NAME of an env var, never a key.
+        dsh: {
+          model: e['agent.dsh.model'],
+          model_autonomous: e['agent.dsh.model_autonomous'],
+          model_provider: e['agent.dsh.model_provider'],
+          base_url: e['agent.dsh.base_url'],
+          api_key_env: e['agent.dsh.api_key_env'],
+        },
+        // Codex-path models. '' means "follow the one above".
         codex: {
-          model: (parsed as any)?.agent?.codex?.model ?? '',
-          model_provider: (parsed as any)?.agent?.codex?.model_provider ?? '',
-          model_autonomous: (parsed as any)?.agent?.codex?.model_autonomous ?? '',
+          model: e['agent.codex.model'],
+          model_provider: e['agent.codex.model_provider'],
+          model_autonomous: e['agent.codex.model_autonomous'],
           // Permissions on the Codex path: the sandbox is the write boundary.
-          sandbox_mode: (parsed as any)?.agent?.codex?.sandbox_mode ?? config.agent.codex.sandbox_mode,
-          network_access: (parsed as any)?.agent?.codex?.network_access ?? config.agent.codex.network_access,
-          additional_directories: (parsed as any)?.agent?.codex?.additional_directories ?? config.agent.codex.additional_directories,
+          sandbox_mode: e['agent.codex.sandbox_mode'],
+          network_access: e['agent.codex.network_access'],
+          additional_directories: e['agent.codex.additional_directories'],
         },
         // Rolling context: the app's own compaction, switchable per harness.
         // Switches come resolved (legacy agent.codex.rolling folded in); the
         // summarizer fields are the yaml values, '' = follow.
         rolling: {
-          claude: config.agent.rolling.claude,
-          codex: config.agent.rolling.codex,
-          model: (parsed as any)?.agent?.rolling?.model ?? (parsed as any)?.agent?.codex?.rolling?.model ?? '',
-          model_provider: (parsed as any)?.agent?.rolling?.model_provider ?? (parsed as any)?.agent?.codex?.rolling?.model_provider ?? '',
+          claude: e['agent.rolling.claude'],
+          codex: e['agent.rolling.codex'],
+          model: legacyRolling('model'),
+          model_provider: legacyRolling('model_provider'),
         },
       },
-      // Read-only in the UI: the live port. In this deployment PM2 pins PORT in
-      // ecosystem.config.cjs env, which overrides sanctum.yaml at boot — so a
-      // yaml write would claim success and then silently not take effect. The
-      // UI surfaces it as read-only truth instead (edit via raw config + PM2).
+      // Read-only in the UI: the live port. PM2 may pin PORT in the environment, which beats sanctum.yaml at boot; `sources` now says so.
       server: {
-        port: config.server.port,
+        port: e['server.port'],
       },
-      // Write-gate roots — genuinely yaml-backed (no env override present), so
-      // these are editable through the same PUT merge as everything else.
+      // Write-gate roots.
       hooks: {
-        workspace_root: (parsed as any)?.hooks?.workspace_root ?? config.hooks.workspace_root,
-        vault_path: (parsed as any)?.hooks?.vault_path ?? config.hooks.vault_path,
-        extra_write_paths: (parsed as any)?.hooks?.extra_write_paths ?? config.hooks.extra_write_paths,
+        workspace_root: e['hooks.workspace_root'],
+        vault_path: e['hooks.vault_path'],
+        extra_write_paths: e['hooks.extra_write_paths'],
       },
       orchestrator: {
-        enabled: (parsed as any)?.orchestrator?.enabled ?? config.orchestrator.enabled,
-        wake_prompts_path: (parsed as any)?.orchestrator?.wake_prompts_path ?? config.orchestrator.wake_prompts_path,
+        enabled: e['orchestrator.enabled'],
+        wake_prompts_path: e['orchestrator.wake_prompts_path'],
       },
       voice: {
-        enabled: (parsed as any)?.voice?.enabled ?? config.voice.enabled,
-        elevenlabs_voice_id: (parsed as any)?.voice?.elevenlabs_voice_id ?? config.voice.elevenlabs_voice_id,
+        enabled: e['voice.enabled'],
+        elevenlabs_voice_id: e['voice.elevenlabs_voice_id'],
       },
       discord: {
-        enabled: (parsed as any)?.discord?.enabled ?? config.discord.enabled,
+        enabled: e['discord.enabled'],
       },
       telegram: {
-        enabled: (parsed as any)?.telegram?.enabled ?? config.telegram.enabled,
+        enabled: e['telegram.enabled'],
       },
       handoff: {
-        enabled: (parsed as any)?.handoff?.enabled ?? config.handoff.enabled,
+        enabled: e['handoff.enabled'],
       },
       integrations: {
         browser_url: browserSaved,
@@ -1817,17 +1834,20 @@ router.get('/preferences', (req, res) => {
         // The origin the running server's CSP actually allows (fixed at startup).
         browser_active_origin: browserFrameOrigin(config.integrations.browser_url, config.server),
         mind_cloud: {
-          enabled: (parsed as any)?.integrations?.mind_cloud?.enabled ?? config.integrations.mind_cloud.enabled,
-          mcp_url: (parsed as any)?.integrations?.mind_cloud?.mcp_url ?? config.integrations.mind_cloud.mcp_url,
-          mind_id: (parsed as any)?.integrations?.mind_cloud?.mind_id ?? config.integrations.mind_cloud.mind_id,
+          enabled: e['integrations.mind_cloud.enabled'],
+          mcp_url: mindUrl.source === 'mcp_json' ? '' : mindUrl.value,
+          mind_id: e['integrations.mind_cloud.mind_id'],
         },
       },
       auth: {
         has_password: !!config.auth.password,
       },
       command_center: {
-        enabled: (parsed as any)?.command_center?.enabled ?? config.command_center.enabled,
+        enabled: e['command_center.enabled'],
       },
+      // Which layer each registry key's effective value came from: 'default' | 'yaml' | 'env' | 'db' (| 'mcp_json' for the Mind URL, which the
+      // companion's .mcp.json can supply). Keyed by the registry's canonical names (the yaml path where there is one), so the panel can say "from .env".
+      sources,
     });
   } catch (err) {
     console.error('Failed to read preferences:', err);
@@ -3941,8 +3961,10 @@ router.get('/settings', (req, res) => {
     const key = mindKeyInfo();
     // The URL in effect when the card holds none (sanctum.yaml, else .mcp.json), so Test connection posts it and the card names it.
     const url = mindUrlInfo();
+    // Every registry key's effective value (default < sanctum.yaml < .env < SQLite) and the layer it came from. Secrets are { set, source }, never the value.
+    const { effective, sources } = resolveAll();
     res.json({
-      config, mind_key_source: key.source, mind_key_fingerprint: key.fingerprint,
+      config, effective, sources, mind_key_source: key.source, mind_key_fingerprint: key.fingerprint,
       mind_url_source: url.source,
       ...(url.source && url.source !== 'settings' ? { mind_url_effective: redactUrls(mindRootFrom(url.url)) } : {}),
     });
@@ -5199,7 +5221,7 @@ router.post('/system/mcp/reconnect', async (req, res) => {
 router.get('/telegram/status', (req, res) => {
   try {
     const telegramService = req.app.locals.telegramService as TelegramService | null;
-    const configEnabled = getConfigBool('telegram.enabled', false);
+    const configEnabled = resolveSetting('telegram.enabled').value === true;
     const hasToken = hasBotToken('telegram');
     const telegramConfig = getTelegramConfig();
     const chatId = telegramConfig.ownerChatId || null;
@@ -5294,7 +5316,7 @@ router.get('/channels', (req, res) => {
       id: 'discord',
       tokenEnvVar: 'DISCORD_BOT_TOKEN',
       hasToken: hasBotToken('discord'),
-      configEnabled: getConfigBool('discord.enabled', false),
+      configEnabled: resolveSetting('discord.enabled').value === true,
       ownerId: dCfg.ownerUserId || null,
       enabled: !!d,
       connected: d?.isConnected() ?? false,
@@ -5315,7 +5337,7 @@ router.get('/channels', (req, res) => {
       id: 'telegram',
       tokenEnvVar: 'TELEGRAM_BOT_TOKEN',
       hasToken: hasBotToken('telegram'),
-      configEnabled: getConfigBool('telegram.enabled', false),
+      configEnabled: resolveSetting('telegram.enabled').value === true,
       ownerId: tCfg.ownerChatId || null,
       enabled: !!t,
       connected: t?.isConnected() ?? false,

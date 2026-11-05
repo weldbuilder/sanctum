@@ -11,8 +11,9 @@ import { homedir } from 'node:os';
 import yaml from 'js-yaml';
 import { parse as parseDotenv } from 'dotenv';
 import { SHIPPED_SCALARS, isInsideDir, pathProblems } from './confine.js';
-import { PROJECT_ROOT, applyEnvOverrides, mergeConfigDefaults, resolveConfigPaths, type SanctumConfig } from '../config.js';
+import { PROJECT_ROOT, applyEnvOverrides, mergeConfigDefaults, removedKeysWarning, resolveConfigPaths, type SanctumConfig } from '../config.js';
 import { getProcessFile } from './context.js';
+import { pickWinner } from '../services/settings/rule.js';
 import { TenantEditRefused, readOwnIn, readOwnTextIn } from './own-files.js';
 import { backgroundRunsProblems, INHERIT_TABLE, inheritedBase, inheritTableMarkdown, overlay, revienProblems } from '../../../../scripts/setup-inherit.mjs';
 
@@ -120,6 +121,8 @@ export interface LoadedTenantConfig {
   /** The tenant's .env, parsed, without APP_PASSWORD (that is in config.auth.password and goes no further). */
   env: Record<string, string>;
   hosts: string[];
+  /** The yaml layer as read: the operator's inherited file values with this tenant.yaml on top (the settings service's `yaml` layer). */
+  file: Record<string, unknown>;
 }
 
 const warnedRevienSwitch = new Set<string>();
@@ -157,6 +160,8 @@ export function loadTenantConfig(processCfg: SanctumConfig, tenantDir: string, i
 
   const refused = PROCESS_ONLY_KEYS.filter((k) => k in fileCfg);
   if (refused.length && !opts.quiet) console.warn(`[tenancy] tenant ${label}: tenant.yaml sets ${refused.join(', ')}, which belong to the process; ignored`);
+  const removed = removedKeysWarning(fileCfg, `tenant ${label}: tenant.yaml`);
+  if (removed && !opts.quiet) console.warn(removed);
   const hosts = parseHosts(label, fileCfg.hosts, opts.quiet);
   const own: Record<string, unknown> = { ...fileCfg };
   for (const k of [...PROCESS_ONLY_KEYS, 'hosts']) delete own[k];
@@ -263,11 +268,15 @@ export function loadTenantConfig(processCfg: SanctumConfig, tenantDir: string, i
 
   // The login password: this tenant's, from its own .env (else its tenant.yaml). Held in config only, never in an environment.
   const password = dotenv.APP_PASSWORD;
-  if (password) merged.auth.password = password;
+  merged.auth.password = pickWinner<string>([ // (the one rule: the tenant.yaml value is the yaml layer, its .env the env layer)
+    { source: 'default', value: '' },
+    ...(merged.auth.password ? [{ source: 'yaml' as const, value: merged.auth.password }] : []),
+    ...(password ? [{ source: 'env' as const, value: password }] : []),
+  ])!.value;
   const env = { ...dotenv };
   delete env.APP_PASSWORD;
 
-  return { config: merged, env, hosts };
+  return { config: merged, env, hosts, file: structuredClone(combined) };
 }
 
 /** The hosts a tenant.yaml names, read as loosely as possible (a tenant that failed to load still owns its hosts). Never throws. */
