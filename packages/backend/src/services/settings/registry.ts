@@ -59,6 +59,18 @@ export interface KeyDef {
 
 const d = (def: KeyDef): KeyDef => def;
 
+/** The words a yaml boolean may be spelled with (js-yaml 4 reads only true/false as booleans, so `yes` / `on` arrive as strings). undefined = not one. */
+export function parseBoolWord(v: unknown): boolean | undefined {
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'number') return v === 1 ? true : v === 0 ? false : undefined;
+  if (typeof v !== 'string') return undefined;
+  switch (v.trim().toLowerCase()) {
+    case 'true': case 'yes': case 'on': case '1': return true;
+    case 'false': case 'no': case 'off': case '0': return false;
+    default: return undefined;
+  }
+}
+
 export const REGISTRY: readonly KeyDef[] = [
   // --- identity
   d({ key: 'identity.companion_name', type: 'string', default: 'Echo', yaml: 'identity.companion_name', env: 'COMPANION_NAME' }),
@@ -68,8 +80,8 @@ export const REGISTRY: readonly KeyDef[] = [
   // --- the chat model chain. Above this service: threads.model, then the per-call modelOverride (agent.ts).
   d({
     key: 'agent.model', type: 'string', default: 'claude-sonnet-5-5', yaml: 'agent.model', env: 'AGENT_MODEL',
-    kv: 'agent.model', typed: 'auth.preferred_model',
-    note: 'db: auth_preferences.preferred_model, then the KV row agent.model (written by the /model command). Above the service: threads.model, modelOverride.',
+    typed: 'auth.preferred_model',
+    note: 'db: auth_preferences.preferred_model (written by the /model command; /model reset clears it). The KV row agent.model of earlier versions is ignored and deleted at startup. Above the service: threads.model, modelOverride.',
   }),
   d({
     key: 'agent.model_autonomous', type: 'string', default: '', yaml: 'agent.model_autonomous',

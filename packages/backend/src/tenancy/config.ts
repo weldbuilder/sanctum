@@ -11,7 +11,7 @@ import { homedir } from 'node:os';
 import yaml from 'js-yaml';
 import { parse as parseDotenv } from 'dotenv';
 import { SHIPPED_SCALARS, isInsideDir, pathProblems } from './confine.js';
-import { PROJECT_ROOT, applyEnvOverrides, mergeConfigDefaults, removedKeysWarning, resolveConfigPaths, type SanctumConfig } from '../config.js';
+import { PROJECT_ROOT, applyEnvOverrides, mergeConfigDefaults, removedKeysWarning, badSwitchWarning, resolveConfigPaths, type SanctumConfig } from '../config.js';
 import { getProcessFile } from './context.js';
 import { pickWinner } from '../services/settings/rule.js';
 import { TenantEditRefused, readOwnIn, readOwnTextIn } from './own-files.js';
@@ -162,6 +162,8 @@ export function loadTenantConfig(processCfg: SanctumConfig, tenantDir: string, i
   if (refused.length && !opts.quiet) console.warn(`[tenancy] tenant ${label}: tenant.yaml sets ${refused.join(', ')}, which belong to the process; ignored`);
   const removed = removedKeysWarning(fileCfg, `tenant ${label}: tenant.yaml`);
   if (removed && !opts.quiet) console.warn(removed);
+  const badSwitch = badSwitchWarning(fileCfg, `tenant ${label}: tenant.yaml`);
+  if (badSwitch && !opts.quiet) console.warn(badSwitch);
   const hosts = parseHosts(label, fileCfg.hosts, opts.quiet);
   const own: Record<string, unknown> = { ...fileCfg };
   for (const k of [...PROCESS_ONLY_KEYS, 'hosts']) delete own[k];

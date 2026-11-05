@@ -16,7 +16,7 @@ vi.mock('../rolling-watch.js', () => ({ rollingWatch: vi.fn() }));
 
 import { loadConfig } from '../../config.js';
 import { initDb, setConfig } from '../db.js';
-import { updateAuthPreferences, effectiveModel } from '../auth-preferences.js';
+import { updateAuthPreferences, effectiveModel, getAuthPreferences } from '../auth-preferences.js';
 import { getBotToken, hasBotToken, saveBotToken } from '../bot-token.js';
 import { setConfig as setGoogleCreds, startAuth, isConfigured } from '../google-auth.js';
 import { isHandoffEnabled } from '../handoff.js';
@@ -160,12 +160,12 @@ describe('google-auth.js (the saved pair, then env, then yaml)', () => {
 });
 
 describe('auth-preferences.js effectiveModel and the /model command (the model chain, minus threads.model and modelOverride, which stay above)', () => {
-  it('interactive: preferred_model > KV agent.model > AGENT_MODEL > yaml', () => {
+  it('interactive: preferred_model > AGENT_MODEL > yaml (a KV agent.model row is ignored)', () => {
     expect(effectiveModel('interactive', 'fallback')).toBe('yaml-model');
     vi.stubEnv('AGENT_MODEL', 'env-model');
     expect(effectiveModel('interactive', 'fallback')).toBe('env-model');
     setConfig('agent.model', 'kv-model');
-    expect(effectiveModel('interactive', 'fallback')).toBe('kv-model');
+    expect(effectiveModel('interactive', 'fallback')).toBe('env-model');
     updateAuthPreferences({ preferred_model: 'pref-model' });
     expect(effectiveModel('interactive', 'fallback')).toBe('pref-model');
   });
@@ -176,14 +176,16 @@ describe('auth-preferences.js effectiveModel and the /model command (the model c
     expect(effectiveModel('autonomous', 'fallback')).toBe('pref-auto');
   });
 
-  it('/model writes the KV row, and now takes effect; it says so when something above still wins', async () => {
+  it('/model writes preferred_model (source db), says what is in effect, and /model reset hands the win back to yaml', async () => {
     const run = async (arg?: string) => ((await handleCommand('model', arg, undefined, { agent: {} as never, registry: {} as never })) as any).data.message as string;
-    expect(await run()).toBe('Current model: yaml-model');
-    expect(await run('claude-new')).toBe('Model switched to claude-new');
+    expect(await run()).toBe('Current model: yaml-model (from yaml)');
+    expect(await run('claude-new')).toMatch(/^Model switched to claude-new \(from db\)/);
+    expect(getAuthPreferences().preferred_model).toBe('claude-new');
     expect(effectiveModel('interactive', 'x')).toBe('claude-new');
-    expect(await run()).toBe('Current model: claude-new');
-    updateAuthPreferences({ preferred_model: 'pinned' });
-    expect(await run('claude-other')).toMatch(/^Saved claude-other, but pinned is in effect/);
+    expect(await run()).toBe('Current model: claude-new (from db)');
+    expect(await run('reset')).toBe('Model reset: yaml-model is in effect (from yaml)');
+    expect(getAuthPreferences().preferred_model).toBeNull();
+    expect(effectiveModel('interactive', 'x')).toBe('yaml-model');
   });
 });
 

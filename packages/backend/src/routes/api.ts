@@ -1864,6 +1864,7 @@ router.put('/preferences', (req, res) => {
     }
     const raw = readConfigText(configPath);
     const parsed = (yaml.load(raw) as Record<string, any>) || {};
+    const orig = structuredClone(parsed); // the yaml layer as it stands: what each incoming value is compared with
     const updates = req.body as Record<string, any>;
 
     // Merge only allowed fields
@@ -2019,6 +2020,17 @@ router.put('/preferences', (req, res) => {
       if (updates.auth.password !== undefined) parsed.auth.password = updates.auth.password;
     }
 
+    // The panel posts its whole draft, which holds the EFFECTIVE values (a database row or .env may be what it shows). Write a key only when it
+    // is a change to the yaml layer: a value equal to what the file already says, or equal to the effective value that came from elsewhere
+    // (.env, the database, the default), is the panel echoing what it was shown, and is not pinned into the file.
+    const tenant = tenantOrNull('PUT /preferences');
+    const { effective } = resolveAll({ yaml: tenant ? (overlay(tenant.file ?? {}, orig) as Record<string, unknown>) : orig });
+    const written = settleWrittenKeys(orig, parsed, effective);
+    if (written.length === 0) {
+      res.json({ success: true, written, message: 'Nothing to save: every value is already what sanctum.yaml says, or is set by .env or the database.' });
+      return;
+    }
+
     // Write back
     const refusal = tenantEditRefusal(parsed, raw);
     if (refusal) { res.status(400).json({ error: refusal }); return; }
@@ -2027,12 +2039,63 @@ router.put('/preferences', (req, res) => {
     if (own) { res.status(400).json({ error: own }); return; }
     writeOwnFile(configPath, newYaml);
 
-    res.json({ success: true, message: 'Preferences saved. Restart server for some changes to take effect.' });
+    res.json({ success: true, written, message: 'Preferences saved. Restart server for some changes to take effect.' });
   } catch (err) {
     console.error('Failed to save preferences:', err);
     res.status(500).json({ error: 'Failed to save preferences' });
   }
 });
+
+/** Leaf paths of a parsed yaml tree (arrays and scalars are leaves). */
+function yamlLeaves(obj: unknown, prefix = '', out = new Map<string, unknown>()): Map<string, unknown> {
+  if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+    for (const [k, v] of Object.entries(obj)) yamlLeaves(v, prefix ? `${prefix}.${k}` : k, out);
+  } else if (prefix) out.set(prefix, obj);
+  return out;
+}
+const emptyish = (v: unknown) => v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
+const sameYamlValue = (a: unknown, b: unknown) => (emptyish(a) && emptyish(b)) || JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * `parsed` is `orig` with the incoming preferences merged in. Put back every key whose new value is the value the panel was shown from a layer
+ * other than the file (the effective value), so only real changes to the yaml layer remain; drop the empty sections the merge opened. Returns
+ * the dotted keys that differ from `orig` afterwards: what the save writes.
+ */
+function settleWrittenKeys(orig: Record<string, any>, parsed: Record<string, any>, effective: Record<string, unknown>): string[] {
+  const before = yamlLeaves(orig);
+  const after = yamlLeaves(parsed);
+  const written: string[] = [];
+  for (const path of new Set([...before.keys(), ...after.keys()])) {
+    const a = before.get(path);
+    const b = after.get(path);
+    if (sameYamlValue(a, b)) {
+      // an empty-for-empty change ('' for a missing key) is no change: keep the file's spelling
+      if (a === undefined && b !== undefined) setYamlPath(parsed, path, undefined);
+      else if (b === undefined && a !== undefined) setYamlPath(parsed, path, a);
+      else if (a !== undefined && b !== undefined) setYamlPath(parsed, path, a);
+      continue;
+    }
+    if (b !== undefined && path in effective && sameYamlValue(b, effective[path])) {
+      setYamlPath(parsed, path, a);
+      continue;
+    }
+    written.push(path);
+  }
+  // undefined means "not there": remove it, and any section the merge opened that is now empty
+  const prune = (node: Record<string, any>, origNode: unknown) => {
+    for (const k of Object.keys(node)) {
+      const v = node[k];
+      const o = origNode && typeof origNode === 'object' ? (origNode as Record<string, unknown>)[k] : undefined;
+      if (v === undefined) { delete node[k]; continue; }
+      if (v && typeof v === 'object' && !Array.isArray(v)) {
+        prune(v, o);
+        if (Object.keys(v).length === 0 && o === undefined) delete node[k];
+      }
+    }
+  };
+  prune(parsed, orig);
+  return written;
+}
 
 // --- Raw YAML escape hatch (sanctum.yaml) ---
 // Powerful surface: full-file read/write. Auth-gated (sits after authMiddleware).
@@ -3900,9 +3963,9 @@ const KNOWN_MODELS: Array<{ id: string; label: string; tier: string }> = [
 
 router.get('/models', (req, res) => {
   try {
-    const config = getSanctumConfig();
-    const current = config.agent.model;
-    const currentAutonomous = config.agent.model_autonomous;
+    // The effective models (the settings service's rule), not the yaml values: a /model choice or AGENT_MODEL is what runs.
+    const current = String(resolveSetting('agent.model').value ?? '');
+    const currentAutonomous = String(resolveSetting('agent.model_autonomous').value ?? '');
 
     // Ensure the configured models are present even if not in the static list.
     const ids = new Set(KNOWN_MODELS.map(m => m.id));
@@ -3963,6 +4026,10 @@ router.get('/settings', (req, res) => {
     const url = mindUrlInfo();
     // Every registry key's effective value (default < sanctum.yaml < .env < SQLite) and the layer it came from. Secrets are { set, source }, never the value.
     const { effective, sources } = resolveAll();
+    // The Mind URL can carry a password or a token (userinfo, query): the same redaction as mind_url_effective (userinfo masked, service root),
+    // and no query or fragment either, since this map is only for display.
+    const mindUrlKey = 'integrations.mind_cloud.mcp_url';
+    if (typeof effective[mindUrlKey] === 'string' && effective[mindUrlKey] !== '') effective[mindUrlKey] = redactUrls(mindRootFrom(effective[mindUrlKey] as string)).replace(/[?#].*$/s, '');
     res.json({
       config, effective, sources, mind_key_source: key.source, mind_key_fingerprint: key.fingerprint,
       mind_url_source: url.source,
@@ -5122,8 +5189,8 @@ router.get('/system/status', (req, res) => {
       dbStats,
       websocketClients: registry.getCount(),
       agent: {
-        model: cfg.agent.model,
-        modelAutonomous: cfg.agent.model_autonomous,
+        model: String(resolveSetting('agent.model').value ?? ''),
+        modelAutonomous: String(resolveSetting('agent.model_autonomous').value ?? ''),
         presence: agentService?.getPresenceStatus() ?? 'offline',
         processing: agentService?.isProcessing() ?? false,
         queueDepth: agentService?.getQueueDepth() ?? 0,

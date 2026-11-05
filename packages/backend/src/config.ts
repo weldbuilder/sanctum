@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import yaml from 'js-yaml';
 import { tenantOrNull, registerProcessConfig, registerProcessFile } from './tenancy/context.js';
 import { pickWinner } from './services/settings/rule.js';
+import { REGISTRY, parseBoolWord } from './services/settings/registry.js';
 
 // Derive project root from this module's location (packages/backend/src/config.ts → ../../..)
 // This is stable regardless of process.cwd(), which npm workspaces can change.
@@ -822,6 +823,20 @@ export function removedKeysWarning(fileCfg: unknown, label = 'sanctum.yaml'): st
   return present.length ? `[config] ${label} sets ${present.join(', ')}: ignored, removed in this version (nothing read it). Delete the line${present.length > 1 ? 's' : ''}.` : null;
 }
 
+/** The one startup line for a yaml switch that is not a yes/no word (true/false/yes/no/on/off/1/0, any case). The settings service reads it as false. */
+export function badSwitchWarning(fileCfg: unknown, label = 'sanctum.yaml'): string | null {
+  const bad: string[] = [];
+  for (const def of REGISTRY) {
+    if (def.type !== 'bool' || !def.yaml || def.yaml.includes('{')) continue;
+    if (!hasPath(fileCfg, def.yaml)) continue;
+    let cur: unknown = fileCfg;
+    for (const k of def.yaml.split('.')) cur = (cur as Record<string, unknown>)[k];
+    if (cur === null || cur === undefined) continue;
+    if (parseBoolWord(cur) === undefined) bad.push(`${def.yaml}: ${JSON.stringify(cur)}`);
+  }
+  return bad.length ? `[config] ${label} has a switch that is not true/false/yes/no/on/off/1/0, read as false: ${bad.join(', ')}.` : null;
+}
+
 function stripRemovedKeys(merged: SanctumConfig): void {
   delete (merged.hooks as unknown as Record<string, unknown>)?.context_injection;
   delete (merged.google as unknown as Record<string, unknown>)?.enabled;
@@ -896,6 +911,8 @@ export function loadConfig(configPath?: string): SanctumConfig {
 
   const removedWarning = removedKeysWarning(fileConfig);
   if (removedWarning) console.warn(removedWarning);
+  const switchWarning = badSwitchWarning(fileConfig);
+  if (switchWarning) console.warn(switchWarning);
 
   // A copy of the file as read, before the merge shares its values and the environment overrides touch them: what a tenant inherits.
   const pristineFile = structuredClone(fileConfig);

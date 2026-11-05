@@ -79,12 +79,12 @@ describe('GET /api/preferences', () => {
     expect(body.agent.model_autonomous).toBe(''); // follow-the-chat-model is shown as the file says it, so a save does not pin it
   });
 
-  it('the chat model shown is the one the runtime uses: a database row beats AGENT_MODEL beats the file', async () => {
+  it('the chat model shown is the one the runtime uses: AGENT_MODEL beats the file; the old KV agent.model row is not a layer', async () => {
     expect(await get('/preferences').then((b) => [b.agent.model, b.sources['agent.model']])).toEqual(['file-model', 'yaml']);
     vi.stubEnv('AGENT_MODEL', 'env-model');
     expect(await get('/preferences').then((b) => [b.agent.model, b.sources['agent.model']])).toEqual(['env-model', 'env']);
     h.kv.set('agent.model', 'kv-model');
-    expect(await get('/preferences').then((b) => [b.agent.model, b.sources['agent.model']])).toEqual(['kv-model', 'db']);
+    expect(await get('/preferences').then((b) => [b.agent.model, b.sources['agent.model']])).toEqual(['env-model', 'env']);
   });
 
   it('the live port says when PORT is what is in force', async () => {

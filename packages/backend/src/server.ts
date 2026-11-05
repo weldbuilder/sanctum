@@ -103,6 +103,7 @@ if (!TENANT_MODE) {
   console.log('Initializing database...');
   db = initDb(DB_PATH);
   deleteExpiredSessions();
+  retireLegacyModelRow(); // the row /model used to write (nothing read it): named once, deleted
   loadVectorCache();
   console.log('Database initialized');
 }
@@ -241,14 +242,13 @@ if (TENANT_MODE || config.command_center.enabled) {
 }
 
 // Workspace (Google) MCP endpoint — ALWAYS mounted (like /api/google/*). With
-// UI-driven creds the user never edits yaml, so a static config.google.enabled
+// UI-driven creds the user never edits yaml, so a static yaml switch
 // gate is the wrong lever. The MCP's tools/list is itself toggle-aware: it only
 // exposes `gcal` when Google is connected AND the Calendar toggle is on, and
 // returns an empty tool list otherwise. So mounting while not-yet-configured /
 // disconnected is harmless — the agent simply sees no workspace tools until the
 // user pastes creds, connects, and flips Calendar (no yaml edit, no restart).
-// (The static config.google.enabled flag is now unused for mounting; it remains
-// in config only as a legacy/override hint and can be removed in a later pass.)
+// (There is no google.enabled setting: it was removed because nothing read it.)
 // LOOPBACK-ONLY (same posture as /mcp/cc): the `google` / `google_health` tools
 // are called only by the in-app agent's SDK over loopback. Gated by the internal
 // shared token (the agent passes it via the `headers` block in .mcp.json,
@@ -330,7 +330,7 @@ const pushService = TENANT_MODE ? (null as never) : new PushService(
 if (!TENANT_MODE) agentService.setPushService(pushService);
 
 // Initialize Discord gateway (config-gated with env fallback)
-import { resolveSetting } from './services/settings/index.js';
+import { resolveSetting, retireLegacyModelRow } from './services/settings/index.js';
 import { hasBotToken } from './services/bot-token.js';
 
 let discordService: DiscordService | null = null;

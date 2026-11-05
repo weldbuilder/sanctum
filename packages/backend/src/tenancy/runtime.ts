@@ -4,7 +4,8 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { SanctumConfig } from '../config.js';
 import { openDb } from '../services/db.js';
-import { bootedTenants, getProcessConfig, type TenantRuntime } from './context.js';
+import { bootedTenants, getProcessConfig, runInTenant, type TenantRuntime } from './context.js';
+import { retireLegacyModelRow } from '../services/settings/index.js';
 import { loadTenantConfig } from './config.js';
 import { TenantEditRefused, ownMkdirIn, ownWriteFileIn, readOwnTextIn } from './own-files.js';
 import { layoutClash } from './layout.js';
@@ -79,6 +80,7 @@ export function createTenantRuntime(
       rt.config.auth.password = password;
     },
   };
+  runInTenant(rt, () => retireLegacyModelRow()); // the row /model used to write: named once, deleted
   return rt;
 }
 

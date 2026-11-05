@@ -536,6 +536,7 @@ export class Orchestrator {
     // Add custom schedule entries not in DEFAULT_TASKS
     for (const [wakeType, cronExpr] of Object.entries(config.orchestrator.schedules)) {
       if (defaultWakeTypes.has(wakeType)) continue; // already handled above
+      if (wakeType.includes('.')) { console.warn(`[orchestrator] orchestrator.schedules.${JSON.stringify(wakeType)}: a wake type name cannot contain a dot; skipped`); continue; }
       const label = wakeType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
       taskDefs.push({
         wakeType,

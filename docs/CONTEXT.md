@@ -351,7 +351,7 @@ day's warm-up. Off by default; a lovely thing to turn on once you're settled in.
 Turn on `command_center.enabled: true` to activate the care/day dashboard, which
 becomes the local source for the "life status," "mood history," cycle phase, and
 care entries that feed both the House digest and the you-sense whisper. You can
-tune what it tracks under `command_center.care_categories`.
+edit what it tracks in the Command Center (the care categories are kept in the database).
 
 ### 6. Your AI's live presence — the `res` tools
 

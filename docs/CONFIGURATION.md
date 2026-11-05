@@ -65,8 +65,11 @@ database home, a value saved there beats both `.env` and `sanctum.yaml`. If `san
 on `4000` (port has no database home); if `sanctum.yaml` says `discord.enabled: true` and `.env` says `DISCORD_ENABLED=true`, but you switched Discord
 off in Settings, it stays off.
 
-**A save in Settings lands in the database, and therefore wins over `sanctum.yaml` and `.env`.** To go back to what the files say, clear the
-database value.
+**Where a save lands depends on the panel.** The Preferences panel saves to `sanctum.yaml`, and only the keys you changed: a field that still shows a
+value from `.env` or the database is not written into the file. The channel toggles, the Mind fields, the orchestrator panel (failsafe, pulse, wakes)
+and the token fields save to the database, and **database values win over `sanctum.yaml` and `.env`**. The Settings UI has no control that clears a
+database row yet (a toggle writes `false`, it does not remove the row); the exception is the model: `/model <id>` sets it, and `/model reset` clears it so
+`sanctum.yaml` and `AGENT_MODEL` win again. For any other row, delete it from the `config` table with `sqlite3`.
 
 Settings that have a database home today:
 
@@ -76,7 +79,7 @@ Settings that have a database home today:
 | `orchestrator.failsafe.*`, `pulse.enabled`, `pulse.frequency` | `config` rows `failsafe.*`, `pulse.*` |
 | a wake's schedule, switch, model and target | `config` rows `cron.<type>.schedule / enabled / model / target` |
 | `integrations.mind_cloud.enabled / mcp_url / mind_id` and the Mind key | `config` rows `mind.*` (the key beats `MIND_API_KEY`, which beats the companion's `.mcp.json` bearer) |
-| the chat and autonomous model (`agent.model`, `agent.model_autonomous`) | `auth_preferences.preferred_model(_autonomous)`, and the `config` row `agent.model` that the `/model` command writes |
+| the chat and autonomous model (`agent.model`, `agent.model_autonomous`) | `auth_preferences.preferred_model(_autonomous)`; the `/model` command writes `preferred_model` (`/model reset` clears it). An old `config` row `agent.model` is ignored and deleted at startup |
 | Discord and Telegram bot tokens | encrypted `config` rows (beat `DISCORD_BOT_TOKEN`, `TELEGRAM_BOT_TOKEN`) |
 | `telegram.owner_chat_id` | `config` row `telegram.ownerChatId` |
 | Google client id and secret | `google_auth` (beats `GOOGLE_CLIENT_ID/SECRET`, which beat `google.*`) |

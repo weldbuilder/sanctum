@@ -136,18 +136,18 @@ describe('the rule: default < yaml < env < db', () => {
     expect(resolveSetting('agent.provider', { yaml: { agent: { provider: 'codex' } } })).toMatchObject({ value: 'dsh', source: 'env' });
   });
 
-  it('agent.model: db(auth_preferences) > db(KV /model row) > env > yaml > default; agent.model_autonomous follows the file/env model, not the db one', () => {
+  it('agent.model: db(auth_preferences) > env > yaml > default (a KV agent.model row is not a layer); agent.model_autonomous follows the file/env model, not the db one', () => {
     const y = { agent: { model: 'yaml-model' } };
     expect(resolveSetting('agent.model', { yaml: y })).toMatchObject({ value: 'yaml-model', source: 'yaml' });
     vi.stubEnv('AGENT_MODEL', 'env-model');
     expect(resolveSetting('agent.model', { yaml: y })).toMatchObject({ value: 'env-model', source: 'env' });
     expect(resolveSetting('agent.model_autonomous', { yaml: y })).toMatchObject({ value: 'env-model', source: 'default' });
-    setConfig('agent.model', 'kv-model');
-    expect(resolveSetting('agent.model', { yaml: y })).toMatchObject({ value: 'kv-model', source: 'db' });
+    setConfig('agent.model', 'kv-model'); // the row /model used to write: ignored
+    expect(resolveSetting('agent.model', { yaml: y })).toMatchObject({ value: 'env-model', source: 'env' });
     updateAuthPreferences({ preferred_model: 'pref-model', preferred_model_autonomous: 'pref-auto' });
     const r = resolveSetting('agent.model', { yaml: y });
     expect(r).toMatchObject({ value: 'pref-model', source: 'db' });
-    expect(r.candidates.map((c) => c.via)).toEqual([undefined, 'agent.model', 'AGENT_MODEL', 'config:agent.model', 'auth_preferences.preferred_model']);
+    expect(r.candidates.map((c) => c.via)).toEqual([undefined, 'agent.model', 'AGENT_MODEL', 'auth_preferences.preferred_model']);
     expect(resolveSetting('agent.model_autonomous', { yaml: y })).toMatchObject({ value: 'pref-auto', source: 'db' });
     // the follow rule leaves the db preferred_model out
     updateAuthPreferences({ preferred_model_autonomous: null });

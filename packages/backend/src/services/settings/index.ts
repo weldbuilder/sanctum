@@ -15,10 +15,10 @@
 // No cache. Every call reads the layers again, so a KV write or reloadConfig() is seen by the next call.
 import { getSanctumConfig, getAppPasswordSource } from '../../config.js';
 import { HOUSE_SCOPE_ID, NoTenantContext, envFor, getProcessFile, tenantOrNull, tenancyEnabled } from '../../tenancy/context.js';
-import { getConfig } from '../db.js';
+import { deleteConfig, getConfig } from '../db.js';
 import { mindFromMcpJson } from '../mind-client.js';
 import { PRECEDENCE, pickWinner, type Candidate, type SettingSource } from './rule.js';
-import { STATIC_KEYS, expand, lookupKey, type KeyDef } from './registry.js';
+import { STATIC_KEYS, expand, lookupKey, parseBoolWord, type KeyDef } from './registry.js';
 import { TYPED_READERS } from './stores.js';
 
 export type { SettingSource } from './rule.js';
@@ -109,12 +109,10 @@ function parse(def: KeyDef, v: unknown, layer: 'yaml' | 'env' | 'kv'): unknown {
   switch (def.type) {
     case 'bool': {
       if (layer === 'env') return v === 'true' ? true : def.envTrueOnly ? undefined : v === 'false' ? false : undefined;
-      if (typeof v === 'boolean') return v;
-      if (typeof v === 'number') return v !== 0;
-      if (typeof v !== 'string' || v.trim() === '') return undefined;
-      // A KV row is true for 'true' / '1', anything else typed is false (what getConfigBool always did); yaml reads the words.
-      if (layer === 'kv') return v === 'true' || v === '1';
-      return v === 'true' || v === '1' ? true : v === 'false' || v === '0' ? false : undefined;
+      // A KV row is true for 'true' / '1', anything else (an empty string too) is false: what getConfigBool always did.
+      if (layer === 'kv') return typeof v === 'string' ? v === 'true' || v === '1' : parseBoolWord(v) ?? false;
+      // yaml: yes/on/true/1 and no/off/false/0 in any case; anything else is false (config.ts says so once at load).
+      return parseBoolWord(v) ?? false;
     }
     case 'number': {
       const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? parseFloat(v) : NaN;
@@ -297,3 +295,16 @@ export function resolveAll(opts: ResolveOptions = {}): { effective: Record<strin
 }
 
 export const SOURCE_ORDER: readonly SettingSource[] = PRECEDENCE;
+
+/**
+ * Earlier versions let the /model command write the KV row `agent.model`, which nothing read; it is not a layer of the rule now (/model writes
+ * auth_preferences.preferred_model). A leftover row is named in one log line, then deleted. Returns the ignored value, or null when there was none.
+ */
+export function retireLegacyModelRow(): string | null {
+  let v: string | null | undefined;
+  try { v = getConfig('agent.model'); } catch (e) { if (e instanceof NoTenantContext) throw e; return null; }
+  if (v === null || v === undefined) return null;
+  console.warn(`[config] ignoring and deleting the old database row agent.model=${JSON.stringify(v)} (written by /model in earlier versions); /model now sets auth_preferences.preferred_model, /model reset clears it`);
+  try { deleteConfig('agent.model'); } catch (e) { if (e instanceof NoTenantContext) throw e; }
+  return v;
+}
