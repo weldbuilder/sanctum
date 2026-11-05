@@ -42,6 +42,21 @@ describe('registry', () => {
     expect(REGISTRY.length).toBeGreaterThan(60);
   });
 
+  it('knows the agent.summarizer keys (yaml-backed, defaults equal config.ts) and the key is a secret marker', () => {
+    for (const k of ['provider', 'model', 'base_url', 'api_key_env', 'max_output_tokens']) {
+      const def = lookupKey(`agent.summarizer.${k}`)!.def;
+      expect(def.yaml, k).toBe(`agent.summarizer.${k}`);
+    }
+    expect(lookupKey('agent.summarizer.api_key_env')!.def.default).toBe('SUMMARIZER_API_KEY');
+    expect(lookupKey('agent.summarizer.max_output_tokens')!.def.default).toBe(2000);
+    expect(lookupKey('summarizer.api_key')!.def.secret).toBe(true);
+    vi.stubEnv('SUMMARIZER_API_KEY', 'sk-sum-999999');
+    const r = resolveSetting('summarizer.api_key');
+    expect(r.value).toEqual({ set: true, source: 'env' });
+    expect(JSON.stringify(r)).not.toContain('sk-sum-999999');
+    expect(resolveSetting('agent.summarizer.provider', { yaml: { agent: { summarizer: { provider: 'openai-compat' } } } })).toMatchObject({ value: 'openai-compat', source: 'yaml' });
+  });
+
   it('every default equals the default config.ts ships', () => {
     const shipped = mergeConfigDefaults({}) as unknown as Record<string, unknown>;
     const at = (path: string) => path.split('.').reduce<unknown>((o, k) => (o as Record<string, unknown> | undefined)?.[k], shipped);

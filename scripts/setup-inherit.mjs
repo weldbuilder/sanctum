@@ -22,7 +22,7 @@ const require = createRequire(import.meta.url);
 export const INHERIT_TABLE = Object.freeze([
   // ── inherited ──────────────────────────────────────────────────────────────
   { inherit: true, paths: ['agent.provider', 'agent.model', 'agent.model_autonomous'], why: 'model and provider' },
-  { inherit: true, paths: ['agent.auto_compact', 'agent.harness_memory', 'agent.app_write', 'agent.dsh.*', 'agent.codex.*', 'agent.rolling.*'], why: 'agent settings that are not paths (sandbox mode, rolling context, per-harness models)' },
+  { inherit: true, paths: ['agent.auto_compact', 'agent.harness_memory', 'agent.app_write', 'agent.dsh.*', 'agent.codex.*', 'agent.rolling.*', 'agent.summarizer.*'], why: 'agent settings that are not paths (sandbox mode, rolling context, per-harness models, the summarizer; its `api_key_env` names a key, so it is not inherited: a tenant names its own in its `.env`)' },
   { inherit: true, paths: ['tools'], why: 'tool settings' },
   { inherit: true, paths: ['orchestrator.enabled', 'orchestrator.schedules', 'orchestrator.failsafe'], why: 'orchestrator cadence and schedules' },
   { inherit: true, paths: ['voice.*'], why: 'voice flags' },
@@ -123,6 +123,7 @@ export const WIZARD_DEFAULTS = Object.freeze({
   'agent.provider': 'claude', 'agent.model': 'claude-sonnet-5-5', 'agent.app_write': true, 'agent.harness_memory': false,
   'agent.codex.model': '', 'agent.codex.model_provider': '', 'agent.codex.sandbox_mode': 'workspace-write', 'agent.codex.additional_directories': [],
   'agent.rolling.claude': true, 'agent.rolling.codex': true, 'agent.rolling.dsh': true, 'agent.rolling.model': '', 'agent.rolling.model_provider': '',
+  'agent.summarizer.provider': '', 'agent.summarizer.model': '', 'agent.summarizer.base_url': '', 'agent.summarizer.max_output_tokens': 2000,
   'command_center.enabled': false, 'plugins.trust': 'companion', 'plugins.enabled': [], 'revien.enabled': true,
 });
 

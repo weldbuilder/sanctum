@@ -33,7 +33,7 @@ export const SHIPPED_PATHS = Object.freeze({
   'agent.mcp_json_path': './.mcp.json',
   'agent.dsh.base_instructions_file': './prompts/dsh-base-prompt.md',
   'agent.codex.base_instructions_file': './prompts/codex-base-prompt.md',
-  'agent.rolling.summarizer_instructions_file': './prompts/codex-summarizer-prompt.md',
+  'agent.rolling.summarizer_instructions_file': './prompts/summarizer-own-voice.md',
   'orchestrator.wake_prompts_path': './prompts/wake.md',
   'orchestrator.wake_prompts_dir': './prompts/wakes',
   'server.db_path': './data/sanctum.db',

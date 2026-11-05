@@ -31,7 +31,7 @@ Here are all three.
 
 **Its schedule.** Every **30 minutes**, run by the orchestrator (the scheduler described in Part 2). It skips a run if fewer than **5** new messages have appeared since last time (nothing to write about), or if your AI is busy replying to you right then.
 
-**Which model it uses.** `claude-haiku-5-5` — deliberately the small, fast, cheap model, because summarizing is light work. This is fixed in code.
+**Which model it uses.** The autonomous model: `agent.model_autonomous`, which follows `agent.model` when empty. It is not a small model. (The rolling-context summarizer has its own setting, `agent.summarizer`; see `docs/CONFIGURATION.md`.)
 
 **Where its prompt lives, and how to edit it.** The Scribe's instructions are written directly inside `digest.ts`, in a function called `buildScribePrompt()` (near the top of the file). There is no Settings screen for it and no separate prompt file — if you want to change *what* the Scribe records or *how* it writes, you edit that function in the source and rebuild (`npm run build`). For most people the default is exactly right and you never touch it.
 

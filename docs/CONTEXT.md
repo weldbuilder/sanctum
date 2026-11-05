@@ -171,7 +171,7 @@ skipped — a dead source never blanks the whole warm-up.
    Outlook section below.
 
 4. **Yesterday's carry.** *Only* when you're in today's daily thread and you've
-   enabled the midnight handoff: a tight "**Carried from yesterday:** …" note
+   enabled the midnight handoff: a tight "**You carried from yesterday:** …" note
    written by a background agent that read yesterday's conversation and distilled
    what should carry forward. Off by default (`handoff.enabled`).
 

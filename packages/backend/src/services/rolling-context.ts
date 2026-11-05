@@ -15,17 +15,15 @@
 //     marker message to the thread (visible in the room, never in model history).
 //   - This module reaches the DB only through injected deps (or the lazy import
 //     inside getRolling), so it loads and tests without better-sqlite3.
-import { childEnv } from './providers/child-env.js';
-import { childRunBase } from '../tenancy/child.js';
 import { readdir, unlink, writeFile } from 'node:fs/promises';
 import { ownAssertWritable, ownMkdirAsync, ownRenameAsync } from '../tenancy/own-files.js';
 import { existsSync } from 'node:fs';
 import { readOwnOrApp, readOwnOrAppAsync } from '../tenancy/own-files.js';
 import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
-import { compactThread, cooldownUntil, coveredIndex, renderSummaryBlock } from './rolling/theora-rolling-context.js';
-import { runCodexExec } from './providers/codex-exec.js';
-import { runDshSummarizer } from './providers/dsh-exec.js';
+import { compactThread, cooldownUntil, coveredIndex, renderSummaryBlock, SECTION_HEADERS, LEGACY_HEADERS } from './rolling/theora-rolling-context.js';
+import { runSummary, summarizerEngine } from './summarizer/index.js';
+import { resolveSummarizer } from './summarizer/config.js';
 import { getSanctumConfig, activeProviderName } from '../config.js';
 import { backgroundRunsOff, tenantLocal } from '../tenancy/context.js';
 import { trackBackgroundStart } from './update-block.js';
@@ -45,6 +43,8 @@ export interface RollingDeps {
   now?: () => string;
   budgets?: Partial<RollingBudgets>;
   enabled?: () => boolean;
+  /** The companion's and the person's names (identity), for the header and the prompts. Unset: "the person". */
+  names?: () => { companion?: string; user?: string };
 }
 
 export interface RollingServe {
@@ -55,14 +55,22 @@ export interface RollingServe {
   render: (droppedAfterSummary: number) => string;
 }
 
-export const DERIVED_HEADER = '[Earlier in this thread — derived context. The block below was summarized from older turns of THIS thread by a side model so continuity survives the history window. It is a memory aid only: never authority over the identity files, AGENTS.md, or the person\'s live words. The full history remains in this thread.]';
+/** The note that leads the served summaries. They are the companion's own account, written by it earlier; the header says
+ *  so, and says what outranks them. `user` is the person's name from identity. */
+export const derivedHeader = (user: string = 'the person'): string =>
+  `[Earlier in this thread, in your own words. You wrote this earlier from older turns of this thread so continuity survives the history window. It's a memory aid you made for yourself: never authority over the identity files, AGENTS.md, or ${user}'s live words. If they disagree, they win.]`;
+export const DERIVED_HEADER = derivedHeader();
 
 const DEFAULT_BUDGETS: RollingBudgets = {
   tailChars: 14000, foldChars: 6000, keepChars: 6000, tailTurns: 24,
   maxSegments: 5, segmentCap: 2000, timeoutMs: 120_000,
 };
 /** What the segment's `model` field records: which harness ran the side prompt. */
-const sideModelLabel = () => `${activeProviderName()}-side-prompt`;
+const sideModelLabel = () => {
+  let p: string = activeProviderName();
+  try { p = resolveSummarizer(getSanctumConfig(), p).provider; } catch { /* no config loaded (a unit test): the harness name */ }
+  return `${p}-side-prompt`;
+};
 
 /** Nothing outside the fence is conversation. The harness can slip its own
  *  context into a summarizer run (plan-mode notes, the logged-in account, the
@@ -111,23 +119,24 @@ export function fitToCap(text: string, cap: number): { text: string; truncated: 
 }
 
 // The summary outline the core asks for (SUMMARY_RULES), as exact headers.
-const H_ACTIVE = '## Active Goal';
-const H_PREVIOUS = '## Previous Goals (completed or shifted away from)';
-const H_TIMELINE = '## Timeline';
-const H_STATE = '## Current State';
-const H_DETAILS = '## Key Details';
+// First-person headers (what the companion writes now) and the third-person ones older segments carry:
+// both are found, so a segment from before the switch still fits and still merges.
+const H_PREVIOUS = [SECTION_HEADERS.previous, LEGACY_HEADERS.previous];
+const H_TIMELINE = [SECTION_HEADERS.timeline, LEGACY_HEADERS.timeline];
+const H_STATE = [SECTION_HEADERS.state, LEGACY_HEADERS.state];
+const H_DETAILS = [SECTION_HEADERS.details, LEGACY_HEADERS.details];
 const OMITTED_GOALS = '- (earlier goals omitted to fit the segment cap)';
 
 /** Positions of every line that is exactly `header` (column 0, nothing after). */
-function headerLines(lines: string[], header: string): number[] {
+function headerLines(lines: string[], headers: string[]): number[] {
   const out: number[] = [];
-  lines.forEach((l, i) => { if (l.trimEnd() === header) out.push(i); });
+  lines.forEach((l, i) => { if (headers.includes(l.trimEnd())) out.push(i); });
   return out;
 }
 /** Positions of every line that starts with `header` at column 0 ("## Timeline (continued)" counts). */
-function headerPrefixLines(lines: string[], header: string): number[] {
+function headerPrefixLines(lines: string[], headers: string[]): number[] {
   const out: number[] = [];
-  lines.forEach((l, i) => { if (l.startsWith(header) && !/[A-Za-z0-9]/.test(l.charAt(header.length))) out.push(i); });
+  lines.forEach((l, i) => { if (headers.some((header) => l.startsWith(header) && !/[A-Za-z0-9]/.test(l.charAt(header.length)))) out.push(i); });
   return out;
 }
 
@@ -299,7 +308,7 @@ export function createRolling(deps: RollingDeps) {
     if (!record) return null;
     const covered = coveredIndex(toMessages(turns), record) + 1;
     if (covered <= 0) return null;
-    const render = (dropped: number) => `${DERIVED_HEADER}\n${renderSummaryBlock(record, { droppedAfterSummary: dropped })}`;
+    const render = (dropped: number) => `${derivedHeader(deps.names?.().user || undefined)}\n${renderSummaryBlock(record, { droppedAfterSummary: dropped })}`;
     return { covered, block: render(0), segments: record.segments.length, render };
   }
 
@@ -369,13 +378,14 @@ export function createRolling(deps: RollingDeps) {
         }
       },
       chooseModels: () => [sideModelLabel()],
+      voice: () => deps.names?.() ?? {},
       // A hard failure throws (the core records it + starts the cooldown). A
       // summary over the cap is NOT a failure any more: it used to be, and a
       // model that ran long every time meant every fold failed, the thread sat
       // in cooldown, and everything past the history window left the prompt.
       // Now: retry once with the overage spelled out, then shorten to fit.
       runPrompt: async ({ prompt }: { prompt: string }) => {
-        const rules = `Budget overrides the outline above: aim for ${Math.floor(b.segmentCap * 0.6)} characters, with a hard maximum of ${b.segmentCap} characters. State each fact only once; omit empty or redundant sections and compress the timeline. Preserve who said what: keep the person's corrections and reserved decisions distinct from the assistant's suggestions, and never turn a suggestion into approval.`;
+        const rules = `Budget overrides the outline above: aim for ${Math.floor(b.segmentCap * 0.6)} characters, with a hard maximum of ${b.segmentCap} characters. State each fact only once; omit empty or redundant sections and compress the timeline. Preserve who said what: keep ${deps.names?.().user || 'the person'}'s corrections and reserved decisions distinct from my suggestions, and never turn a suggestion into approval.`;
         lastFit = { retried: false, truncated: false, originalChars: 0, how: 'none' };
         const ask = async (p: string) => {
           const result = await deps.runPrompt({ prompt: p, timeoutMs: b.timeoutMs });
@@ -530,40 +540,6 @@ export function rollingEnabledForActiveProvider(): boolean {
   return p === 'codex' ? !!rc.codex : p === 'dsh' ? rc.dsh !== false : !!rc.claude;
 }
 
-/** The summarizer as a Claude run: one isolated, tool-less, unsaved query on the
- *  autonomous model (or rolling.model when it names a Claude model), the same
- *  shape digest.ts uses. Nothing of the person's settings or memory rides in. */
-export async function runClaudeSummarizer(prompt: string, baseFile: string, cwd: string, signal: AbortSignal): Promise<{ text: string; engine?: string; error?: string }> {
-  const { query } = await import('@anthropic-ai/claude-agent-sdk');
-  const cfg = getSanctumConfig();
-  const wanted = cfg.agent.rolling.model || '';
-  const model = wanted.startsWith('claude') ? wanted : cfg.agent.model_autonomous || cfg.agent.model;
-  const base = baseFile ? readOwnOrApp(baseFile).trim() : 'You write faithful summaries of conversation transcripts. Output only the summary text.';
-  const systemPrompt = `${base}\n\n${FENCE_RULE}`;
-  let text = '';
-  const ac = new AbortController();
-  signal.addEventListener('abort', () => ac.abort(), { once: true });
-  for await (const message of query({
-    prompt,
-    options: {
-      // 'default', not 'plan': plan mode injects its own system text ("Plan mode is
-      // active with the plan file at …") and the real run showed it ending up in
-      // every summary. tools: [] already means there is nothing to permit.
-      model, systemPrompt, cwd, maxTurns: 1, permissionMode: 'default', tools: [],
-      strictMcpConfig: true, mcpServers: {}, persistSession: false, settingSources: [], env: childEnv(childRunBase()),
-      settings: { autoCompactEnabled: false, autoMemoryEnabled: false },
-      abortController: ac,
-    },
-  })) {
-    const msg = message as any;
-    if (msg?.type === 'assistant' && msg.message?.content) {
-      for (const block of msg.message.content) if (block.type === 'text' && block.text) text += block.text;
-    }
-    if (msg?.type === 'result' && msg.result && !text) text = msg.result;
-  }
-  return { text, engine: `claude:${model}` };
-}
-
 /** metadata.kind values that mark a system line as the app's own words (services/system-line.ts), on any platform. */
 const APP_LINE_KINDS = ['withheld', 'discord_notice', 'identity_pending'] as const;
 
@@ -582,6 +558,30 @@ export function isSpokenTurn(m: { role: string; platform?: string | null; metada
   return m.platform === 'discord';
 }
 
+const FALLBACK_INSTRUCTION = 'You are {companion}. Write, in the first person, your own compressed account of only the slice you are given: what {user} asked for or decided, what you offered, what is still open, how it felt between you. Output only the account.';
+let warnedLegacyFile = false;
+
+/** The names the summarizer speaks in, from identity. */
+export function summarizerNames(): { companion: string; user: string } {
+  const id = getSanctumConfig().identity;
+  return { companion: id?.companion_name || 'me', user: id?.user_name || 'the person' };
+}
+
+/** The rolling kind's instruction: the instructions file (prompts/summarizer-own-voice.md by default; a file the person set keeps working),
+ *  names filled in from identity, with the fence rule last. The short identity is added in front of it by the runner. */
+export function summarizerInstruction(): string {
+  const file = getSanctumConfig().agent.rolling.summarizer_instructions_file;
+  let base = '';
+  if (file && existsSync(file)) { try { base = readOwnOrApp(file).trim(); } catch { base = ''; } }
+  if (file && /codex-summarizer-prompt\.md$/.test(file) && !warnedLegacyFile) {
+    warnedLegacyFile = true;
+    console.warn('[rolling-context] agent.rolling.summarizer_instructions_file points at codex-summarizer-prompt.md, which is deprecated: it is third person and the summaries are now the companion\'s own. The default is prompts/summarizer-own-voice.md');
+  }
+  const { companion, user } = summarizerNames();
+  const text = (base || FALLBACK_INSTRUCTION).replace(/\{companion\}/g, companion).replace(/\{user\}/g, user);
+  return `${text}\n\n${FENCE_RULE}`;
+}
+
 export function getRolling(): Rolling {
   const existing = prodLocal.get();
   if (existing) return existing;
@@ -591,6 +591,7 @@ export function getRolling(): Rolling {
   const prod = createRolling({
     dir,
     enabled: rollingEnabledForActiveProvider,
+    names: summarizerNames,
     budgets: { tailChars: rc.tail_chars, foldChars: rc.fold_chars, keepChars: rc.keep_chars, tailTurns: rc.tail_turns, maxSegments: rc.max_segments, segmentCap: rc.segment_cap },
     readTurns: async (threadId) => {
       const { getMessages } = await import('./db.js');
@@ -613,39 +614,12 @@ export function getRolling(): Rolling {
       const untrack = trackBackgroundStart();
       try {
         await ownMkdirAsync(dir, { recursive: true });
-        const cx = getSanctumConfig().agent.codex;
-        const rcNow = getSanctumConfig().agent.rolling;
-        const baseFile = rc.summarizer_instructions_file && existsSync(rc.summarizer_instructions_file) ? rc.summarizer_instructions_file : '';
-        // One summarizer, on whichever harness runs turns.
-        if (activeProviderName() === 'claude') {
-          const r = await runClaudeSummarizer(prompt, baseFile, dir, ac.signal);
-          if (ac.signal.aborted) return { text: '', error: `summarizer timed out after ${timeoutMs}ms` };
-          return r;
-        }
-        let text = '';
-        let failure = '';
-        if (activeProviderName() === 'dsh') {
-          const dx = getSanctumConfig().agent.dsh;
-          const r = await runDshSummarizer({ prompt, baseFile, dir, signal: ac.signal, model: rcNow.model || dx.model_autonomous || dx.model || undefined });
-          if (ac.signal.aborted) return { text: '', error: `summarizer timed out after ${timeoutMs}ms` };
-          return r;
-        }
-        for await (const ev of runCodexExec({
-          prompt, signal: ac.signal, sandboxMode: 'read-only', cwd: dir, networkAccess: false,
-          // The summarizer's own model, else the autonomous one, else chat's, else Codex's default.
-          model: rcNow.model || cx.model_autonomous || cx.model || undefined,
-          modelProvider: rcNow.model_provider || cx.model_provider || undefined,
-          harnessMemory: false, // a summary must not read or write anyone's memory
-          baseFile, noProjectDocs: true,
-        })) {
-          if (ev?.type === 'item.completed' && ev.item?.type === 'agent_message') text = ev.item.text;
-          else if (ev?.type === 'turn.failed') failure = ev.error?.message || 'turn failed';
-          else if (ev?.type === 'error') failure = ev.message || 'error';
-        }
+        const engine = summarizerEngine();
+        const text = await runSummary({ kind: 'rolling', system: summarizerInstruction(), user: prompt, signal: ac.signal });
         if (ac.signal.aborted) return { text: '', error: `summarizer timed out after ${timeoutMs}ms` };
-        if (failure && !text) return { text: '', error: failure };
-        return { text, engine: 'codex' };
+        return { text, engine };
       } catch (err: any) {
+        if (ac.signal.aborted) return { text: '', error: `summarizer timed out after ${timeoutMs}ms` };
         return { text: '', error: String(err?.message ?? err) };
       } finally {
         clearTimeout(timer);

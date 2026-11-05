@@ -3,7 +3,7 @@
 // ---------------------------------------------------------------------------
 // The logistics poller (outlook.ts) reads LIVE structured sources cheaply every
 // 2.5 min. This author is the SLOW, EXPENSIVE, FELT layer: a one-off Agent SDK
-// query() on the user's SUBSCRIPTION (claude-sonnet-4-6) that lets the companion AUTHOR its
+// query() on the user's SUBSCRIPTION (the autonomous model) that lets the companion AUTHOR its
 // own presence ("the hearth") and name the topics "we've been circling".
 //
 // CREDENTIAL PATH — NON-NEGOTIABLE:
@@ -13,9 +13,8 @@
 //   from auth_preferences; in the default install that resolves to the user's
 //   subscription creds at ~/.claude/.credentials.json (env scrubbed by
 //   launch.ps1). NO direct Anthropic key, NO OpenRouter, NO HTTP LLM call, NO
-//   per-token-billed path. The model is pinned to claude-sonnet-4-6
-//   (== agent.model_autonomous in sanctum.yaml) so subscription + api_key
-//   resolve to the same model.
+//   per-token-billed path. The model is agent.model_autonomous (which follows
+//   agent.model when empty), so subscription + api_key resolve to the same model.
 //
 // RHYTHM: runs on OUTLOOK_AUTHOR_INTERVAL_MS (3h) — far slower than the 2.5-min
 // logistics poller — on its OWN lifecycle (not coupled to the poller's tick). On
@@ -376,7 +375,7 @@ function normalizeAuthored(parsed: unknown, updatedAt: string): AuthoredOutput {
 
 // --- The author call --------------------------------------------------------
 
-/** Run ONE author pass: collect facts → Sonnet-4.6 one-off query() → parse →
+/** Run ONE author pass: collect facts → one-off query() → parse →
  *  store. Returns true on success (output stored), false on failure. Never
  *  throws — the caller's lifecycle stays resilient. */
 export async function authorOutlook(): Promise<boolean> {

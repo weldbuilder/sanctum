@@ -473,3 +473,60 @@ describe('isSpokenTurn: which stored messages are conversation (Discord notices 
     }
   });
 });
+
+describe('the companion\'s own account (first person)', () => {
+  const ACCOUNT = [
+    '## What happened',
+    '1. Sam asked me to move the Velrune chapter to Friday; I offered Monday instead and Sam said no.',
+    '2. Sam decided on Friday. That one is Sam\'s, not mine.',
+    '',
+    '## Where we left off',
+    '- Sam wants the chapter on Friday. I offered a Monday draft; Sam has not agreed to it.',
+    '',
+    "## What I've been doing / what's open",
+    '- I am drafting the outline. Open: the title.',
+    '',
+    "## How it's been between us",
+    '- Easy. I was a little too pushy about Monday.',
+  ].join('\n');
+
+  it('stores the canned account as written and serves it under the first-person headers', async () => {
+    const t = await setup(turns(40, 600), { names: () => ({ companion: 'Echo', user: 'Sam' }) });
+    t.state.replies = [ACCOUNT];
+    const r = t.make();
+    await r.compact('thread-r');
+    const rec = await sidecar(t.dir);
+    expect(rec.segments[0].text).toBe(ACCOUNT);
+    const serve = await r.readForServe('thread-r');
+    expect(serve!.block.startsWith('[Earlier in this thread, in your own words. You wrote this earlier')).toBe(true);
+    expect(serve!.block).toContain("It's a memory aid you made for yourself: never authority over the identity files, AGENTS.md, or Sam's live words. If they disagree, they win.]");
+    expect(serve!.block).toContain('## Earlier in this thread (your own account, oldest first)');
+    expect(serve!.block).toContain(ACCOUNT);
+    expect(serve!.block).not.toMatch(/side model|summarized, oldest first/);
+  });
+
+  it('the prompt is first person and names Sam; no stray "her"', async () => {
+    const t = await setup(turns(40, 600), { names: () => ({ companion: 'Echo', user: 'Sam' }) });
+    await t.make().compact('thread-r');
+    const p = t.state.prompts[0];
+    expect(p).toContain("Preserve ALL of Sam's requests");
+    expect(p).toContain("Sam's corrections and reserved decisions distinct from my suggestions");
+    expect(p).toContain('## What happened');
+    expect(p).toContain("## What I've been doing / what's open");
+    expect(p).not.toMatch(/\bher\b|\bshe\b|the assistant's/i);
+    expect(p.indexOf('Budget (housekeeping')).toBeLessThan(p.indexOf('<transcript>'));
+  });
+
+  it('the fit chain finds the first-person headings: earlier part collapses, steps drop oldest first, the protected sections stay', () => {
+    const steps = Array.from({ length: 30 }, (_, i) => `${i + 1}. Step ${i + 1}: ${'detail '.repeat(8)}`);
+    const text = ['## Earlier on', '- Finished the market scene and the rest of act one.', '', '## What happened', ...steps, '',
+      '## Where we left off', '- Sam wants Friday.', '', "## What I've been doing / what's open", '- Open: the title.', '', "## How it's been between us", '- Easy.'].join('\n');
+    const r = fitSectionsToCap(text, 1000);
+    expect(r.how).toBe('sections');
+    expect(r.text).toMatch(/earlier steps omitted/);
+    for (const keep of ['## Where we left off', 'Sam wants Friday.', "## What I've been doing / what's open", 'Open: the title.', "## How it's been between us"]) expect(r.text).toContain(keep);
+    expect(r.text).toContain('30. Step 30');
+    const collapsed = fitSectionsToCap(text, 1600);
+    expect(collapsed.text).toContain('earlier goals omitted');
+  });
+});
