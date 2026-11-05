@@ -8,11 +8,12 @@
 // Capped at SHORT_IDENTITY_CAP characters, cached under <data folder>/identity-short/<key>.txt, where the key is the ratified
 // identity digest (and the names). A changed digest builds a new file. With no identity files: the names alone.
 import { createHash } from 'node:crypto';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { getSanctumConfig, type SanctumConfig } from '../../config.js';
 import { identityForRun } from '../identity/guard.js';
 import { identityRoles, type IdentityFile } from '../identity/source.js';
-import { ownMkdirAsync, ownWriteFileAsync, readOwnOrAppAsync } from '../../tenancy/own-files.js';
+import { statSync } from 'node:fs';
+import { ownMkdirAsync, ownReadDir, ownUnlink, ownWriteFileAsync, readOwnOrAppAsync } from '../../tenancy/own-files.js';
 
 export const SHORT_IDENTITY_CAP = 1200;
 export const SHORT_IDENTITY_HEADING = '## Who you are (short)';
@@ -76,6 +77,18 @@ export function buildShortIdentity(names: { companion: string; user: string }, f
   return clip(out, SHORT_IDENTITY_CAP);
 }
 
+/** Cache files kept besides the one just written: a changed key leaves the old file behind, so keep the newest few. */
+export const KEEP_CACHE_FILES = 3;
+function pruneCache(dir: string, current: string): void {
+  try {
+    const old = ownReadDir(dir)
+      .filter((n) => /^[0-9a-f]{32}\.txt$/.test(n) && n !== current)
+      .map((n) => { try { return { n, t: statSync(join(dir, n)).mtimeMs }; } catch { return { n, t: 0 }; } })
+      .sort((a, b) => b.t - a.t);
+    for (const f of old.slice(KEEP_CACHE_FILES - 1)) { try { ownUnlink(join(dir, f.n)); } catch { /* best effort */ } }
+  } catch { /* best effort */ }
+}
+
 const cacheKey = (digest: string, companion: string, user: string) => createHash('sha256').update(`${digest}\0${companion}\0${user}`).digest('hex').slice(0, 32);
 
 /** The short identity for the current config (the tenant's own in a tenant): from the cache when the ratified digest is unchanged, else built and cached. Never throws. */
@@ -102,6 +115,7 @@ export async function shortIdentity(cfg: SanctumConfig = getSanctumConfig()): Pr
   try {
     await ownMkdirAsync(dirname(file), { recursive: true });
     await ownWriteFileAsync(file, text);
+    pruneCache(dirname(file), basename(file));
   } catch (e) {
     console.warn(`[summarizer] could not cache the short identity (${e instanceof Error ? e.message : e})`);
   }

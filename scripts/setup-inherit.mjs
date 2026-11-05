@@ -22,7 +22,7 @@ const require = createRequire(import.meta.url);
 export const INHERIT_TABLE = Object.freeze([
   // ── inherited ──────────────────────────────────────────────────────────────
   { inherit: true, paths: ['agent.provider', 'agent.model', 'agent.model_autonomous'], why: 'model and provider' },
-  { inherit: true, paths: ['agent.auto_compact', 'agent.harness_memory', 'agent.app_write', 'agent.dsh.*', 'agent.codex.*', 'agent.rolling.*', 'agent.summarizer.*'], why: 'agent settings that are not paths (sandbox mode, rolling context, per-harness models, the summarizer; its `api_key_env` names a key, so it is not inherited: a tenant names its own in its `.env`)' },
+  { inherit: true, paths: ['agent.auto_compact', 'agent.harness_memory', 'agent.app_write', 'agent.dsh.*', 'agent.codex.*', 'agent.rolling.*', 'agent.summarizer.*'], why: 'agent settings that are not paths (sandbox mode, rolling context, per-harness models, the summarizer; `api_key_env` is only the NAME of a variable and inherits with the rest, but the key itself is read from the tenant\'s own `.env`)' },
   { inherit: true, paths: ['tools'], why: 'tool settings' },
   { inherit: true, paths: ['orchestrator.enabled', 'orchestrator.schedules', 'orchestrator.failsafe'], why: 'orchestrator cadence and schedules' },
   { inherit: true, paths: ['voice.*'], why: 'voice flags' },

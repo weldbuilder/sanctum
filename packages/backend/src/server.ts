@@ -26,7 +26,7 @@ import { fileURLToPath } from 'url';
 import { existsSync, mkdirSync, readFileSync } from 'fs';
 import { loadConfig, getSanctumConfig, browserFrameOrigin, checkBrowserUrl } from './config.js';
 import { warnIfBrowserUnfiltered } from './services/browser-gate.js';
-import { warnIfSmallSummarizer } from './services/summarizer/config.js';
+import { warnIfSmallSummarizer, checkSummarizerConfig } from './services/summarizer/config.js';
 import { initDb, deleteExpiredSessions } from './services/db.js';
 import { loadVectorCache } from './services/vector-cache.js';
 import { createWebSocketServer, setVoiceService, setGatewayServices, registry } from './services/ws.js';
@@ -73,6 +73,7 @@ import type { TenantRuntime } from './tenancy/context.js';
 // Load config FIRST — before any other initialization
 const config = loadConfig();
 warnIfBrowserUnfiltered(config);
+checkSummarizerConfig(config, config.agent.provider);
 warnIfSmallSummarizer(config, config.agent.provider); // (also names the deprecated agent.rolling.model aliases, once)
 
 // A `tenants:` block in sanctum.yaml turns on tenant mode (docs/MULTI-TENANT.md, option (b)): one process, one database and one login per

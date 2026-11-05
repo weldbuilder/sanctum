@@ -510,7 +510,9 @@ describe('the companion\'s own account (first person)', () => {
     await t.make().compact('thread-r');
     const p = t.state.prompts[0];
     expect(p).toContain("Preserve ALL of Sam's requests");
-    expect(p).toContain("Sam's corrections and reserved decisions distinct from my suggestions");
+    expect(p).toContain("Sam's corrections and reserved decisions distinct from your suggestions");
+    expect(p).not.toMatch(/\bmy suggestions\b|\bsuggestion of mine\b/);
+    expect(p).toContain('never turn a suggestion of yours into something Sam approved');
     expect(p).toContain('## What happened');
     expect(p).toContain("## What I've been doing / what's open");
     expect(p).not.toMatch(/\bher\b|\bshe\b|the assistant's/i);
@@ -528,5 +530,18 @@ describe('the companion\'s own account (first person)', () => {
     expect(r.text).toContain('30. Step 30');
     const collapsed = fitSectionsToCap(text, 1600);
     expect(collapsed.text).toContain('earlier goals omitted');
+  });
+
+  it('a reply with a legacy heading and its new counterpart is one section per role, not tail-truncated', () => {
+    const steps = Array.from({ length: 25 }, (_, i) => `${i + 1}. N step ${i + 1}: ${'detail '.repeat(8)}`);
+    const mixed = ['## Active Goal', '- Sam wants the lantern scene kept.', '', '## Earlier on', '- Drafted act one.', '', '## What happened', ...steps, '',
+      '## Current State', '- Waiting on title.', '', '## Where we left off', '- Sam wants Friday.', '', "## What I've been doing / what's open", '- Open: the title.', '', "## How it's been between us", '- Easy.'].join('\n');
+    const r = fitSectionsToCap(mixed, 1200);
+    expect(r.how).toBe('sections');
+    expect(r.text.length).toBeLessThanOrEqual(1200);
+    for (const keep of ['lantern', 'Waiting on title.', 'Sam wants Friday.', 'Open: the title.', '- Easy.', '25. N step 25']) expect(r.text).toContain(keep);
+    expect(r.text.match(/^## Where we left off$/gm)).toHaveLength(1);
+    expect(r.text).not.toContain('## Current State');
+    expect(r.text.indexOf('Waiting on title.')).toBeLessThan(r.text.indexOf('Sam wants Friday.'));
   });
 });

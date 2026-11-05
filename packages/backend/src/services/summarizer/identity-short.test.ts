@@ -78,7 +78,16 @@ describe('shortIdentity (cached by digest)', () => {
   it('a different name makes a different key', async () => {
     put('companion.md', 'I am dry.');
     await shortIdentity(cfg);
-    await shortIdentity({ ...cfg, identity: { companion_name: 'Nova', user_name: 'Sam' } });
+    await shortIdentity({ ...cfg, identity: { companion_name: 'Echo2', user_name: 'Sam' } });
     expect(cached()).toHaveLength(2);
+  });
+  it('keeps the newest few cache files when the key changes, not every old one', async () => {
+    for (let i = 0; i < 6; i++) {
+      put('companion.md', `I am voice number ${i}.`);
+      await shortIdentity(cfg);
+      await new Promise((r) => setTimeout(r, 15));
+    }
+    expect(cached().length).toBeLessThanOrEqual(3);
+    expect(cached().length).toBeGreaterThan(0);
   });
 });

@@ -164,7 +164,7 @@ export const summaryRules = (voice) => {
 - Preserve ALL decisions and WHY they were made
 - Preserve ALL errors or dead ends and how they were resolved
 - Preserve ALL of ${user}'s requests, rulings and constraints: what ${user} asked for, what ${user} said to do or NOT do
-- Keep ${user}'s corrections and reserved decisions distinct from what I offered; never turn a suggestion of mine into something ${user} approved
+- Keep ${user}'s corrections and reserved decisions distinct from what you offered; never turn a suggestion of yours into something ${user} approved
 - Preserve ${user}'s preferences, workflow choices and recurring patterns (e.g. "always X", "never Y")
 - Keep short quotes when the wording itself matters
 - Do NOT editorialize beyond how it felt between us, and do not add commentary about this request

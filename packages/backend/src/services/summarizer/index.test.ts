@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { runSummary, summarizerEngine, summarySystem, type SummaryDeps } from './index.js';
-import { resolveSummarizer, resetSummarizerWarnings, looksSmallTier, warnIfSmallSummarizer, SMALL_MODEL_WARNING, type ResolvedSummarizer } from './config.js';
+import { resolveSummarizer, resetSummarizerWarnings, looksSmallTier, warnIfSmallSummarizer, checkSummarizerConfig, SMALL_MODEL_WARNING, type ResolvedSummarizer } from './config.js';
 import { fenceTranscript, placeBudgetRules } from '../rolling-context.js';
 import { buildCompactionPrompt } from '../rolling/theora-rolling-context.js';
 
@@ -91,10 +91,10 @@ describe('resolveSummarizer: provider, model and the deprecated aliases', () => 
     expect(resolveSummarizer(cfg({}), 'codex')).toMatchObject({ provider: 'codex', model: 'cx', route: 'cxroute' });
     expect(resolveSummarizer(cfg({}), 'dsh')).toMatchObject({ provider: 'dsh', model: 'ds' });
   });
-  it('agent.summarizer wins; a claude model is no longer required to start with "claude"', () => {
+  it('agent.summarizer wins; a non-claude model on the claude summarizer falls back to the chat model', () => {
     const r = resolveSummarizer(cfg({ summarizer: { provider: 'openai-compat', model: 'deepseek/x', base_url: 'https://o/v1', max_output_tokens: 900 } }), 'claude');
     expect(r).toMatchObject({ provider: 'openai-compat', model: 'deepseek/x', baseUrl: 'https://o/v1', maxOutputTokens: 900, apiKeyEnv: 'SUMMARIZER_API_KEY' });
-    expect(resolveSummarizer(cfg({ summarizer: { model: 'gpt-5-whatever' } }), 'claude').model).toBe('gpt-5-whatever');
+    expect(resolveSummarizer(cfg({ summarizer: { model: 'gpt-5-whatever' } }), 'claude', () => {}).model).toBe('auto-model');
   });
   it('rolling.model / rolling.model_provider are aliases while summarizer is empty, with one deprecation warning each', () => {
     const warn = vi.fn();
@@ -107,8 +107,33 @@ describe('resolveSummarizer: provider, model and the deprecated aliases', () => 
       '[config] agent.rolling.model_provider is deprecated, use agent.summarizer.provider',
     ]);
     const w2 = vi.fn();
-    expect(resolveSummarizer(cfg({ rolling: { model: 'old' }, summarizer: { model: 'new' } }), 'claude', w2).model).toBe('new');
+    expect(resolveSummarizer(cfg({ rolling: { model: 'old' }, summarizer: { model: 'claude-new' } }), 'claude', w2).model).toBe('claude-new');
     expect(w2).not.toHaveBeenCalled();
+  });
+  it('a leftover non-claude alias on the claude summarizer falls back to the chat model, with one warning', () => {
+    const warn = vi.fn();
+    const c = cfg({ rolling: { model: 'gpt-5-mini' } });
+    expect(resolveSummarizer(c, 'claude', warn).model).toBe(resolveSummarizer(cfg({}), 'claude', () => {}).model);
+    resolveSummarizer(c, 'claude', warn);
+    expect(warn.mock.calls.filter((x) => /not a Claude model/.test(x[0]))).toHaveLength(1);
+    expect(resolveSummarizer(cfg({ rolling: { model: 'claude-opus-x' } }), 'claude', () => {}).model).toBe('claude-opus-x');
+  });
+  it('an explicit openai-compat provider keeps a non-claude model', () => {
+    const warn = vi.fn();
+    const r = resolveSummarizer(cfg({ rolling: { model: 'gpt-5-mini' }, summarizer: { provider: 'openai-compat' } }), 'claude', warn);
+    expect(r).toMatchObject({ provider: 'openai-compat', model: 'gpt-5-mini' });
+    expect(warn.mock.calls.filter((x) => /not a Claude model/.test(x[0]))).toHaveLength(0);
+  });
+  it('openai-compat with no model is refused at boot with a line naming the key, once', () => {
+    const warn = vi.fn();
+    const c = cfg({ summarizer: { provider: 'openai-compat', base_url: 'https://x/v1' } });
+    expect(resolveSummarizer(c, 'claude', () => {}).model).toBe('');
+    expect(checkSummarizerConfig(c, 'claude', '', warn)).toHaveLength(1);
+    checkSummarizerConfig(c, 'claude', '', warn);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain('agent.summarizer.model');
+    expect(checkSummarizerConfig(cfg({ summarizer: { provider: 'openai-compat', base_url: 'https://x/v1', model: 'm/x' } }), 'claude', '', warn)).toEqual([]);
+    expect(checkSummarizerConfig(cfg({}), 'claude', '', warn)).toEqual([]);
   });
   it('a rolling.model_provider that is a route name stays a route of the chat harness', () => {
     expect(resolveSummarizer(cfg({ rolling: { model_provider: 'openrouter' } }), 'codex', () => {})).toMatchObject({ provider: 'codex', route: 'openrouter' });
@@ -123,13 +148,24 @@ describe('the small-model startup warning', () => {
   });
   it('warns once with the docs pointer, for a tenant too', () => {
     const warn = vi.fn();
-    const c = { agent: { model: 'claude-sonnet-5-5', model_autonomous: '', rolling: {}, summarizer: { model: 'vendor/mini-thing' } } } as any;
+    const c = { agent: { model: 'claude-sonnet-5-5', model_autonomous: '', rolling: {}, summarizer: { model: 'claude-mini-thing' } } } as any;
     expect(warnIfSmallSummarizer(c, 'claude', '', warn)).toBe(true);
     expect(warn.mock.calls[0][0]).toContain(SMALL_MODEL_WARNING);
     expect(SMALL_MODEL_WARNING).toBe("summarizer model looks small-tier; it writes the companion's own memory and will flatten the voice; see docs/CONFIGURATION.md → summarizer");
-    warnIfSmallSummarizer(c, 'claude', 'tenant anna', warn);
-    expect(warn.mock.calls[1][0]).toContain('tenant anna');
+    warnIfSmallSummarizer(c, 'claude', 'tenant echo', warn);
+    expect(warn.mock.calls[1][0]).toContain('tenant echo');
     expect(warnIfSmallSummarizer({ ...c, agent: { ...c.agent, summarizer: { model: 'big' } } }, 'claude', '', warn)).toBe(false);
+  });
+  it('warns once per (tenant, model); another tenant or model warns again; minimax is not small-tier', () => {
+    const warn = vi.fn();
+    const c = { agent: { model: 'claude-sonnet-5-5', model_autonomous: '', rolling: {}, summarizer: { model: 'claude-mini-thing' } } } as any;
+    expect(warnIfSmallSummarizer(c, 'claude', 'tenant echo', warn)).toBe(true);
+    expect(warnIfSmallSummarizer(c, 'claude', 'tenant echo', warn)).toBe(false);
+    expect(warnIfSmallSummarizer(c, 'claude', 'tenant sam', warn)).toBe(true);
+    expect(warnIfSmallSummarizer({ ...c, agent: { ...c.agent, summarizer: { model: 'claude-other-mini' } } }, 'claude', 'tenant echo', warn)).toBe(true);
+    expect(warn).toHaveBeenCalledTimes(3);
+    expect(looksSmallTier('minimax-m1')).toBe(false);
+    expect(looksSmallTier('gpt-5-mini')).toBe(true);
   });
   it('also warns when the model is the chat model and that one is small', () => {
     const warn = vi.fn();

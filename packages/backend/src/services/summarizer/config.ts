@@ -65,6 +65,12 @@ export function resolveSummarizer(cfg: SanctumConfig, chat: string, warn: (m: st
     else if (resolved === 'codex') model = a.codex?.model_autonomous || a.codex?.model || '';
     else if (resolved === 'dsh') model = a.dsh?.model_autonomous || a.dsh?.model || '';
   }
+  // A leftover non-Claude alias (gpt-5-mini from a Codex setup) must not reach the Claude SDK: every fold would fail.
+  // Fall back to the chat model, as before. (openai-compat is never here: any model id is valid at that endpoint.)
+  if (resolved === 'claude' && model && !model.toLowerCase().startsWith('claude')) {
+    warnOnce(`notclaude:${model}`, `[config] summarizer model "${model}" is not a Claude model but the summarizer runs on claude; using the chat model instead (set agent.summarizer.provider for another provider, or clear the model)`, warn);
+    model = cfg.agent.model_autonomous || cfg.agent.model || '';
+  }
   if (!route && resolved === 'codex') route = cfg.agent.codex?.model_provider || '';
   const headers: Record<string, string> = {};
   for (const [k, v] of Object.entries(s.headers ?? {})) if (typeof v === 'string' && k.trim()) headers[k.trim()] = v;
@@ -78,7 +84,7 @@ export function resolveSummarizer(cfg: SanctumConfig, chat: string, warn: (m: st
 }
 
 /** Models that are small or fast tier. `mini` must not be the tail of another word ("gemini"). */
-export const SMALL_TIER = /haiku|(?<![a-z])mini|small|lite|nano|\b[1-8]b\b/i;
+export const SMALL_TIER = /haiku|(?<![a-z])mini(?!max)|small|lite|nano|\b[1-8]b\b/i;
 export const looksSmallTier = (model: string): boolean => SMALL_TIER.test(model || '');
 
 export const SMALL_MODEL_WARNING = 'summarizer model looks small-tier; it writes the companion\'s own memory and will flatten the voice; see docs/CONFIGURATION.md → summarizer';
@@ -87,6 +93,22 @@ export const SMALL_MODEL_WARNING = 'summarizer model looks small-tier; it writes
 export function warnIfSmallSummarizer(cfg: SanctumConfig, chat: string, where = '', warn: (m: string) => void = console.warn): boolean {
   const r = resolveSummarizer(cfg, chat, warn);
   if (!looksSmallTier(r.model)) return false;
+  const key = `small:${where}\0${r.model}`;
+  if (warned.has(key)) return false; // once per (tenant, model) per process: a tenant reload must not repeat it
+  warned.add(key);
   warn(`[config]${where ? ` ${where}:` : ''} ${r.model}: ${SMALL_MODEL_WARNING}`);
   return true;
+}
+
+/** Boot-time check: openai-compat needs a base URL and a model (a Claude model id would be wrong at that endpoint, so
+ *  there is no fallback). One log line per problem, naming the key; the same problem is not logged twice for a tenant.
+ *  Returns the problems found. */
+export function checkSummarizerConfig(cfg: SanctumConfig, chat: string, where = '', warn: (m: string) => void = console.warn): string[] {
+  const r = resolveSummarizer(cfg, chat, warn);
+  if (r.provider !== 'openai-compat') return [];
+  const out: string[] = [];
+  if (!r.model) out.push('agent.summarizer.model is required when agent.summarizer.provider is openai-compat (there is no fallback: the chat model\'s id would be wrong at that endpoint); every summary will fail until it is set');
+  if (!r.baseUrl) out.push('agent.summarizer.base_url is required when agent.summarizer.provider is openai-compat; every summary will fail until it is set');
+  for (const m of out) warnOnce(`check:${where}\0${m}`, `[config]${where ? ` ${where}:` : ''} ${m}`, warn);
+  return out;
 }
