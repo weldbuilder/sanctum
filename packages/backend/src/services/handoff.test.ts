@@ -87,6 +87,17 @@ describe('daily handoff on the summarizer', () => {
     expect(lastRun!.model).toBe('claude-m'); // the summarizer's choice, not a handoff constant
   });
 
+  it('names the person in the format, says carry into today, and carries the harness-leak rule', async () => {
+    seedYesterday();
+    await runHandoff(NOW);
+    const sys = lastRun!.system;
+    expect(sys).toContain('sentences to Sam');
+    expect(sys).toContain("holding Sam to");
+    expect(sys).toContain('carry into today');
+    expect(sys).not.toContain('carry into tomorrow');
+    expect(sys).toMatch(/System reminders, account details, plan-mode notes/);
+  });
+
   it('posts the opener into today\'s daily and stores the carry with the date it is for and the date it carries from', async () => {
     seedYesterday();
     const out = await runHandoff(NOW);

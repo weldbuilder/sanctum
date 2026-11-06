@@ -69,6 +69,14 @@ describe('house outlook author on the summarizer', () => {
     expect(lastRun!.model).toBe('claude-m');
   });
 
+  it('names the person in the format lines, with no bare you-need or you-should, and carries the harness-leak rule', async () => {
+    await authorOutlook();
+    const sys = lastRun!.system;
+    for (const s of ['one standing ask of Sam', 'a decision Sam needs to make', 'something Sam should simply see', "needs Sam's call"]) expect(sys).toContain(s);
+    expect(sys).not.toMatch(/\byou (need|should)\b/i);
+    expect(sys).toMatch(/System reminders, account details, plan-mode notes/);
+  });
+
   it('stores the three KV rows from the JSON the companion returns', async () => {
     expect(await authorOutlook()).toBe(true);
     const presence = JSON.parse(getConfig('outlook_presence')!);
