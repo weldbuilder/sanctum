@@ -104,8 +104,15 @@ export const REGISTRY: readonly KeyDef[] = [
   d({ key: 'agent.rolling.claude', type: 'bool', default: true, yaml: 'agent.rolling.claude', merged: true, note: 'The legacy agent.codex.rolling block is folded in at load (config.ts applyLegacyRolling).' }),
   d({ key: 'agent.rolling.codex', type: 'bool', default: true, yaml: 'agent.rolling.codex', merged: true }),
   d({ key: 'agent.rolling.dsh', type: 'bool', default: true, yaml: 'agent.rolling.dsh' }),
-  d({ key: 'agent.rolling.model', type: 'string', default: '', yaml: 'agent.rolling.model' }),
-  d({ key: 'agent.rolling.model_provider', type: 'string', default: '', yaml: 'agent.rolling.model_provider' }),
+  d({ key: 'agent.rolling.model', type: 'string', default: '', yaml: 'agent.rolling.model', note: 'Deprecated alias of agent.summarizer.model: read only while that is empty (services/summarizer/config.ts).' }),
+  d({ key: 'agent.rolling.model_provider', type: 'string', default: '', yaml: 'agent.rolling.model_provider', note: 'Deprecated alias of agent.summarizer.provider.' }),
+  // --- the summarizer: one block, every harness (docs/CONFIGURATION.md "Summarizer")
+  d({ key: 'agent.summarizer.provider', type: 'string', default: '', yaml: 'agent.summarizer.provider', note: '"" = the chat harness; or claude | codex | dsh | openai-compat.' }),
+  d({ key: 'agent.summarizer.model', type: 'string', default: '', yaml: 'agent.summarizer.model', note: '"" = the chat model of the provider. It writes the companion\'s own memory: not a small model.' }),
+  d({ key: 'agent.summarizer.base_url', type: 'string', default: '', yaml: 'agent.summarizer.base_url', note: 'openai-compat only, e.g. https://openrouter.ai/api/v1.' }),
+  d({ key: 'agent.summarizer.api_key_env', type: 'string', default: 'SUMMARIZER_API_KEY', yaml: 'agent.summarizer.api_key_env', note: 'The NAME of an env var, never a key.' }),
+  d({ key: 'agent.summarizer.max_output_tokens', type: 'number', default: 2000, yaml: 'agent.summarizer.max_output_tokens', note: 'openai-compat only: sent as max_tokens.' }),
+  d({ key: 'summarizer.api_key', type: 'string', default: '', env: 'SUMMARIZER_API_KEY', secret: true, note: 'Reported as {set, source} only. The env var that is read is the one agent.summarizer.api_key_env names (this marker follows the default name).' }),
 
   // --- write-gate roots (paths are resolved at load, so the yaml layer reads the merged config)
   d({ key: 'hooks.workspace_root', type: 'string', default: '', yaml: 'hooks.workspace_root', env: 'WORKSPACE_ROOT', merged: true }),

@@ -21,7 +21,7 @@ function app(extraYaml = '') {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), 'doctor-')));
   put(path.join(root, 'package.json'), JSON.stringify({ name: 'x', engines: { node: '>=20.0.0 <25.0.0' } }), 0o644);
   put(path.join(root, 'packages', 'frontend', 'build', '.build-id'), 'abc1234\n', 0o644);
-  for (const f of ['dsh-base-prompt.md', 'codex-base-prompt.md', 'codex-summarizer-prompt.md', 'companion-claude.md', 'wake.md']) put(path.join(root, 'prompts', f), 'x\n', 0o644);
+  for (const f of ['dsh-base-prompt.md', 'codex-base-prompt.md', 'codex-summarizer-prompt.md', 'summarizer-own-voice.md', 'companion-claude.md', 'wake.md']) put(path.join(root, 'prompts', f), 'x\n', 0o644);
   fs.mkdirSync(path.join(root, 'prompts', 'wakes'), { recursive: true });
   put(path.join(root, 'CLAUDE.md'), 'x\n', 0o644);
   put(path.join(root, '.mcp.json'), '{}\n', 0o644);

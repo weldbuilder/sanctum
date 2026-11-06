@@ -113,6 +113,9 @@ export interface SanctumConfig {
     // short summary segments, and those segments are the only summary the model
     // ever sees. Switchable per provider; the budgets and summarizer are shared.
     rolling: RollingConfig;
+    // The model that writes the companion's own condensed memory of itself (rolling fold/merge today; digest, handoff and
+    // outlook author later). One block for every harness. See docs/CONFIGURATION.md "Summarizer".
+    summarizer: SummarizerConfig;
   };
   orchestrator: {
     enabled: boolean;
@@ -204,12 +207,21 @@ export interface SanctumConfig {
   };
 }
 
+export interface SummarizerConfig {
+  provider: string;           // '' = the chat harness (claude | codex | dsh); or 'openai-compat' (a plain chat-completions endpoint)
+  model: string;              // '' = the chat model of that harness. Never a small model: it writes the companion's memory of itself
+  base_url: string;           // openai-compat only, e.g. https://openrouter.ai/api/v1
+  api_key_env: string;        // openai-compat only: the NAME of the env var that holds the key (never the key)
+  max_output_tokens: number;  // openai-compat only: the reply cap sent as max_tokens
+  headers?: Record<string, string>; // openai-compat only: extra request headers, e.g. OpenRouter's HTTP-Referer and X-Title
+}
+
 export interface RollingConfig {
   claude: boolean;            // rolling on the Claude path (the SDK's own compaction stays off)
   codex: boolean;             // rolling on the Codex path (Codex keeps no history of its own)
   dsh?: boolean;              // rolling on the dsh path (default true)
-  model?: string;             // the summarizer: '' → model_autonomous → model → the harness default
-  model_provider?: string;    // Codex only: '' → codex.model_provider
+  model?: string;             // DEPRECATED alias of agent.summarizer.model (read while that is empty, with a warning)
+  model_provider?: string;    // DEPRECATED alias of agent.summarizer.provider; a value that is not a harness name is still a Codex/dsh route
   tail_chars: number;         // fold once the unsummarized tail exceeds this
   fold_chars: number;         // how much of the oldest tail one fold summarizes
   keep_chars: number;         // newest history a fold never eats into
@@ -469,7 +481,15 @@ const DEFAULTS: SanctumConfig = {
       segment_cap: 2000,
       history_max_chars: 24000,
       history_max_turns: 30,
-      summarizer_instructions_file: './prompts/codex-summarizer-prompt.md',
+      summarizer_instructions_file: './prompts/summarizer-own-voice.md',
+    },
+    summarizer: {
+      provider: '',
+      model: '',
+      base_url: '',
+      api_key_env: 'SUMMARIZER_API_KEY',
+      max_output_tokens: 2000,
+      headers: {},
     },
   },
   orchestrator: {

@@ -130,8 +130,8 @@ agent:
     claude: true                # on the Claude path
     codex: true                 # on the Codex path (false = Codex keeps the history itself)
     dsh: true                   # on the dsh path (dsh has no ephemeral switch; the overlay sends its session log to a temp dir)
-    model: ""                   # the summarizer. A small, cheap model is fine. "" = model_autonomous, then model
-    model_provider: ""          # Codex only. "" = same provider as chat; a different one is fine
+    model: ""                   # DEPRECATED, use agent.summarizer.model (read only while that is empty)
+    model_provider: ""          # DEPRECATED, use agent.summarizer.provider
     tail_chars: 14000           # start summarizing once un-summarized turns pass this many characters
     fold_chars: 6000            # how much of the oldest turns one summary step covers
     keep_chars: 6000            # the newest turns are never summarized
@@ -140,7 +140,21 @@ agent:
     segment_cap: 2000           # max characters per summary
     history_max_chars: 24000    # most recent-turn text sent with each message
     history_max_turns: 30       # most recent turns sent with each message
-    summarizer_instructions_file: "./prompts/codex-summarizer-prompt.md"
+    summarizer_instructions_file: "./prompts/summarizer-own-voice.md"   # the older codex-summarizer-prompt.md is deprecated (third person)
+
+  # ── Summarizer: who writes the companion's memory of itself ──────────────────
+  # The rolling summaries above are read back into every reply as the companion's
+  # OWN account, written in its first person with a short version of its identity
+  # in front. Use a capable mid-tier model or better: a small or fast-tier one
+  # (haiku, mini, small, lite, nano, 8b and under) flattens the voice, and a
+  # warning is logged at startup if the model name looks like one.
+  summarizer:
+    provider: ""                # "" = the chat harness (claude | codex | dsh); or "openai-compat"
+    model: ""                   # "" = the chat model of that harness
+    base_url: ""                # openai-compat only, e.g. https://openrouter.ai/api/v1
+    api_key_env: "SUMMARIZER_API_KEY"   # the NAME of the .env variable that holds the key
+    max_output_tokens: 2000     # openai-compat only
+    # headers: { HTTP-Referer: "https://example.com", X-Title: "Sanctum" }   # openai-compat only, optional (OpenRouter)
 
 # ── Revien memory (optional local daemon) ─────────────────────────────────────
 # Recalls relevant memories into each Codex turn and saves each finished turn.

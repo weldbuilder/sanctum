@@ -450,9 +450,48 @@ The server never makes a password up for the setup screen (it could not hand one
 | `system_prompt_file` | `./prompts/companion-claude.md` | The operating frame on Claude (§2): frame + identity + a `[Runtime]` line replace the coding preset. Same rule as Codex and dsh: `<agent.cwd>/config/companion-claude.md` wins if it exists, else this file. The file is read fresh every turn; the path is read at the first use of the agent (restart after changing it). In tenant mode it defaults to `home/config/companion-claude.md`. `""` = the standard `claude_code` preset with the identity appended (when the home has no copy). With neither file present, a set key logs a warning and falls back to the preset. |
 | `mcp_json_path` | `./.mcp.json` | File listing external tool servers the agent may use (§8). |
 | `model` | `claude-sonnet-5-5` | Model for live, interactive replies. Env: `AGENT_MODEL`. |
-| `model_autonomous` | `""` | Model for background/scheduled activity and the built-in helper subagents (Scribe aside, which runs on Haiku). Empty = the same as `model`. |
+| `model_autonomous` | `""` | Model for background/scheduled activity and the built-in helper subagents (the Scribe included: it runs on this model too, not on Haiku). Empty = the same as `model`. |
 | `codex.base_instructions_file` | `./prompts/codex-base-prompt.md` | The harness prompt on Codex. Used only when the home has no `config/codex-base-prompt.md`. `""` gives stock Codex back. See `FORK_NOTES.md`. |
 | `dsh.base_instructions_file` | `./prompts/dsh-base-prompt.md` | The harness prompt on DeepSeek Harness. Used only when the home has no `config/dsh-base-prompt.md`; if neither exists dsh's stock persona is used. See `docs/DSH.md`. |
+
+### `summarizer` — who writes the companion's memory of itself
+
+`agent.summarizer` is the model that condenses a thread into the short accounts the companion later reads back as its own memory. Today that is the rolling fold, merge and rebuild (long-conversation memory, `agent.rolling`); the Scribe digest, the daily handoff and the house outlook author join it in a later release. One block, whichever harness runs your turns.
+
+**What it writes, and why it must be capable.** The rolling summary leads every reply: the companion reads it as "Earlier in this thread, in your own words". It is written in the first person, by the companion, with a short version of its identity in front of it (name, who you are to each other, a voice anchor; at most 1,200 characters, cached under `data/identity-short/` and rebuilt when the ratified identity changes). A small or fast-tier model will flatten that voice and make the companion's memory of itself read like a stranger's notes. Use a capable mid-tier model or better. A startup warning is logged when the model name looks small-tier (haiku, mini, small, lite, nano, or 8b and under). It is a warning, not a block.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `provider` | `""` | `""` = the chat harness (`claude`, `codex` or `dsh`). Or name one of those to run the summarizer on a different harness, or `openai-compat` for a plain chat-completions endpoint. |
+| `model` | `""` | `""` = the chat model of that harness (`model_autonomous`, then `model`). For `openai-compat` it is required. |
+| `base_url` | `""` | `openai-compat` only, for example `https://openrouter.ai/api/v1`. |
+| `api_key_env` | `SUMMARIZER_API_KEY` | `openai-compat` only: the **name** of the `.env` variable that holds the key. Never put the key in the yaml. |
+| `max_output_tokens` | `2000` | `openai-compat` only: sent as `max_tokens`. |
+| `headers` | `{}` | `openai-compat` only: extra request headers, for example OpenRouter's `HTTP-Referer` and `X-Title`. Optional. |
+
+`agent.rolling.model` and `agent.rolling.model_provider` still work for one release: they are read only while `summarizer.model` / `summarizer.provider` are empty, and log one "deprecated, use agent.summarizer" warning. A `model_provider` that is a Codex or dsh route name (not a harness name) stays a route of the chat harness. The old rule that a Claude summarizer ignores any model not starting with `claude` is gone: the provider decides the client.
+
+What the summarizer keeps from the neutral summarizer it replaces: the transcript is fenced and treated as untrusted data, the budget rules sit before it, the retry-and-shorten chain and the section-wise fit to `segment_cap` are unchanged, and the run has no tools, no memory and no project files (on Claude: the isolated folder `data/rolling`, no tools, one turn, no settings, no auto-compact). What changed: the system slot now carries the short identity, and the account is the companion's own, first person.
+
+**Example: DeepSeek V3-class through OpenRouter** (a capable, inexpensive reference setup):
+
+```yaml
+agent:
+  summarizer:
+    provider: "openai-compat"
+    base_url: "https://openrouter.ai/api/v1"
+    model: "deepseek/deepseek-chat"      # check the current id on openrouter.ai/models
+    api_key_env: "SUMMARIZER_API_KEY"
+    max_output_tokens: 2000
+    headers: { HTTP-Referer: "https://example.com", X-Title: "Sanctum" }   # optional
+```
+
+```
+# .env
+SUMMARIZER_API_KEY=sk-or-...
+```
+
+Model ids change. Confirm the current DeepSeek V3-class id on openrouter.ai/models before you rely on the one above; it is an example, not a pinned recommendation. The instructions the summarizer follows are `prompts/summarizer-own-voice.md` (`agent.rolling.summarizer_instructions_file`). The older `codex-summarizer-prompt.md` is deprecated: it is third person, and a file set there still works but logs a notice.
 
 ### `orchestrator` — scheduled check-ins & proactive reach
 

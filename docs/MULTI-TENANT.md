@@ -426,7 +426,7 @@ by `tenancy/config.ts`); the code, the wizard and this list all read it, and a t
 | Keys | What |
 |---|---|
 | `agent.provider`, `agent.model`, `agent.model_autonomous` | model and provider |
-| `agent.auto_compact`, `agent.harness_memory`, `agent.app_write`, `agent.dsh.*`, `agent.codex.*`, `agent.rolling.*` | agent settings that are not paths (sandbox mode, rolling context, per-harness models) |
+| `agent.auto_compact`, `agent.harness_memory`, `agent.app_write`, `agent.dsh.*`, `agent.codex.*`, `agent.rolling.*`, `agent.summarizer.*` | agent settings that are not paths (sandbox mode, rolling context, per-harness models, the summarizer; `api_key_env` is only the NAME of a variable and inherits with the rest, but the key itself is read from the tenant's own `.env`) |
 | `tools` | tool settings |
 | `orchestrator.enabled`, `orchestrator.schedules`, `orchestrator.failsafe` | orchestrator cadence and schedules |
 | `voice.*` | voice flags |

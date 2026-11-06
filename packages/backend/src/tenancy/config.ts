@@ -5,6 +5,7 @@
 //
 // Nothing a tenant says can reach the process: its env is a parsed object, the process-level keys (server, cors, tenants, updates) are
 // refused, and the process environment is not an input (AGENT_MODEL exported in the shell does not become a tenant's model).
+import { warnIfSmallSummarizer, checkSummarizerConfig } from '../services/summarizer/config.js';
 import { existsSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
@@ -278,6 +279,10 @@ export function loadTenantConfig(processCfg: SanctumConfig, tenantDir: string, i
   const env = { ...dotenv };
   delete env.APP_PASSWORD;
 
+  if (!opts.quiet) {
+    checkSummarizerConfig(merged, merged.agent.provider, `tenant ${label}`);
+    warnIfSmallSummarizer(merged, merged.agent.provider, `tenant ${label}`);
+  }
   return { config: merged, env, hosts, file: structuredClone(combined) };
 }
 

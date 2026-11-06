@@ -67,7 +67,15 @@
         "segment_cap": 2000,
         "history_max_chars": 24000,
         "history_max_turns": 30,
-        "summarizer_instructions_file": "<ROOT>/prompts/codex-summarizer-prompt.md"
+        "summarizer_instructions_file": "<ROOT>/prompts/summarizer-own-voice.md"
+      },
+      "summarizer": {
+        "provider": "",
+        "model": "",
+        "base_url": "",
+        "api_key_env": "SUMMARIZER_API_KEY",
+        "max_output_tokens": 2000,
+        "headers": {}
       }
     },
     "orchestrator": {
@@ -238,7 +246,15 @@
         "segment_cap": 2000,
         "history_max_chars": 24000,
         "history_max_turns": 30,
-        "summarizer_instructions_file": "<ROOT>/prompts/codex-summarizer-prompt.md"
+        "summarizer_instructions_file": "<ROOT>/prompts/summarizer-own-voice.md"
+      },
+      "summarizer": {
+        "provider": "",
+        "model": "",
+        "base_url": "",
+        "api_key_env": "SUMMARIZER_API_KEY",
+        "max_output_tokens": 2000,
+        "headers": {}
       }
     },
     "orchestrator": {

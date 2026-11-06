@@ -58,6 +58,8 @@ export interface IdentityRun {
   check?: IdentityCheck;
   /** The ratified copy was served instead of the live folder. */
   ratifiedServed: boolean;
+  /** The files themselves (the ratified copy's when it was served), for a reader that wants one of them (the summarizer's short identity). */
+  fileTexts?: IdentityFile[];
 }
 
 type Listener = (check: IdentityCheck) => void;
@@ -141,5 +143,5 @@ export function identityForRun(cfg: SanctumConfig, opts: RunOptions): IdentityRu
   } else if (!text && !folder && !ratifiedServed) {
     text = opts.pendingLine === false ? '' : MISSING_LINE;
   }
-  return { present: true, text, files: files.map((f) => f.name), ...(check && { check }), ratifiedServed };
+  return { present: true, text, files: files.map((f) => f.name), fileTexts: files, ...(check && { check }), ratifiedServed };
 }

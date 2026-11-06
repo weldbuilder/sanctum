@@ -313,6 +313,10 @@ export async function* runDshExec(p: DshExecParams & { prompt: string; signal?: 
  *  discovery off (no law, no identity), as `noProjectDocs` does on Codex. */
 export async function runDshSummarizer(o: {
   prompt: string; baseFile: string; dir: string; signal: AbortSignal; model?: string;
+  /** The base prompt TEXT (the summarizer's system slot); wins over baseFile. */
+  basePrompt?: string;
+  /** A dsh llm route name; '' / undefined = the configured agent.dsh.model_provider. */
+  route?: string;
 }): Promise<{ text: string; error?: string; engine?: string }> {
   const { getSanctumConfig } = await import('../../config.js');
   const { existsSync } = await import('node:fs');
@@ -322,9 +326,9 @@ export async function runDshSummarizer(o: {
   let failure = '';
   for await (const ev of runDshExec({
     prompt: o.prompt, signal: o.signal, sandboxMode: 'read-only', cwd: o.dir, ephemeral: true, noProjectDocs: true, runKind: 'summarizer',
-    command: dx.command, home: dx.home, model: o.model, modelProvider: dx.model_provider || undefined,
+    command: dx.command, home: dx.home, model: o.model, modelProvider: o.route || dx.model_provider || undefined,
     apiKeyEnv: dx.api_key_env || undefined, baseUrl: dx.base_url || undefined,
-    basePrompt: o.baseFile && existsSync(o.baseFile) ? readOwnOrApp(o.baseFile) : '',
+    basePrompt: o.basePrompt ?? (o.baseFile && existsSync(o.baseFile) ? readOwnOrApp(o.baseFile) : ''),
   })) {
     if (ev?.type === 'text' && typeof ev.text === 'string') text += (text ? '\n\n' : '') + ev.text;
     else if (ev?.type === 'final' && typeof ev.text === 'string' && ev.text) text = ev.text;

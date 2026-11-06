@@ -29,6 +29,7 @@ function makeConfig(overrides: Partial<SanctumConfig> = {}): SanctumConfig {
       auto_compact: false,
       dsh: { command: 'dsh', model: '', model_autonomous: '', model_provider: '', api_key_env: '', base_url: '', home: '', sandbox_mode: 'workspace-write', base_instructions_file: '' },
       rolling: { claude: true, codex: true, model: '', model_provider: '', tail_chars: 14000, fold_chars: 6000, keep_chars: 6000, tail_turns: 24, max_segments: 5, segment_cap: 2000, history_max_chars: 24000, history_max_turns: 30, summarizer_instructions_file: '' },
+      summarizer: { provider: '', model: '', base_url: '', api_key_env: 'SUMMARIZER_API_KEY', max_output_tokens: 2000 },
       provider: 'claude',
       codex: { model: '', model_autonomous: '', sandbox_mode: 'workspace-write', network_access: true, additional_directories: [], base_instructions_file: '' },
     },
