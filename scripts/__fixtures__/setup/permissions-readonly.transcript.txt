@@ -52,9 +52,6 @@ the shape of what happened stays even when the words don't. You can turn it off 
 time; the summaries are kept, not deleted, and the next message in each thread carries
 them into a fresh session once, so your companion keeps the thread.
 Long-conversation memory on Codex? (Y/n) 
-The summarizer is the model that does the folding. A small, cheap one is fine.
-Summarizer model id (empty = the autonomous model, then the chat model) 
-Summarizer provider (empty = same as chat) 
 
 — Plugins —
 Who manages plugins?

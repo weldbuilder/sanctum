@@ -108,7 +108,7 @@ import { AVATAR_MAX_BYTES, avatarFile, getSkin, getStoredAvatarUrl, patchProfile
 import { internalOnly } from '../middleware/internal-token.js';
 import { appWriteGate } from '../middleware/app-write.js';
 import { imagesRouter, imageGenerateHandler } from './imagegen.js';
-import { imagegenOffered } from '../services/imagegen/index.js';
+import { imagegenOffered, imagegenStatusReason } from '../services/imagegen/index.js';
 import { handleTool as ccHandleTool, CC_TOOL_NAMES } from './cc-mcp.js';
 import { fullToolHelp, topicHelp } from '../services/tool-help.js';
 import { pluginHelp } from '../services/plugins.js';
@@ -352,7 +352,7 @@ router.post('/internal/meal', internalOnly, appWriteGate, (req, res) => {
 router.get('/internal/help', internalOnly, (req, res) => {
   const cfg = getSanctumConfig();
   const SC = `node ${join(PROJECT_ROOT, 'tools', 'res.mjs').replace(/\\/g, '/')}`;
-  const o = { SC, userName: cfg.identity.user_name, ccEnabled: !!cfg.command_center.enabled, browser: browserToolsConfigured(cfg), image: imagegenOffered(), telegram: req.query.platform === 'telegram', pluginHelp: pluginHelp() };
+  const o = { SC, userName: cfg.identity.user_name, ccEnabled: !!cfg.command_center.enabled, browser: browserToolsConfigured(cfg), image: imagegenOffered(), imageReason: imagegenStatusReason(), voice: !!cfg.voice?.enabled, telegram: req.query.platform === 'telegram', pluginHelp: pluginHelp() };
   const topic = typeof req.query.topic === 'string' ? req.query.topic : '';
   res.type('text/plain').send(topic ? topicHelp(o, topic) : fullToolHelp(o));
 });

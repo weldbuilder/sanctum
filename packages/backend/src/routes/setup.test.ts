@@ -407,6 +407,28 @@ describe('POST /apply', () => {
     delete process.env.DEEPSEEK_API_KEY;
   });
 
+  it('pictures and summaries: the plan carries the optional steps, and apply writes the blocks and the keys (never in the reply)', async () => {
+    const plan = await (await post('/plan', { answers: { imageProvider: 'runware', summaryWho: 'other' } }, asCode())).json();
+    const ids = plan.steps.map((st: { id: string }) => st.id);
+    expect(ids).toEqual(expect.arrayContaining(['imageProvider', 'imageKey', 'summaryWho', 'summaryEndpoint', 'summaryKey']));
+    const bad = await post('/apply', { answers: fresh({ summaryWho: 'other', summaryEndpoint: 'nope' }) }, asCode());
+    expect(bad.status).toBe(400);
+    const r = await post('/apply', { answers: fresh({ imageProvider: 'runware', imageKey: 'rw-route-secret', summaryWho: 'other', summaryEndpoint: 'https://openrouter.ai/api/v1 some/model', summaryKey: 'sk-sum-route-secret' }) }, asCode());
+    const text = await r.text();
+    expect(r.status).toBe(200);
+    expect(text).not.toContain('rw-route-secret');
+    expect(text).not.toContain('sk-sum-route-secret');
+    const yaml = readFileSync(join(h.root, 'sanctum.yaml'), 'utf-8');
+    expect(yaml).toMatch(/imagegen:\n\s+provider: "runware"/);
+    expect(yaml).toContain('base_url: "https://openrouter.ai/api/v1"');
+    expect(yaml).not.toContain('route-secret');
+    const envText = readFileSync(join(h.root, '.env'), 'utf-8');
+    expect(envText).toContain('RUNWARE_API_KEY=rw-route-secret');
+    expect(envText).toContain('SUMMARIZER_API_KEY=sk-sum-route-secret');
+    delete process.env.RUNWARE_API_KEY;
+    delete process.env.SUMMARIZER_API_KEY;
+  });
+
   it("memory 'sanctum' (Sanctum's own memory) is written as agent.local_recall with Revien off, and a later setup offers it back", async () => {
     const r = await post('/apply', { answers: fresh({ memory: 'sanctum' }) }, asCode());
     expect(r.status).toBe(200);

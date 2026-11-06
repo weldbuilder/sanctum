@@ -6,8 +6,8 @@
   },
   "app/sanctum.yaml": {
     "private": false,
-    "sha256": "94c893a512ebf9e3fa089570f2e1e2b52b4a95365601af571713aa619e0bbabb",
-    "bytes": 645
+    "sha256": "a48182c056adf1d81af54a8a02aad3e2a114745cef779181bac5b3d8eb081392",
+    "bytes": 608
   },
   "home/.codex/config.toml": {
     "private": false,

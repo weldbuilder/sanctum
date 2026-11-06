@@ -81,3 +81,54 @@ describe('tool help', () => {
     expect(short.find((l) => l.includes('help hello'))!.indexOf('hello: example')).toBe(short.find((l) => l.includes('permission, waits'))!.indexOf('permission, waits'));
   });
 });
+
+describe('what is not set up (the companion can say so, and is never offered it)', () => {
+  const PICTURES = 'Pictures: not set up on this install (the person can enable it; see UPGRADE.md, "Pictures and companion-voiced summaries")';
+  const PICTURES_APP_WRITE = 'Pictures: off on this install while app writes are disabled (agent.app_write)';
+  const VOICE = 'Voice: not set up on this install (the person can enable it; see UPGRADE.md, "Pictures and companion-voiced summaries", What to add)';
+
+  it('adds one Pictures line only when image generation is explicitly not offered', () => {
+    const off = shortToolList({ ...o, image: false });
+    expect(off.split('\n').filter((l) => l.includes('Pictures:'))).toEqual([`  ${PICTURES}`]);
+    expect(shortToolList({ ...o, image: true })).not.toContain('Pictures:');
+    expect(shortToolList(o)).not.toContain('Pictures:'); // unset: the caller did not say
+    expect(shortToolList({ ...o, image: true })).toContain('res image "prompt"'); // offered: the verb, not the line
+    expect(off).not.toContain('res image'); // not offered: no verb, no topic
+    expect(topicHelp({ ...o, image: false }, 'image')).toMatch(/^Topics: /);
+  });
+
+  it('says app writes are off, not "not set up", when pictures are configured but agent.app_write is off', () => {
+    const off = shortToolList({ ...o, image: false, imageReason: 'app_write_off' });
+    expect(off.split('\n').filter((l) => l.includes('Pictures:'))).toEqual([`  ${PICTURES_APP_WRITE}`]);
+    expect(off).not.toContain('not set up');
+    expect(off).not.toContain('res image');
+    expect(shortToolList({ ...o, image: false, imageReason: 'not_configured' })).toContain(PICTURES);
+  });
+
+  it('drops the voice verbs from the short list and the topics when voice is off, and keeps them when it is on or unset', () => {
+    const off = shortToolList({ ...o, voice: false, telegram: true });
+    expect(off).not.toMatch(/\| voice \|/);
+    expect(off).not.toMatch(/tg [a-z|]*voice/);
+    expect(fullToolHelp({ ...o, voice: false, telegram: true })).not.toMatch(/ voice "/);
+    for (const on of [{ ...o, voice: true, telegram: true }, { ...o, telegram: true }]) {
+      expect(shortToolList(on)).toContain('| voice |');
+      expect(shortToolList(on)).toContain('react|voice|text');
+      expect(fullToolHelp(on)).toMatch(/ voice "/);
+    }
+  });
+
+  it('adds one Voice line only when voice is explicitly off', () => {
+    expect(shortToolList({ ...o, voice: false }).split('\n').filter((l) => l.includes('Voice:'))).toEqual([`  ${VOICE}`]);
+    expect(shortToolList({ ...o, voice: true })).not.toContain('Voice:');
+    expect(shortToolList(o)).not.toContain('Voice:');
+  });
+
+  it('both lines together stay inside the short-list budget; the full help carries them once', () => {
+    const both = { ...o, image: false, voice: false };
+    expect(shortToolList(both).length).toBeLessThan(1100);
+    const f = fullToolHelp(both);
+    expect(f.split(PICTURES)).toHaveLength(2);
+    expect(f.split(VOICE)).toHaveLength(2);
+    expect(fullToolHelp({ ...o, image: true, voice: true })).not.toMatch(/not set up on this install/);
+  });
+});

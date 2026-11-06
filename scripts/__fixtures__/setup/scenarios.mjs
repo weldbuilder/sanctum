@@ -11,16 +11,12 @@ const same = (s) => [s, ''];
 const who = (name = 'Ada', user = 'Sam', tz = '') => [["Your companion's name", name], ['Your name', user], ['Your timezone', tz]];
 const home = (answer = '') => [[HOME_Q, answer]];
 
-/** Everything after the model block, taking the default unless told otherwise. Options: appWrite, rolling, summarizer
- *  [model, provider], trust, pick, ratify (pairs), discord (null = not asked), discordAnswers, password, memory,
- *  memoryFlip, browser (null = not asked), browserAnswers, phone, claude (true: no summarizer provider). */
+/** Everything after the model block, taking the default unless told otherwise. Options: appWrite, rolling, trust, pick, ratify (pairs), discord (null = not asked), discordAnswers, password, memory,
+ *  memoryFlip, browser (null = not asked), browserAnswers, phone, claude. */
 const restDefaults = (x = {}) => {
-  const rollingOn = !/^n/i.test(x.rolling ?? 'y');
-  const sum = x.summarizer || [];
   return [
     ['Let your companion write', x.appWrite ?? ''],
     ['Long-conversation memory on', x.rolling ?? ''],
-    ...(rollingOn ? [['Summarizer model id', sum[0] ?? ''], ...(x.claude ? [] : [['Summarizer provider', sum[1] ?? '']])] : []),
     ['Which one?', x.trust ?? ''], // who manages plugins
     ['Which to turn on?', x.pick ?? ''],
     ...(x.discord === null ? [] : [['Set up Discord?', x.discord ?? '']]),
@@ -115,7 +111,7 @@ export const scenarios = [
     answers: [...who(), ...home(''), ['does not exist. Create it', ''], [PROVIDER_Q, ''],
       ['Add a model provider', 'y'], ['Short name', 'local'], ['Display name', ''], ['API base URL', ''], ['API key', ''], ['Model id to use there', ''],
       ['Chat model id', 'some-model'], ['Chat provider name', ''], [PROVIDER_Q, '3'], ['Extra folders', '~/extra, <SBX>/other'],
-      ...restDefaults({ appWrite: 'n', rolling: 'y', summarizer: ['tiny-model', 'deepseek'] })],
+      ...restDefaults({ appWrite: 'n', rolling: 'y' })],
   },
   {
     name: 'memory-flip-off',

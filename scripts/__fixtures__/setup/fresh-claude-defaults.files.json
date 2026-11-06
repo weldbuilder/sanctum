@@ -6,8 +6,8 @@
   },
   "app/sanctum.yaml": {
     "private": false,
-    "sha256": "a9bb58c589be322f4130fc7aa6ef9bb83a4e50165101117fa56b1461fa15f61f",
-    "bytes": 499
+    "sha256": "5a3d5b7f2df046e7d5f293dbceb0c1bef1231e2c4f20cc229dfad93cfed3871b",
+    "bytes": 485
   },
   "home/Documents/companion-home/AGENTS.md": {
     "private": false,

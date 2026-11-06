@@ -141,6 +141,10 @@ Each is off until you turn it on.
   [docs/DISCORD-PLAN.md](docs/DISCORD-PLAN.md)
 - **Several people on one install**, each with their own login and companion:
   [docs/MULTI-TENANT.md](docs/MULTI-TENANT.md)
+- **Pictures**, your companion makes images (Runware or Replicate) and can place them in a reply:
+  [UPGRADE.md, "Pictures and companion-voiced summaries"](UPGRADE.md#pictures-and-companion-voiced-summaries)
+- **Summaries in your companion's own voice**, written by a model you choose:
+  [UPGRADE.md, "What to add"](UPGRADE.md#what-to-add)
 - **Every setting:** [docs/CONFIGURATION.md](docs/CONFIGURATION.md)
 
 ## Updating

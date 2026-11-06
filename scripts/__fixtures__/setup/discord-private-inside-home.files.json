@@ -6,8 +6,8 @@
   },
   "app/sanctum.yaml": {
     "private": false,
-    "sha256": "ebc965bad2649eb1c21d944c32296614740127b9629dd4b19ccc3be8d2702b64",
-    "bytes": 877
+    "sha256": "7c5cc3b25913fb89882447d4ff93e0047e44102f2de6c70763f5bf55f01e3ece",
+    "bytes": 840
   },
   "home/Documents/sanctum-private/exclusions.txt": {
     "private": true,

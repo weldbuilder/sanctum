@@ -60,6 +60,13 @@ export function imagegenOffered(): boolean {
   return imagegenConfigured() && appWriteEnabled();
 }
 
+/** Why pictures are or are not offered: `offered`; `not_configured` (no provider, or its key is missing); `app_write_off` (configured, but agent.app_write is off). */
+export type ImagegenReason = 'offered' | 'not_configured' | 'app_write_off';
+export function imagegenStatusReason(): ImagegenReason {
+  if (!imagegenConfigured()) return 'not_configured';
+  return appWriteEnabled() ? 'offered' : 'app_write_off';
+}
+
 export class ImageGenNotConfigured extends Error {
   constructor(public readonly detail: string) { super(detail); this.name = 'ImageGenNotConfigured'; }
 }

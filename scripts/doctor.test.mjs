@@ -5,7 +5,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { SHIPPED_PATHS, formatReport, frameResolution, nodeInRange, parseArgs, runDoctor } from './doctor.mjs';
+import { IMAGEGEN_KEY_ENV, SHIPPED_PATHS, SMALL_TIER, formatReport, frameResolution, nodeInRange, parseArgs, runDoctor } from './doctor.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const posix = process.platform !== 'win32';
@@ -341,5 +341,129 @@ describe('doctor: review fixes', () => {
       expect(dup).toHaveLength(1);
       expect(dup[0].message).toContain('ada and bea');
     } finally { cleanup(root); }
+  });
+});
+
+describe('doctor: pictures and summaries', () => {
+  const find = (report, check) => report.sections.flatMap((s) => s.checks).filter((c) => c.check === check);
+
+  it('image generation off (nothing set, or "none") is an INFO line pointing at UPGRADE.md, not a warning', () => {
+    for (const extra of ['', 'imagegen:\n  provider: none\n']) {
+      const root = app();
+      try {
+        if (extra) fs.appendFileSync(path.join(root, 'sanctum.yaml'), extra);
+        const report = go(root);
+        const [c] = find(report, 'imagegen');
+        expect(c.status).toBe('INFO');
+        expect(c.message).toBe('image generation off; see UPGRADE.md, "Pictures and companion-voiced summaries".');
+        expect(lines(report, 'WARN')).toEqual([]);
+        expect(report.exitCode).toBe(0);
+        expect(report.counts.INFO).toBe(1);
+        expect(formatReport(report)).toMatch(/\n {2}INFO {2}imagegen: image generation off; see UPGRADE\.md/);
+      } finally { cleanup(root); }
+    }
+  });
+
+  it('a provider with its key is OK (the key from .env or the environment); the key is never printed', () => {
+    for (const [provider, keyVar] of Object.entries(IMAGEGEN_KEY_ENV)) {
+      const root = app(`imagegen:\n  provider: ${provider}\n`);
+      try {
+        put(path.join(root, '.env'), `TZ=UTC\n${keyVar}=sk-demo-secret-key\n`);
+        const report = go(root);
+        expect(find(report, 'imagegen')[0]).toMatchObject({ status: 'OK', message: `image generation is on (${provider}) and ${keyVar} is set.` });
+        expect(JSON.stringify(report)).not.toContain('sk-demo-secret-key');
+      } finally { cleanup(root); }
+    }
+  });
+
+  it('a provider with no key is a WARN naming the variable', () => {
+    for (const [provider, keyVar] of Object.entries(IMAGEGEN_KEY_ENV)) {
+      const root = app(`imagegen:\n  provider: ${provider}\n`);
+      try {
+        const [c] = find(go(root), 'imagegen');
+        expect(c.status).toBe('WARN');
+        expect(c.message).toContain(keyVar);
+        expect(find(go(root, { env: { [keyVar]: 'k' } }), 'imagegen')[0].status).toBe('OK');
+      } finally { cleanup(root); }
+    }
+  });
+
+  it('an unknown provider is a WARN', () => {
+    const root = app('imagegen:\n  provider: dalle\n');
+    try { expect(find(go(root), 'imagegen')[0]).toMatchObject({ status: 'WARN' }); } finally { cleanup(root); }
+  });
+
+  it('the summarizer on the chat model is OK, with no small-tier line', () => {
+    const root = app();
+    try {
+      const report = go(root);
+      expect(find(report, 'summarizer')[0].status).toBe('OK');
+      expect(find(report, 'summarizer model')).toEqual([]);
+    } finally { cleanup(root); }
+  });
+
+  it('openai-compat with a model, a base_url and its key is OK', () => {
+    const root = app('  summarizer:\n    provider: openai-compat\n    model: deepseek/deepseek-chat\n    base_url: https://openrouter.ai/api/v1\n');
+    try {
+      const report = go(root, { env: { SUMMARIZER_API_KEY: 'sk-x' } });
+      expect(find(report, 'summarizer')[0].status).toBe('OK');
+      expect(find(report, 'summarizer model')).toEqual([]);
+    } finally { cleanup(root); }
+  });
+
+  it('openai-compat missing the model, the base_url or the key is a WARN naming each one', () => {
+    const root = app('  summarizer:\n    provider: openai-compat\n');
+    try {
+      const [c] = find(go(root), 'summarizer');
+      expect(c.status).toBe('WARN');
+      expect(c.message).toContain('agent.summarizer.model');
+      expect(c.message).toContain('agent.summarizer.base_url');
+      expect(c.message).toContain('SUMMARIZER_API_KEY');
+      expect(c.message).toContain('every summary fails until they are set');
+      expect(c.message).not.toContain('falls back');
+    } finally { cleanup(root); }
+    const named = app('  summarizer:\n    provider: openai-compat\n    model: big\n    base_url: https://x.test/v1\n    api_key_env: MY_SUM_KEY\n');
+    try {
+      const [c] = find(go(named, { env: { SUMMARIZER_API_KEY: 'unused' } }), 'summarizer');
+      expect(c.status).toBe('WARN');
+      expect(c.message).toContain('MY_SUM_KEY');
+      expect(c.message).not.toContain('agent.summarizer.model');
+    } finally { cleanup(named); }
+  });
+
+  it('the deprecated rolling.model_provider is a provider only when it names a harness; otherwise it is a route', () => {
+    const route = app('  rolling:\n    model_provider: deepseek\n    model: m1\n');
+    try {
+      const [c] = find(go(route), 'summarizer');
+      expect(c.message).toContain('route "deepseek"');
+    } finally { cleanup(route); }
+    const harness = app('  rolling:\n    model_provider: codex\n');
+    try {
+      const [c] = find(go(harness), 'summarizer');
+      expect(c.message).toContain('run on codex');
+    } finally { cleanup(harness); }
+  });
+
+  it('a small-tier summarizer model is a WARN; gemini is not small', () => {
+    for (const [model, small] of [['claude-haiku-4-5', true], ['gpt-5-mini', true], ['llama-3-8b', true], ['google/gemini-2.5-pro', false], ['deepseek/deepseek-chat', false]]) {
+      const root = app(`  summarizer:\n    provider: openai-compat\n    model: ${model}\n    base_url: https://x.test/v1\n`);
+      try {
+        const got = find(go(root, { env: { SUMMARIZER_API_KEY: 'k' } }), 'summarizer model');
+        expect(got.length, model).toBe(small ? 1 : 0);
+        if (small) expect(got[0].status).toBe('WARN');
+      } finally { cleanup(root); }
+    }
+  });
+
+  it('the small-tier regex is the backend\'s (services/summarizer/config.ts)', () => {
+    const src = fs.readFileSync(path.join(HERE, '..', 'packages', 'backend', 'src', 'services', 'summarizer', 'config.ts'), 'utf-8');
+    const m = /export const SMALL_TIER = (\/.+\/[a-z]*);/.exec(src);
+    expect(m, 'SMALL_TIER in config.ts').toBeTruthy();
+    expect(String(SMALL_TIER)).toBe(m[1]);
+  });
+
+  it('the image key variables are the backend\'s (services/imagegen/index.ts)', () => {
+    const src = fs.readFileSync(path.join(HERE, '..', 'packages', 'backend', 'src', 'services', 'imagegen', 'index.ts'), 'utf-8');
+    for (const [p, v] of Object.entries(IMAGEGEN_KEY_ENV)) expect(src).toContain(`${p}: '${v}'`);
   });
 });
