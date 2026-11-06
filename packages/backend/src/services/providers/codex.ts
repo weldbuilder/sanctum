@@ -50,6 +50,7 @@ import { currentTenant, tenancyEnabled } from '../../tenancy/context.js';
 import { assembleRollingHistory, conversationBlock, splitContextBlock } from '../rolling-history.js';
 import { recallForPrompt, ingestTurn, MEMORY_HEADER } from '../revien.js';
 import { mindRecallBlock } from '../mind-client.js';
+import { runLimits } from '../consent/gate.js';
 
 const clients = new Map<string, Codex>();
 
@@ -261,7 +262,12 @@ export function codexQuery({ prompt, options }: { prompt: string | AsyncIterable
     // Autonomous = read-only subagents (digest/handoff/outlook) AND the main agent's
     // wakes (sanctum.autonomous). Both run on agent.codex.model_autonomous, '' = follow chat.
     const model = resolveModel(opts.model, readOnly || !!sanctum?.autonomous);
-    const sandboxMode = readOnly ? 'read-only' as const : cx.sandbox_mode;
+    // The consent gate narrows what the run is launched with (shell off → read-only, files_outside_home off → no extra folders, web off → no
+    // network). Fixed at launch: a grant or a switch-off made mid-run applies from the next turn. One-shot read-only helpers are left as configured.
+    const limits = readOnly ? null : runLimits({ sandboxMode: cx.sandbox_mode, networkAccess: cx.network_access, additionalDirectories: cx.additional_directories }, { harness: 'codex', threadId: sanctum?.threadId });
+    const sandboxMode = readOnly ? 'read-only' as const : limits!.sandboxMode;
+    const netAccess = limits ? limits.networkAccess : cx.network_access;
+    const extraDirs = limits ? limits.additionalDirectories : cx.additional_directories;
 
     // Recalled memory (Revien) rides in the message (the identity is in the system slot). It is for the
     // person's own messages: not subagents, and not autonomous wakes, whose
@@ -317,7 +323,7 @@ export function codexQuery({ prompt, options }: { prompt: string | AsyncIterable
       try {
         const events = runCodexExec({
           prompt: input, signal: ctl.signal, sandboxMode, cwd: workingDirectory,
-          additionalDirectories: cx.additional_directories, model, modelProvider: cx.model_provider || undefined, harnessMemory: !noMemory && !!cfg.agent.harness_memory, networkAccess: cx.network_access,
+          additionalDirectories: extraDirs, model, modelProvider: cx.model_provider || undefined, harnessMemory: !noMemory && !!cfg.agent.harness_memory, networkAccess: netAccess,
           ...identitySlot(), effort, mcp: toCodexMcp(opts.mcpServers),
         });
         yield* translate(events, { fixedSession: true, model, showThinking, state });
@@ -344,8 +350,8 @@ export function codexQuery({ prompt, options }: { prompt: string | AsyncIterable
       skipGitRepoCheck: true,
       approvalPolicy: 'never',
       sandboxMode,
-      networkAccessEnabled: cx.network_access, // res CLI talks to the loopback backend
-      additionalDirectories: cx.additional_directories,
+      networkAccessEnabled: netAccess, // res CLI talks to the loopback backend
+      additionalDirectories: extraDirs,
       ...(effort && { modelReasoningEffort: effort }),
     };
 
@@ -361,7 +367,7 @@ export function codexQuery({ prompt, options }: { prompt: string | AsyncIterable
         try {
           const events = runCodexExec({
             prompt: input, signal, sandboxMode: 'read-only', cwd: workingDirectory,
-            additionalDirectories: cx.additional_directories, model, modelProvider: cx.model_provider || undefined, harnessMemory: !noMemory && !!cfg.agent.harness_memory, networkAccess: cx.network_access,
+            additionalDirectories: extraDirs, model, modelProvider: cx.model_provider || undefined, harnessMemory: !noMemory && !!cfg.agent.harness_memory, networkAccess: netAccess,
             baseFile: resolveBaseFile(), effort, mcp: toCodexMcp(opts.mcpServers),
           });
           yield* translate(events, { fixedSession: false, model, showThinking, state });

@@ -139,6 +139,7 @@ export const REGISTRY: readonly KeyDef[] = [
   d({ key: 'orchestrator.failsafe.gentle_minutes', aliases: ['failsafe.gentle'], type: 'number', default: 120, yaml: 'orchestrator.failsafe.gentle_minutes', kv: 'failsafe.gentle', yamlFalsyAbsent: true }),
   d({ key: 'orchestrator.failsafe.concerned_minutes', aliases: ['failsafe.concerned'], type: 'number', default: 720, yaml: 'orchestrator.failsafe.concerned_minutes', kv: 'failsafe.concerned', yamlFalsyAbsent: true }),
   d({ key: 'orchestrator.failsafe.emergency_minutes', aliases: ['failsafe.emergency'], type: 'number', default: 1440, yaml: 'orchestrator.failsafe.emergency_minutes', kv: 'failsafe.emergency', yamlFalsyAbsent: true }),
+  d({ key: 'consent.mode', type: 'enum', values: ['open', 'guard'], default: 'open', kv: 'consent.mode', note: 'The consent gate (Settings → Permissions). Db-homed: changed only through /api/consent (PIN to switch Guard mode on or off). Grants, switch-offs and the PIN are runtime state, not settings.' }),
   d({ key: 'pulse.enabled', type: 'bool', default: false, kv: 'pulse.enabled' }),
   d({ key: 'pulse.frequency', type: 'number', default: 15, kv: 'pulse.frequency' }),
   d({ key: 'cron.{type}.schedule', type: 'string', default: '', yaml: 'orchestrator.schedules.{type}', kv: 'cron.{type}.schedule', note: 'The built-in schedule of a default wake type is passed as the default by the orchestrator.' }),

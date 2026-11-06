@@ -142,6 +142,7 @@ export function toolHelpSections(o: ToolHelpOptions): Record<ToolTopic, string[]
     ask: [
       'ASK (permission, answered in the app; waits for the answer):',
       `  ${SC} ask "what you want to do" [detail]     (prints approved | denied | expired; go ahead only on approved)`,
+      `  ${SC} ask web 30                              a window for something the Hands line says is off: <capability> <minutes | on> (or: ask "why" --capability web --window 30). Capabilities: app_write shell files_outside_home web outward_telegram outward_discord google_write self_code_edit voice_out`,
     ],
     identity: [
       'IDENTITY (the files in identity/ are who you are; the person ratifies changes to them in the app):',

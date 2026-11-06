@@ -15,6 +15,7 @@ const h = vi.hoisted(() => ({
   provider: '' as string,
   agentHome: '' as string,
   identityCfg: { companion_name: 'Hazel', user_name: 'Pat' } as any,
+  limits: { calls: [] as any[], sandbox: null as null | string },
 }));
 
 vi.mock('../../config.js', () => ({
@@ -32,6 +33,10 @@ vi.mock('../rolling-context.js', () => ({
     readForServe: async () => h.rolling.serve,
     maybeCompact: () => { h.rolling.compact++; return Promise.resolve({}); },
   }),
+}));
+// The consent gate's run flags (gate.test.ts runs the real thing): here only that dsh asks it and launches in the sandbox it answers.
+vi.mock('../consent/gate.js', () => ({
+  runLimits: (cfg: any, ctx: any) => { h.limits.calls.push({ cfg, ctx }); return { sandboxMode: h.limits.sandbox ?? cfg.sandboxMode, networkAccess: cfg.networkAccess, additionalDirectories: [], restricted: [] }; },
 }));
 vi.mock('../mind-client.js', () => ({ mindRecallBlock: async (q: string) => { h.mindCalls.push(q); return h.mind; } }));
 vi.mock('../revien.js', () => ({
@@ -231,6 +236,18 @@ describe('dsh adapter', () => {
     expect(h.exec.params.senderIsOwner).toBe(true);
     await drain(dshQuery({ prompt: 'hi', options: { sanctum: { threadId: 'th1', userContent: 'hi', senderIsOwner: false } } as any }));
     expect(h.exec.params.senderIsOwner).toBe(false);
+  });
+
+  it('the consent gate can narrow the sandbox (shell off → read-only); read-only helpers do not ask it', async () => {
+    h.limits.calls = []; h.limits.sandbox = 'read-only';
+    try {
+      await drain(dshQuery({ prompt: 'hi', options: { sanctum: { threadId: 'th1', userContent: 'hi' } } as any }));
+      expect(h.exec.params.sandboxMode).toBe('read-only');
+      expect(h.limits.calls).toMatchObject([{ cfg: { sandboxMode: 'workspace-write' }, ctx: { harness: 'dsh', threadId: 'th1' } }]);
+      h.limits.calls = [];
+      await drain(dshQuery({ prompt: 'summarise', options: { permissionMode: 'plan', tools: [] } as any }));
+      expect(h.limits.calls).toEqual([]);
+    } finally { h.limits.sandbox = null; }
   });
 
   it('joins the layers in the system slot: the persona first, then the identity; the message stays bare', async () => {

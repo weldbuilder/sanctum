@@ -4,6 +4,7 @@ import { generateImage, imagegenOffered } from '../imagegen/index.js';
 import { getVoiceService, isVoiceModeActive } from '../ws.js';
 import { isVoiceEmotion, VOICE_EMOTIONS } from '../voice.js';
 import { registerTag } from './index.js';
+import { check as consentCheck } from '../consent/gate.js';
 
 export const MAX_IMAGE_TAGS = 2;
 const MAX_VOICE_CHARS = 4500;
@@ -18,6 +19,7 @@ registerTag('image', {
   offered: imagegenOffered,
   instruction: '[image: a short visual description] generates a picture and sends it after this message. Use it when a picture says it better; at most two per reply.',
   async run(tag, ctx) {
+    if (!consentCheck('app_write', { harness: 'server', threadId: ctx.threadId, tool: '[image] tag', summary: tag.arg }).allow) return;
     await generateImage({ prompt: tag.arg.slice(0, 2000), postToChat: true, threadId: ctx.threadId, triggeredBy: 'tag' });
   },
 });
@@ -35,6 +37,7 @@ registerTag('voice', {
     // Voice mode already speaks every reply (ws.ts auto-TTS); a second voice note would play it twice.
     if (isVoiceModeActive('user')) return;
     if (text.length > MAX_VOICE_CHARS) { console.debug(`[Tags] voice: reply too long for a voice note (${text.length} chars)`); return; }
+    if (!consentCheck('voice_out', { harness: 'server', threadId: ctx.threadId, tool: '[voice] tag', summary: text }).allow) return;
     const emotion = isVoiceEmotion(tag.arg.toLowerCase()) ? (tag.arg.toLowerCase() as typeof VOICE_EMOTIONS[number]) : undefined;
     await svc.generateTTSForMessage(text, ctx.threadId, { emotion, transcript: false });
   },

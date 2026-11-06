@@ -22,6 +22,8 @@ import { logToolUse } from './audit.js';
 import { saveFile, saveFileFromBase64, saveFileInternal, getContentTypeFromMime } from './files.js';
 import { getSanctumConfig, PROJECT_ROOT } from '../config.js';
 import { browserToolsConfigured } from './browser-gate.js';
+import { check as consentCheck, denyHint, orientationLine as consentOrientationLine } from './consent/gate.js';
+import { toolCapability } from './consent/tools.js';
 import crypto from 'crypto';
 import { existsSync } from 'fs';
 import { basename, join, resolve } from 'path';
@@ -847,6 +849,24 @@ function buildPreToolUse(ctx: HookContext): HookCallback {
     const inputSummary = summarizeInput(rawToolName, toolInput);
     const displayName = resolveToolName(rawToolName, toolInput);
 
+    // --- Consent gate: FIRST, before any other rule. Raw tool → capability (consent/tools.ts); a tool with none is not gated and
+    //     leaves no receipt. The hook runs before the SDK executes the tool, so this holds under bypassPermissions too.
+    const capability = toolCapability(rawToolName, toolInput, { agentCwd: getSanctumConfig().agent.cwd, installDir: PROJECT_ROOT });
+    if (capability) {
+      const verdict = consentCheck(capability, { harness: 'claude', threadId: ctx.threadId, tool: rawToolName, summary: inputSummary });
+      if (!verdict.allow) {
+        console.warn(`[Hook] consent: ${rawToolName} refused (${verdict.reason})`);
+        return {
+          continue: true,
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse' as const,
+            permissionDecision: 'deny' as const,
+            permissionDecisionReason: denyHint(capability, verdict.reason),
+          },
+        };
+      }
+    }
+
     // Track tool insertion with text offset for interleaved rendering
     const textOffset = ctx.getTextLength();
     ctx.toolInsertions.push({
@@ -1516,6 +1536,10 @@ export async function buildOrientationContext(
     const helpOpts = { SC, userName, ccEnabled: !!config.command_center.enabled, browser: browserToolsConfigured(config), image: imagegenOffered(), imageReason: imagegenStatusReason(), voice: !!config.voice?.enabled, telegram: ctx.platform === 'telegram', pluginHelp: pluginHelp() };
     parts.push(rollingEnabledForActiveProvider() ? shortToolList(helpOpts) : fullToolHelp(helpOpts));
   }
+
+  // Hands: one line, only when the consent gate has something off or on a window (Open mode with nothing changed says nothing).
+  const hands = consentOrientationLine();
+  if (hands) parts.push(hands);
 
   // Expression tags ([image: ...], [voice]): only the ones whose capability is on, and only where the reply is the owner's chat.
   // Discord and Telegram replies go out as text, so they are not told about tags.

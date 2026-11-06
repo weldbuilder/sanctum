@@ -107,6 +107,8 @@ import { authMiddleware } from '../middleware/auth.js';
 import { AVATAR_MAX_BYTES, avatarFile, getSkin, getStoredAvatarUrl, patchProfile, saveAvatar, sniffAvatar } from '../services/companion-profile.js';
 import { internalOnly } from '../middleware/internal-token.js';
 import { appWriteGate } from '../middleware/app-write.js';
+import { ConsentDeniedError, check as consentCheck, denyMessage, isCapability as isConsentCapability, normalizeWindow as normalizeConsentWindow } from '../services/consent/gate.js';
+import { planAskGrant } from './consent.js';
 import { imagesRouter, imageGenerateHandler } from './imagegen.js';
 import { imagegenOffered, imagegenStatusReason } from '../services/imagegen/index.js';
 import { handleTool as ccHandleTool, CC_TOOL_NAMES } from './cc-mcp.js';
@@ -381,14 +383,19 @@ const APPROVAL_DEFAULT_WAIT_MS = 5 * 60 * 1000;
 const APPROVAL_MAX_WAIT_MS = 15 * 60 * 1000;
 
 router.post('/internal/approvals', internalOnly, async (req, res) => {
-  const { what, detail, threadId, timeoutMs } = req.body ?? {};
+  const { what, detail, threadId, timeoutMs, capability, window_minutes: askWindow } = req.body ?? {};
   if (typeof what !== 'string' || !what.trim()) { res.status(400).json({ error: 'what is required' }); return; }
+  // An ask may name a consent capability and a window (`res ask --capability web --window 30`); approving the card creates the grant.
+  if (capability !== undefined && capability !== null && !isConsentCapability(capability)) { res.status(400).json({ error: 'unknown capability' }); return; }
+  const askWindowMinutes = askWindow === undefined || askWindow === null ? null : normalizeConsentWindow(askWindow);
+  if (askWindowMinutes === undefined) { res.status(400).json({ error: 'window_minutes must be a whole number of minutes' }); return; }
   const wait = Math.min(APPROVAL_MAX_WAIT_MS, Math.max(5_000, Number(timeoutMs) || APPROVAL_DEFAULT_WAIT_MS));
   const now = new Date().toISOString();
   const thread = typeof threadId === 'string' && threadId ? getThread(threadId) : null;
   const approval = createApproval({
     id: crypto.randomUUID(), threadId: thread?.id ?? null, what: what.trim().slice(0, 500),
     detail: typeof detail === 'string' && detail.trim() ? detail.trim().slice(0, 2000) : null, createdAt: now,
+    capability: isConsentCapability(capability) ? capability : null, windowMinutes: isConsentCapability(capability) ? askWindowMinutes : null,
   });
   const companion = getSanctumConfig().identity.companion_name;
   if (thread) {
@@ -493,6 +500,8 @@ router.post('/internal/tts', internalOnly, async (req, res) => {
     return;
   }
   const threadId = resolved.thread.id;
+  const voiceGate = consentCheck('voice_out', { harness: 'server', threadId, tool: '/internal/tts', summary: String(text) });
+  if (!voiceGate.allow) { res.status(403).json({ error: 'consent_off', capability: 'voice_out', message: denyMessage('voice_out', voiceGate.reason) }); return; }
 
   try {
     const result = await voiceService.generateTTSForMessage(text, threadId);
@@ -651,6 +660,7 @@ router.post('/internal/telegram-send', internalOnly, async (req, res) => {
 
     res.json({ success: true, type });
   } catch (error) {
+    if (error instanceof ConsentDeniedError) { res.status(403).json({ error: 'consent_off', capability: error.capability, message: error.message }); return; }
     if (handleUnavailable(error, res)) return;
     console.error('[API] Telegram send error:', error);
     const msg = error instanceof Error ? error.message : 'Telegram send failed';
@@ -1686,6 +1696,9 @@ router.post('/approvals/:id/decide', (req, res) => {
     const decision = req.body?.decision;
     if (decision !== 'approved' && decision !== 'denied') { res.status(400).json({ error: 'decision must be approved or denied' }); return; }
     const now = new Date().toISOString();
+    // An ask that named a capability: the grant is made through the consent rules (PIN token in the body when they say so) before the card is settled.
+    const askPlan = decision === 'approved' ? planAskGrant(req.params.id, req.body) : null;
+    if (askPlan && !askPlan.ok) { res.status(askPlan.status).json(askPlan.body); return; }
     const approval = decideApproval(req.params.id, decision, now);
     if (!approval) {
       const existing = getApproval(req.params.id);
@@ -1701,7 +1714,8 @@ router.post('/approvals/:id/decide', (req, res) => {
       registry.broadcast({ type: 'message', message: sysMsg });
     }
     registry.broadcast({ type: 'approval_decided', approval });
-    res.json({ approval });
+    const askGrant = askPlan?.ok ? askPlan.apply() : null;
+    res.json({ approval, ...(askGrant ? { grant: askGrant } : {}) });
   } catch (error) {
     console.error('Error deciding approval:', error);
     res.status(500).json({ error: 'Failed to decide approval' });
@@ -4009,8 +4023,11 @@ router.get('/usage', (req, res) => {
 // PUT /settings refuses to store a round-tripped fingerprint as the value.
 const SECRET_CONFIG_KEYS = ['mind.api_key', 'integrations.mind_api_key'];
 const CONFIG_FINGERPRINT_RE = /^••••/;
+// The consent gate's state is changed only through /api/consent (it applies the PIN rules); the PIN's hash never leaves the server.
+const CONSENT_KV_RE = /^consent\./;
 function maskSecretConfigs(config: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = { ...config };
+  for (const key of Object.keys(out)) if (key.startsWith('consent.pin_')) delete out[key];
   for (const key of SECRET_CONFIG_KEYS) {
     if (out[key]) out[key] = keyFingerprint(out[key]);
   }
@@ -4054,6 +4071,10 @@ router.put('/settings', (req, res) => {
       // The masked fingerprint round-tripped from the Settings UI — the
       // secret wasn't changed. Never store the mask as the value.
       res.json({ success: true, unchanged: true });
+      return;
+    }
+    if (CONSENT_KV_RE.test(key)) {
+      res.status(403).json({ error: 'consent_via_permissions', message: 'Permissions are changed in Settings → Permissions, not here.' });
       return;
     }
     if (key === 'mind.mind_id' && value !== '' && mindIdProblem(value)) {

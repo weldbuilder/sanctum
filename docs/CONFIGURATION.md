@@ -534,6 +534,38 @@ Model ids change. Confirm the current DeepSeek V3-class id on openrouter.ai/mode
 > access to *additional* places — a notes vault, a project folder — without
 > opening up your whole disk.
 
+### Permissions and the consent gate
+
+Nothing in `sanctum.yaml` turns this on. It lives in the app (Settings → Permissions, coming with the settings collapse) and in the database, because it is state the person changes while the app runs. This section is the reference for what it does.
+
+**Modes.** The default is **Open**: the companion can do what the app can do, and the gate only watches. Every capability is on, every action that reaches outside the chat leaves a receipt, and the person can turn any single capability off (no PIN needed) or put it on a window that ends. **Guard** is opt-in, switched on with the PIN: everything is off until the person grants it for a window (15 min, 30 min, 1 h, 24 h, or leave on), with the PIN on every grant. Switching Guard on or off needs the PIN. The mode is the setting `consent.mode` (database only; `PUT /api/settings` refuses it, so the PIN rules cannot be skipped).
+
+**Capabilities.** Exactly the things with a real effect outside the chat:
+
+| Capability | Covers | Where it is enforced |
+|---|---|---|
+| `app_write` | timers, schedules, canvas, reactions, meal log, share-to-chat, image generation | `appWriteGate` (every route that used it); the `[image:]` tag |
+| `shell` | Bash on Claude; Codex and dsh beyond a read-only sandbox | Claude PreToolUse hook; Codex and dsh launch flags |
+| `files_outside_home` | Write/Edit outside `agent.cwd` | Claude hook; Codex extra folders |
+| `web` | WebFetch, WebSearch, the browser MCP | Claude hook; Codex `network_access` |
+| `outward_telegram` | any proactive send to Telegram | the Telegram send methods and `/internal/telegram-send` |
+| `outward_discord` | owner-lane and public-lane sends | `createSender`, before the word gate |
+| `google_write` | Gmail draft/trash, Calendar, Tasks, Docs, Sheets, YouTube writes | the Google write helpers, and the workspace tool's write actions |
+| `self_code_edit` | Write/Edit under the Sanctum install (not the companion home) | Claude hook; Codex when sandbox is `danger-full-access` |
+| `voice_out` | voice notes (spends credit) | `/internal/tts`, the `[voice]` tag, Telegram voice |
+
+Never gated, in any mode: chat replies and reads, writes inside the companion's own home (journal, notes, HANDOFF.md), scheduled wakes, the ask channel, and receipts. What was already off stays off: the Discord public lane's pause, Codex read-only helpers, `agent.app_write: false`.
+
+**Code, not cooperation.** On Claude the check is the first thing in the PreToolUse hook, so it holds under `bypassPermissions`. A refused tool tells the companion why and how to ask: `res ask <capability> <window>` (for example `res ask web 30`; the long form is `res ask "why" --capability web --window 30`). The ask appears as a card with the window buttons; approving it, and only that, creates the grant, with the PIN where the rules need it. When something is off or on a window, the companion's orientation carries one line ("Hands: shell off; web on until 14:32 (ask with res ask web 30 for a window)"); in Open mode with nothing changed there is no line.
+
+**Codex and dsh** have no per-call hook, so the gate sets the sandbox each run is launched with: shell off gives `read-only`, `files_outside_home` off drops the additional folders, `web` off sets `network_access` to false, and `danger-full-access` drops to `workspace-write` unless shell, files, web and self-edit are all on. The flags are fixed at launch: a grant or a switch-off made during a turn applies from the next turn. dsh's launch takes a sandbox mode but no network or folder switch, so for dsh only `shell` is a flag; `web` and `files_outside_home` are not enforced by flag, and what dsh can do outward is caught at the server choke points above. Codex running read-only or with the network off also cannot reach the loopback `res` tool, so it cannot send an ask card; in Guard mode the person grants from Settings. The one-shot helpers (digest, handoff, outlook) are read-only already and are left as configured. In `workspace-write`, a Codex run whose working folder is inside the Sanctum install can still write there; `self_code_edit` cannot stop that by flag.
+
+**PIN.** 4 to 8 digits, separate from the app password, optional in Open mode, required for Guard. Set or reset it with `POST /api/consent/pin` (a session plus the app password typed again, which is also how a forgotten PIN or a lockout is cleared). It is stored as a scrypt hash, compared in constant time, never logged and never returned. Five wrong PINs lock it for 15 minutes. `POST /api/consent/pin/verify` returns a verify token that lasts 10 minutes, in memory; the grant routes want it where the rules say so: switching Guard on or off, any grant in Guard mode, and turning back on something the person turned off (once a PIN exists). Turning something off never needs it.
+
+**Receipts.** Always on, in either mode. Each time the gate looks at a gated action it writes one row (capability, tool or route, harness, thread, a summary of at most 200 characters with secrets scrubbed, and `allowed`, `denied` or `expired`); each grant, revoke, switch-off and mode change writes one too (`granted`, `revoked`, `mode_changed`). Read them with `GET /api/consent/receipts?capability=&outcome=&limit=&before=` (newest first, paged by id). Rows older than 90 days are pruned at boot. If the receipts table cannot be written the action is not blocked; the gate logs a warning.
+
+**Local models.** These switches are code and hold for any model; a model run locally has no provider rails, so the judgment is yours to supervise. `npm run doctor` prints one INFO line with the mode and anything that is off.
+
 ### `voice` — spoken audio
 
 | Key | Default | Meaning |

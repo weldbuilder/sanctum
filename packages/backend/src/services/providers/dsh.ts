@@ -37,6 +37,7 @@ import { routeKeyVar } from './dsh-key.js';
 import { assembleRollingHistory, conversationBlock, splitContextBlock } from '../rolling-history.js';
 import { recallForPrompt, ingestTurn, MEMORY_HEADER } from '../revien.js';
 import { mindRecallBlock } from '../mind-client.js';
+import { runLimits } from '../consent/gate.js';
 import { childRunBase } from '../../tenancy/child.js';
 
 function resolveBaseFile(): string {
@@ -280,7 +281,10 @@ export function dshQuery({ prompt, options }: { prompt: string | AsyncIterable<a
     // Autonomous = read-only subagents (digest/handoff/outlook) AND the main agent's
     // wakes (sanctum.autonomous). Both run on agent.dsh.model_autonomous, '' = follow chat.
     const model = resolveModel(opts.model, readOnly || !!sanctum?.autonomous);
-    const sandboxMode = readOnly ? 'read-only' as const : dx.sandbox_mode;
+    // The consent gate narrows the sandbox it is launched with: shell off (or Guard mode without a grant) → read-only. dsh's launch flags
+    // carry no network or extra-folder switch, so web and files_outside_home are NOT enforced by flag here; their outward effects are
+    // caught at the server choke points (Telegram, Discord, Google, TTS, app writes) and the limit is documented in docs/CONFIGURATION.md.
+    const sandboxMode = readOnly ? 'read-only' as const : runLimits({ sandboxMode: dx.sandbox_mode, networkAccess: true }, { harness: 'dsh', threadId: sanctum?.threadId }).sandboxMode;
 
     const useMemory = !readOnly && !sanctum?.autonomous && !noMemory;
     let memoryBlock = '';

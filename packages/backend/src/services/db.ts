@@ -78,6 +78,10 @@ export function openDb(dbPath: string): Database.Database {
   const queuesMigrationPath = join(__dirname, '../../migrations/003_discord_queues.sql');
   if (existsSync(queuesMigrationPath)) db.exec(readFileSync(queuesMigrationPath, 'utf-8'));
 
+  // The consent gate's receipts (every statement IF NOT EXISTS).
+  const consentMigrationPath = join(__dirname, '../../migrations/004_consent.sql');
+  if (existsSync(consentMigrationPath)) db.exec(readFileSync(consentMigrationPath, 'utf-8'));
+
   // Insert default config if not exists
   const stmt = db.prepare('INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)');
   stmt.run('dnd_start', '23:00');
@@ -111,6 +115,11 @@ export function openDb(dbPath: string): Database.Database {
       decided_at TEXT
     )
   `);
+
+  // An ask can name a capability and a window (`res ask --capability web --window 30`); approving it creates the grant.
+  for (const col of ['capability TEXT', 'window_minutes INTEGER']) {
+    try { db.exec(`ALTER TABLE approvals ADD COLUMN ${col}`); } catch { /* column already exists */ }
+  }
 
   // Meal ledger: one row per meal the companion logs. care_entries holds one
   // row per (date, person, category), so a second lunch would overwrite the
@@ -1864,9 +1873,9 @@ export function listTriggers(kind?: 'impulse' | 'watcher'): Trigger[] {
 }
 
 // ── Approvals ───────────────────────────────────────────────────────────────
-export function createApproval(p: { id: string; threadId?: string | null; what: string; detail?: string | null; createdAt: string }): Approval {
-  getDb().prepare('INSERT INTO approvals (id, thread_id, what, detail, status, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(p.id, p.threadId ?? null, p.what, p.detail ?? null, 'pending', p.createdAt);
+export function createApproval(p: { id: string; threadId?: string | null; what: string; detail?: string | null; createdAt: string; capability?: string | null; windowMinutes?: number | null }): Approval {
+  getDb().prepare('INSERT INTO approvals (id, thread_id, what, detail, status, created_at, capability, window_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(p.id, p.threadId ?? null, p.what, p.detail ?? null, 'pending', p.createdAt, p.capability ?? null, p.windowMinutes ?? null);
   return getApproval(p.id)!;
 }
 

@@ -51,6 +51,8 @@ import { announceSetupCode } from './services/setup-code.js';
 import houseUpdateRoutes from './routes/house-update.js';
 import { flushUpdateJob, initUpdater, setRestartControl, stopUpdateWork } from './services/updater.js';
 import authPreferencesRoutes from './routes/auth-preferences.js';
+import consentRoutes from './routes/consent.js';
+import { pruneReceipts } from './services/consent/receipts.js';
 import googleRoutes from './routes/google-routes.js';
 import { startOutlookPoller, stopOutlookPoller } from './services/outlook.js';
 import { startOutlookAuthor, stopOutlookAuthor } from './services/outlook-author.js';
@@ -106,6 +108,7 @@ if (!TENANT_MODE) {
   console.log('Initializing database...');
   db = initDb(DB_PATH);
   deleteExpiredSessions();
+  try { const n = pruneReceipts(); if (n) console.log(`[Consent] pruned ${n} receipt(s) older than 90 days`); } catch (e) { console.warn(`[Consent] receipt prune failed: ${(e as Error)?.message}`); }
   retireLegacyModelRow(); // the row /model used to write (nothing read it): named once, deleted
   loadVectorCache();
   console.log('Database initialized');
@@ -230,6 +233,8 @@ app.use('/api/house/update', houseUpdateRoutes);
 // All API routes — auth middleware is applied selectively inside the router
 app.use('/api', apiRoutes);
 app.use('/api', authPreferencesRoutes);
+// The consent gate's Permissions backend: modes, windows, PIN, receipts (a session on every route).
+app.use('/api/consent', consentRoutes);
 // Google connect REST (localhost-guarded internally; mounted always so the
 // Settings surface can read status even when Google isn't configured yet).
 app.use('/api/google', googleRoutes);

@@ -6,15 +6,24 @@
 // path answers 403 with a sentence that says where the switch is.
 import type { Request, Response, NextFunction } from 'express';
 import { getSanctumConfig } from '../config.js';
+import { check, denyMessage } from '../services/consent/gate.js';
 
 export function appWriteEnabled(): boolean {
   return getSanctumConfig().agent.app_write !== false;
 }
 
-export function appWriteGate(_req: Request, res: Response, next: NextFunction): void {
-  if (appWriteEnabled()) { next(); return; }
-  res.status(403).json({
-    error: 'app_write_off',
-    message: "The companion's write access to the app's features is off (Settings → permissions, or agent.app_write in sanctum.yaml).",
-  });
+/** Two switches, either of which refuses: the old one (agent.app_write, the wizard's question) and the consent gate's `app_write`
+ *  (Settings → Permissions; Guard mode turns it off until granted). The gate writes the receipt. */
+export function appWriteGate(req: Request, res: Response, next: NextFunction): void {
+  if (!appWriteEnabled()) {
+    res.status(403).json({
+      error: 'app_write_off',
+      message: "The companion's write access to the app's features is off (Settings → permissions, or agent.app_write in sanctum.yaml).",
+    });
+    return;
+  }
+  const route = `${req.method ?? ''} ${String(req.originalUrl ?? req.path ?? '').split('?')[0]}`.trim();
+  const g = check('app_write', { harness: 'server', tool: route, summary: route });
+  if (g.allow) { next(); return; }
+  res.status(403).json({ error: 'app_write_off', capability: 'app_write', message: denyMessage('app_write', g.reason) });
 }
