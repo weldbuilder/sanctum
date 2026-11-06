@@ -1,5 +1,5 @@
 // One runner for every condensed account the companion writes about its own life. Today the rolling fold, merge and rebuild
-// (rolling-context.ts); the digest, handoff and outlook author join in a later phase.
+// (rolling-context.ts), the digest (digest.ts), the daily handoff (handoff.ts) and the house outlook author (outlook-author.ts).
 //
 //   runSummary({ kind, system, user, maxTokens, signal }) → text
 //
@@ -13,7 +13,7 @@
 import { dirname, join } from 'node:path';
 import { getSanctumConfig, activeProviderName } from '../../config.js';
 import { ownMkdirAsync } from '../../tenancy/own-files.js';
-import { childRunBase } from '../../tenancy/child.js';
+import { childRunBase, applyAuthForBackgroundRun } from '../../tenancy/child.js';
 import { runCodexExec, materializeBaseInstructions } from '../providers/codex-exec.js';
 import { runDshSummarizer } from '../providers/dsh-exec.js';
 import { chatCompletion } from '../providers/openai-compat.js';
@@ -43,6 +43,8 @@ export interface SummaryDeps {
   chat: typeof chatCompletion;
   materialize: (text: string) => string;
   env: () => NodeJS.ProcessEnv;
+  /** The person's auth choice, applied before a run that inherits process.env (tenancy off). */
+  auth: () => void;
   resolve: () => ResolvedSummarizer;
   dir: () => string;
 }
@@ -58,6 +60,7 @@ const defaults: SummaryDeps = {
   chat: chatCompletion,
   materialize: materializeBaseInstructions,
   env: () => childRunBase(),
+  auth: applyAuthForBackgroundRun,
   resolve: () => resolveSummarizer(getSanctumConfig(), activeProviderName()),
   dir: summaryDir,
 };
@@ -89,6 +92,7 @@ export async function runSummary(args: RunSummaryArgs, deps: Partial<SummaryDeps
     });
     return out.text;
   }
+  d.auth();
   const dir = d.dir();
   await ownMkdirAsync(dir, { recursive: true });
   if (r.provider === 'claude') {

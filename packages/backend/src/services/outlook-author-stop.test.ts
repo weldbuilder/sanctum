@@ -2,13 +2,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
 const h = vi.hoisted(() => ({ calls: 0, gate: null as Promise<void> | null }));
-vi.mock('./providers/index.js', () => ({
-  activeProvider: () => 'claude',
-  AbortError: class AbortError extends Error {},
-  listSessions: async () => [],
-  query: () => {
+vi.mock('./summarizer/index.js', () => ({
+  summarizerEngine: () => 'claude:test',
+  runSummary: async () => {
     h.calls++;
-    return (async function* () { if (h.gate) await h.gate; yield { type: 'result', subtype: 'success', result: '{}' }; })();
+    if (h.gate) await h.gate;
+    return '{}';
   },
 }));
 

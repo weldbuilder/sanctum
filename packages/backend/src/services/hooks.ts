@@ -16,8 +16,8 @@ import type {
   HookInput,
 } from '@anthropic-ai/claude-agent-sdk';
 import { createMessage, updateThreadActivity, getMessages, countMessages, getConfig, getConfigBool, getConfigsByPrefix, setConfig, getActiveTriggers, getRecentCompanionActions, getCompanionActionsSince, dailyThreadIdFor } from './db.js';
-import { getTodayCarry } from './handoff.js';
-import { getOutlook, snapshotToContextDigest } from './outlook.js';
+import { getTodayCarryDated, carryLine } from './handoff.js';
+import { getOutlook, snapshotToContextDigest, HOUSE_OUTLOOK_HEADER } from './outlook.js';
 import { logToolUse } from './audit.js';
 import { saveFile, saveFileFromBase64, saveFileInternal, getContentTypeFromMime } from './files.js';
 import { getSanctumConfig, PROJECT_ROOT } from '../config.js';
@@ -1374,7 +1374,7 @@ export async function buildOrientationContext(
         const snapshot = await getOutlook();
         if (snapshot) {
           const digest = snapshotToContextDigest(snapshot);
-          if (digest && digest.length > '[House Outlook]'.length + 1) {
+          if (digest && digest.length > HOUSE_OUTLOOK_HEADER.length + 1) {
             turnParts.push(capSection('wake-house-digest', digest, 900));
           }
         }
@@ -1404,7 +1404,7 @@ export async function buildOrientationContext(
     const snapshot = await getOutlook();
     if (snapshot) {
       const digest = snapshotToContextDigest(snapshot);
-      if (digest && digest.length > '[House Outlook]'.length + 1) {
+      if (digest && digest.length > HOUSE_OUTLOOK_HEADER.length + 1) {
         parts.push(capSection('house-digest', digest, 1200));
       }
     }
@@ -1416,8 +1416,8 @@ export async function buildOrientationContext(
   // labeled, present only on the daily. Best-effort — absent/disabled = silent.
   try {
     if (ctx.threadId === dailyThreadIdFor()) {
-      const carry = getTodayCarry();
-      if (carry) parts.push(`**You carried from yesterday:** ${carry}`);
+      const carry = getTodayCarryDated();
+      if (carry) parts.push(carryLine(carry));
     }
   } catch {}
 
@@ -1426,7 +1426,7 @@ export async function buildOrientationContext(
   // `session.handoff_note` read that sat here: its ONLY writer was the disabled
   // SessionEnd hook (REGISTER_V1_DEAD_SESSION_HOOKS), so it had rendered
   // nothing since the V1 loop landed. The real carry is the handoff subagent's
-  // (getTodayCarry, above); the per-session pointer it was meant to give is
+  // (getTodayCarryDated, above); the per-session pointer it was meant to give is
   // what this delta rail now provides — from real data.
   {
     const delta = buildDeltaSection(ctx.threadId);

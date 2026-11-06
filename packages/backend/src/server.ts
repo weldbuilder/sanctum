@@ -412,8 +412,7 @@ initCcRoutes(TENANT_MODE).then(() => {
 // vitals (MCP + organs); both degrade to empties if unwired.
 if (!TENANT_MODE) startOutlookPoller({ agent: agentService, orchestrator });
 
-// Start the House Outlook AUTHOR — the slow (3h) Sonnet-4.6 pass on the user's
-// subscription where the companion authors its own hearth + the topics "we've been
+// Start the House Outlook AUTHOR — the slow (3h) summarizer pass where the companion authors its own hearth + the topics "we've been
 // circling". Its OWN lifecycle, NOT coupled to the logistics poller's tick;
 // errors back off (15m) and never crash the process (timer .unref'd). The
 // poller folds the authored output (presence/topics/needsYou) into the snapshot.

@@ -15,7 +15,7 @@ the companion is: that comes from the home's `identity/` folder.
 | `companion-claude.md` | **Built**: base + Claude tail. |
 | `codex-base-prompt.md` | **Built**: base + Codex tail. |
 | `dsh-base-prompt.md` | **Built**: base + dsh tail. |
-| `summarizer-own-voice.md` | Hand-written. The instruction for the summarizer run: the companion's own first-person voice (shared opening) and the rolling fold, merge and rebuild. Names are filled from identity. |
+| `summarizer-own-voice.md` | Hand-written. The instruction for the summarizer run: the companion's own first-person voice (shared opening) and the rolling fold, merge and rebuild, the daily digest, the daily handoff and the house outlook. Names are filled from identity. |
 | `codex-summarizer-prompt.md` | Deprecated. The old third-person base prompt; kept for `rolling.summarizer_instructions_file` users. |
 | `discord-public-base.md` | Hand-written. The frame for the public Discord lane, which has no tools and never loads the harness. |
 | `wake.md` | Hand-written. The legacy single wake prompt; the per-type files live in `prompts/wakes/`. |

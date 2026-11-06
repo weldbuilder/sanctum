@@ -34,11 +34,8 @@ describe('applyAuthToEnv per run', () => {
       .sort();
     expect(callers).toEqual([
       'services/agent.ts', // the per-tenant agent service
-      'services/digest.ts', // the orchestrator's digest: no orchestrator in tenant mode yet
       'services/discord/public-runtime.ts', // Discord: /api/discord and the bot are off
-      'services/handoff.ts', // /api/handoff is refused, the schedule is not started
-      'services/outlook-author.ts', // /api/outlook is refused, the author is not started
-      'tenancy/child.ts', // childRunBase(): the same choice applied to the base of Codex, dsh and the rolling summarizer
+      'tenancy/child.ts', // childRunBase() and applyAuthForBackgroundRun(): the same choice applied to the base of Codex, dsh and every summarizer run (rolling, digest, handoff, outlook)
     ]);
     for (const f of callers.filter((c) => c !== 'tenancy/child.ts')) {
       const text = readFileSync(join(SRC, f), 'utf8');

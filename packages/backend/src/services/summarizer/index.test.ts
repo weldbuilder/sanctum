@@ -18,6 +18,7 @@ function stubs(r: ResolvedSummarizer, env: Record<string, string> = {}) {
     resolve: () => r,
     dir: () => '/tmp/rolling-x',
     env: () => env as NodeJS.ProcessEnv,
+    auth: () => {},
     materialize: (t) => { calls.codexBase = [t]; return '/tmp/base.md'; },
     claude: (async (o: any) => { calls.claude.push(o); return 'claude account'; }) as any,
     chat: (async (o: any) => { calls.chat.push(o); return { text: 'chat account' }; }) as any,
@@ -30,6 +31,16 @@ const ARGS = { kind: 'rolling' as const, system: INSTRUCTION, user: USER };
 vi.mock('../../tenancy/own-files.js', async (orig) => ({ ...(await orig() as object), ownMkdirAsync: async () => {} }));
 
 describe('runSummary dispatch', () => {
+  it('applies the person\'s auth choice before a harness run, and not for the plain chat client', async () => {
+    const auth = vi.fn();
+    const h = stubs(R({ provider: 'claude', model: 'claude-x' }));
+    await runSummary(ARGS, { ...h.deps, auth });
+    expect(auth).toHaveBeenCalledTimes(1);
+    const c = stubs(R({ provider: 'openai-compat', model: 'm', baseUrl: 'https://x.test/v1' }), { SUMMARIZER_API_KEY: 'k' });
+    await runSummary(ARGS, { ...c.deps, auth });
+    expect(auth).toHaveBeenCalledTimes(1);
+  });
+
   it('claude: the SDK side-run with identity + instruction in the system slot and the transcript as the user message', async () => {
     const { calls, deps } = stubs(R({ provider: 'claude', model: 'claude-x' }));
     expect(await runSummary(ARGS, deps)).toBe('claude account');
