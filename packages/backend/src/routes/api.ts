@@ -124,6 +124,7 @@ import { registry } from '../services/ws.js';
 import { getSanctumConfig, PROJECT_ROOT, CONFIG_FILE_NAMES, browserFrameOrigin, checkBrowserUrl, resolveBrowserUrlUpdate } from '../config.js';
 import { browserToolsConfigured } from '../services/browser-gate.js';
 import { mergeProviderAndDsh } from '../services/preferences-merge.js';
+import { memoryChoiceOf, mergeImagegen, mergeMemory, mergeSummarizer } from '../services/preferences-merge-extra.js';
 import { resolveAll, resolveSetting } from '../services/settings/index.js';
 import { overlay } from '../../../../scripts/setup-inherit.mjs';
 import { getUsageSummary } from '../services/usage-log.js';
@@ -1806,6 +1807,13 @@ router.get('/preferences', (req, res) => {
           network_access: e['agent.codex.network_access'],
           additional_directories: e['agent.codex.additional_directories'],
         },
+        // The summarizer block (api_key_env is a variable NAME; the key's set/not-set marker is in GET /api/settings).
+        summarizer: {
+          provider: e['agent.summarizer.provider'],
+          model: e['agent.summarizer.model'],
+          base_url: e['agent.summarizer.base_url'],
+          api_key_env: e['agent.summarizer.api_key_env'],
+        },
         // Rolling context: the app's own compaction, switchable per harness.
         // Switches come resolved (legacy agent.codex.rolling folded in); the
         // summarizer fields are the yaml values, '' = follow.
@@ -1855,6 +1863,14 @@ router.get('/preferences', (req, res) => {
           mind_id: e['integrations.mind_cloud.mind_id'],
         },
       },
+      // One memory system at a time (revien | sanctum | harness | none); PUT { memory: '<choice>' } writes revien.enabled, agent.harness_memory and agent.local_recall together.
+      memory: memoryChoiceOf(fileLayer),
+      imagegen: {
+        provider: e['imagegen.provider'],
+        model: e['imagegen.model'],
+        size: e['imagegen.size'],
+        safety_checker: e['imagegen.safety_checker'],
+      },
       auth: {
         has_password: !!config.auth.password,
       },
@@ -1900,6 +1916,8 @@ router.put('/preferences', (req, res) => {
       }
       const providerErr = mergeProviderAndDsh(parsed.agent, updates.agent);
       if (providerErr) { res.status(400).json({ error: providerErr }); return; }
+      const summarizerErr = mergeSummarizer(parsed.agent, updates.agent);
+      if (summarizerErr) { res.status(400).json({ error: summarizerErr }); return; }
       if (updates.agent.codex && typeof updates.agent.codex === 'object') {
         if (!parsed.agent.codex) parsed.agent.codex = {};
         const str = (v: unknown) => (typeof v === 'string' ? v.trim() : undefined);
@@ -1983,6 +2001,10 @@ router.put('/preferences', (req, res) => {
         parsed.hooks.extra_write_paths = updates.hooks.extra_write_paths.map((p: string) => p.trim());
       }
     }
+    const imagegenErr = mergeImagegen(parsed, updates);
+    if (imagegenErr) { res.status(400).json({ error: imagegenErr }); return; }
+    const memoryErr = mergeMemory(parsed, updates);
+    if (memoryErr) { res.status(400).json({ error: memoryErr }); return; }
     if (updates.command_center && typeof updates.command_center.enabled === 'boolean') {
       if (!parsed.command_center) parsed.command_center = {};
       parsed.command_center.enabled = updates.command_center.enabled;
