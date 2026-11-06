@@ -88,6 +88,7 @@ export type ServerMessage =
   | { type: 'message_reaction_added'; messageId: string; emoji: string; user: string; createdAt: string }
   | { type: 'message_reaction_removed'; messageId: string; emoji: string; user: string }
   | { type: 'generation_stopped' }
+  | { type: 'brain_changed'; active: 'primary' | 'fallback'; class?: string; model?: string }
   | { type: 'rate_limit'; status: string; resetsAt?: number; rateLimitType?: string; utilization?: number }
   | { type: 'tool_progress'; toolId: string; toolName: string; elapsed: number }
   | { type: 'mind_status'; status: MindStatus }

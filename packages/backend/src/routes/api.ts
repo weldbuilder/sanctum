@@ -5142,7 +5142,8 @@ router.post('/orchestrator', async (req, res) => {
 // GET /api/system/status — health-dashboard payload for the Settings panel.
 // Response: { uptimeSeconds, nodeVersion, env, dbOk, websocketClients,
 //             agent: { model, presence, processing, queueDepth },
-//             mcpServers: [{ name, status, error?, toolCount }] }
+//             mcpServers: [{ name, status, error?, toolCount }],
+//             brain: { active: 'primary'|'fallback', lastError, lastErrorAt, fallbackMode } }
 router.get('/system/status', (req, res) => {
   try {
     const cfg = getSanctumConfig();
@@ -5197,6 +5198,13 @@ router.get('/system/status', (req, res) => {
         queueDepth: agentService?.getQueueDepth() ?? 0,
       },
       mcpServers,
+      // Which brain is taking turns: the primary harness, or the fallback (services/providers/router.ts).
+      brain: {
+        active: getConfig('brain_active') === 'fallback' ? 'fallback' : 'primary',
+        lastError: getConfig('brain_last_error') || null,
+        lastErrorAt: getConfig('brain_last_error_at') || null,
+        fallbackMode: cfg.agent.fallback?.provider ? (cfg.agent.fallback.mode || 'off') : 'off',
+      },
     });
   } catch (error) {
     console.error('Error fetching system status:', error);

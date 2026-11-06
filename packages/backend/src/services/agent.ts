@@ -1,4 +1,6 @@
-import { query, activeProvider, AbortError, listSessions, type Options, type Query, type McpServerConfig, type ListSessionsOptions } from './providers/index.js';
+import { activeProvider, AbortError, listSessions, type Options, type Query, type McpServerConfig, type ListSessionsOptions } from './providers/index.js';
+import { routedQuery, fallbackReady, type BrainEvent, type BrainInfo } from './providers/router.js';
+import { postSystemLine } from './system-line.js';
 import { senderIsOwnerFor } from './plugins.js';
 import { getRolling, rollingEnabledForActiveProvider } from './rolling-context.js';
 import { assembleRollingHistory, conversationBlock } from './rolling-history.js';
@@ -19,7 +21,7 @@ import { setTurnProbe } from './identity/guard.js';
 import { describeIdentitySource, renderIdentityPrompt, fillIdentityNames } from '../identity/render.js';
 import { applyAuthToEnv, effectiveModel, getAuthPreferences } from './auth-preferences.js';
 import { recordUsage } from './usage-log.js';
-import { errorClass } from './error-class.js';
+import { errorClass, classifyFailure } from './error-class.js';
 import { runEnvOption } from '../tenancy/child.js';
 import { listTenantSessions } from '../tenancy/sessions.js';
 import { harnessHomes } from '../tenancy/child.js';
@@ -56,6 +58,8 @@ export interface HoldOptions {
  *  a path or a stack, so it is safe to show the owner and to log. A held turn never returns an error as its
  *  reply: the web shows `[Agent error: ...]` to the owner, but a Discord reply goes out to a room. */
 /** Thrown inside a turn that a park caught before its provider call; the turn's own catch turns it into a quiet end, never an error line. */
+/** An autonomous turn that the honesty guard dropped (it ran on the fallback brain and no tool ran). The orchestrator's catch logs it as a failure, never as done. */
+export class AutonomousSkipped extends Error { constructor(why: string) { super(`autonomous turn skipped: ${why}`); this.name = 'AutonomousSkipped'; } }
 class ParkedBeforeQuery extends Error { constructor() { super('tenant parked'); this.name = 'ParkedBeforeQuery'; } }
 
 export class AgentTurnError extends Error {
@@ -473,6 +477,17 @@ export class AgentService {
   }
 
   /** True once this companion is being parked (quiesce) or its runtime is leaving/parked. */
+  /** The brain changed under a turn: one system line in the thread, and the apps hear it (the status line and any open panel). */
+  private announceBrain(threadId: string, e: BrainEvent): void {
+    if (e.type === 'fallover') {
+      postSystemLine(threadId, `running on the fallback brain (${e.cls ?? 'always'})`, 'brain_notice', { brain: 'fallback', ...(e.cls ? { class: e.cls } : {}) }, { registry });
+      registry.broadcast({ type: 'brain_changed', active: 'fallback', ...(e.cls ? { class: e.cls } : {}), ...(e.model ? { model: e.model } : {}) });
+    } else {
+      postSystemLine(threadId, 'primary brain back', 'brain_notice', { brain: 'primary' }, { registry });
+      registry.broadcast({ type: 'brain_changed', active: 'primary' });
+    }
+  }
+
   private fenced(): boolean {
     if (st().parked) return true;
     const rt = currentTenant();
@@ -891,6 +906,8 @@ export class AgentService {
     }
 
     let sessionId: string | null = null;
+    // The routed query (providers/router.ts): after the stream, it says which brain ran the turn and how many tools that brain ran.
+    let routed: Query | null = null;
     // Set when the turn failed. A held turn (Discord) then throws it as an AgentTurnError after teardown
     // instead of returning "[Agent error: ...]" as the reply.
     let turnError: string | null = null;
@@ -999,9 +1016,13 @@ export class AgentService {
       // enrichedPrompt (see buildAttachmentNote above); no streaming-input branch
       // is needed, which keeps resume/session handling simple and uniform.
       // Codex / dsh: the adapter owns thread history and needs the raw user message.
-      if (activeProvider() !== 'claude') (options as any).sanctum = { threadId, userContent: content, contextBlock, autonomous: isAutonomous, senderIsOwner: isAutonomous ? undefined : senderIsOwnerFor(platformOpts?.platform, platformOpts?.senderIsOwner), ...(hold ? { noIngest: true } : {}), ...(noMemory ? { memory: 'none' } : {}) };
-      const result = query({ prompt: enrichedPrompt, options });
+      // The fallback brain reads the same option, so it is set whenever a fallback may run, on Claude too.
+      if (activeProvider() !== 'claude' || fallbackReady()) (options as any).sanctum = { threadId, userContent: content, contextBlock, autonomous: isAutonomous, senderIsOwner: isAutonomous ? undefined : senderIsOwnerFor(platformOpts?.platform, platformOpts?.senderIsOwner), ...(hold ? { noIngest: true } : {}), ...(noMemory ? { memory: 'none' } : {}) };
+      // One call site for every brain: the router picks the primary harness or the fallback and moves a turn that failed before
+      // it began (signed out, out of credit, rate limited, offline, binary missing, hung) to the other. See providers/router.ts.
+      const result = routedQuery({ prompt: enrichedPrompt, options }, { onEvent: (e) => this.announceBrain(threadId, e) });
       st().activeQuery = result;
+      routed = result;
 
       // Refresh MCP server status (non-blocking — caches for settings panel)
       result.mcpServerStatus().then(statuses => {
@@ -1352,7 +1373,11 @@ export class AgentService {
       console.error('Agent query error:', errMsg, error);
       turnErrored = true;
       if (hold) turnError = errorClass(error);
-      else fullResponse = fullResponse || `[Agent error: ${errMsg}]`;
+      else {
+        // The class (AUTH, CREDIT, RATE_LIMIT, ...) rides in the line so the thread says what kind of failure it was.
+        const cls = classifyFailure(error);
+        fullResponse = fullResponse || `[Agent error: ${errMsg}${cls === 'OTHER' || cls === 'CANCELLED' ? '' : ` (class: ${cls})`}]`;
+      }
       }
     } finally {
       // Clean up active query tracking
@@ -1422,6 +1447,18 @@ export class AgentService {
 
     // A held turn that failed is an error, never a reply: nothing is held, saved, shown, pushed or ingested.
     if (hold && turnError) throw new AgentTurnError(turnError);
+
+    // Honesty guard: an autonomous turn (a wake, a timer, a trigger, the pulse) that ran on the fallback brain with ZERO tools
+    // cannot have done anything, whatever its text says ("done", "I set it"). It is not logged as done, not stored, not sent: the
+    // thread gets one system line and the caller sees a skip. A run that stopped or failed is not this case.
+    const brainInfo = (routed as unknown as { brainInfo?: () => BrainInfo } | null)?.brainInfo?.();
+    if (isAutonomous && !wasInterrupted && !turnErrored && brainInfo?.active === 'fallback' && brainInfo.toolsRun === 0
+      && fullResponse.trim() && !fullResponse.trim().startsWith('PULSE_OK')) {
+      const why = brainInfo.degraded || brainInfo.toolsOffered === 0 ? 'the fallback model has no tools this turn' : 'no tool was called';
+      postSystemLine(threadId, `skipped an autonomous turn: it ran on the fallback brain and ${why}, so nothing was done or reported as done`, 'brain_notice', { skipped: 'autonomous_no_tools' }, { registry });
+      registry.broadcast({ type: 'generation_stopped' });
+      throw new AutonomousSkipped(why);
+    }
 
     // Interrupted before any content streamed (e.g. stop-and-steer fired early):
     // don't persist a "[No response]" ghost bubble. generation_stopped already
