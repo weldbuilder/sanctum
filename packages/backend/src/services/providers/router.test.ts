@@ -206,13 +206,12 @@ describe('routedQuery: hung harness', () => {
 });
 
 describe('routedQuery: modes and health end to end', () => {
-  it('off: the failure is the primary\'s, no fallback is ever started', async () => {
+  it('off: the failure is the primary\'s, no fallback is ever started, nothing is recorded', async () => {
     const e = new Error('Invalid API key');
     const h = harness({ mode: 'off', primary: { throws: e } });
     await expect(h.drain()).rejects.toBe(e);
     expect(h.calls).toEqual(['primary']);
-    expect(h.kv.brain_last_error).toBe('AUTH'); // recorded for the status page
-    expect(h.kv['brain.primary_unhealthy_until']).toBeUndefined(); // but nothing is pinned with nobody to hand over to
+    expect(h.kv).toEqual({}); // no brain_active, no brain_last_error: the router is not in the way
   });
 
   it('always: the fallback answers first; the primary is never started when it succeeds', async () => {
@@ -308,5 +307,53 @@ describe('brainInfo and fallbackReady', () => {
     expect(failureInMessage({ type: 'result', subtype: 'success', result: 'fine' })).toBeNull();
     expect(failureInMessage({ type: 'assistant', message: { content: [] } })).toBeNull();
     expect(failureInMessage({ type: 'stream_event' })).toBeNull();
+  });
+});
+
+// ─── no fallback configured: the primary, untouched ─────────────────────────────────────────────────────────────────
+describe('routedQuery: no fallback configured returns the primary untouched', () => {
+  const mk = (cfg: any, primaryMsgs: () => AsyncGenerator<any>) => {
+    const kv: Record<string, string> = {};
+    const prim: any = Object.assign(primaryMsgs(), { mcpServerStatus: async () => [] });
+    const deps: Partial<RouterDeps> = {
+      now: () => NOW, kvGet: (k) => kv[k] ?? null, kvSet: (k, v) => { kv[k] = v; }, config: () => cfg, primaryName: () => 'claude', hasKey: () => true,
+      primary: () => prim, fallback: () => { throw new Error('never'); }, firstOutputMs: 50,
+    };
+    return { kv, prim, run: () => routedQuery({ prompt: 'hi', options: {} as any }, {}, deps) };
+  };
+  for (const [name, cfg] of [['provider ""', { provider: '', mode: 'off' }], ['mode off', { provider: 'openai-compat', mode: 'off', model: 'm', base_url: 'http://x' }], ['no block', undefined]] as const) {
+    it(`${name}: the returned object IS the primary's (identity), and a primary silent past the guard still answers`, async () => {
+      const m = mk(cfg, async function* () { await new Promise((r) => setTimeout(r, 150)); yield { type: 'assistant', message: { content: [{ type: 'text', text: 'late but here' }] } }; yield { type: 'result', subtype: 'success', result: 'late but here' }; });
+      const q = m.run();
+      expect(q).toBe(m.prim);
+      const out: any[] = []; for await (const x of q) out.push(x);
+      expect(out.map((x) => x.type)).toEqual(['assistant', 'result']);
+      expect(m.kv).toEqual({}); // no brain_active / brain_last_error / _at
+    });
+  }
+  it('a primary failure message passes with its result, unintercepted, and nothing is written', async () => {
+    const m = mk({ provider: '', mode: 'off' }, async function* () { yield { type: 'assistant', error: 'rate_limit', message: { content: [{ type: 'text', text: 'limit' }] } }; yield { type: 'result', subtype: 'error_during_execution', usage: {} }; });
+    const out: any[] = []; for await (const x of m.run()) out.push(x);
+    expect(out.map((x) => x.type)).toEqual(['assistant', 'result']);
+    expect(m.kv).toEqual({});
+  });
+});
+
+describe('routedQuery: with a fallback configured, a failure message is drained before deciding', () => {
+  it('a primary failure that cannot fall over (OTHER) surfaces the failure AND the rest of the stream (usage, result subtype)', async () => {
+    const msgs = [{ type: 'system', subtype: 'init' }, { type: 'assistant', error: 'invalid_request', message: { content: [{ type: 'text', text: 'bad request' }] } }, { type: 'result', subtype: 'error_during_execution', usage: { input_tokens: 5 } }];
+    const out = await harness({ mode: 'auto', primary: { msgs } }).drain();
+    expect(out).toEqual(msgs);
+  });
+  it('a surfaced rate-limit with nowhere to go (primary only left) still yields the result message', async () => {
+    const msgs = [{ type: 'assistant', error: 'rate_limit', message: { content: [{ type: 'text', text: 'limit' }] } }, { type: 'result', subtype: 'error_during_execution', usage: { input_tokens: 1 } }];
+    const h = harness({ mode: 'always', primary: { msgs }, fallback: { throws: new Error('down') } });
+    const out = await h.drain();
+    expect(out).toEqual(msgs);
+  });
+  it('a failure message that does fall over discards the drained tail and answers from the fallback', async () => {
+    const msgs = [{ type: 'assistant', error: 'rate_limit', message: { content: [{ type: 'text', text: 'limit' }] } }, { type: 'result', subtype: 'error_during_execution', usage: {} }];
+    const h = harness({ mode: 'auto', primary: { msgs } });
+    expect(resultText(await h.drain())).toEqual(['from the fallback']);
   });
 });

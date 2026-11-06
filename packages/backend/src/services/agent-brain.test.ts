@@ -150,7 +150,8 @@ describe('fallover is announced, once, in the thread and to the apps', () => {
 });
 
 describe('honesty guard: an autonomous turn that ran on the fallback with zero tools is a skip', () => {
-  const tick = (agent = new AgentService()) => agent.processAutonomous('t1', '[Timer fired] "tea"');
+  // An action prompt (needsTools) is guarded; a plain message is not (see the block below).
+  const tick = (agent = new AgentService()) => agent.processAutonomous('t1', '[Timer fired] "tea"', undefined, { needsTools: true });
 
   it('no reply is stored or sent, the caller sees a skip (never a "done"), the thread gets one line', async () => {
     h.mode = 'always';
@@ -192,5 +193,34 @@ describe('honesty guard: an autonomous turn that ran on the fallback with zero t
     h.mode = 'always';
     expect(await new AgentService().processMessage('t1', 'hi', thread, { platform: 'web' })).toBe('fallback reply');
     expect(companion()).toHaveLength(1);
+  });
+});
+
+describe('honesty guard scope: only action prompts are guarded', () => {
+  const plain = (text: string) => new AgentService().processAutonomous('t1', '[Timer fired] "tea"');
+  it('a plain-message autonomous turn (no needsTools) on the fallback with zero tools is kept and stored', async () => {
+    h.mode = 'always';
+    h.fallback.text = 'Your tea is ready, Sam.';
+    expect(await plain('x')).toBe('Your tea is ready, Sam.');
+    expect(companion()).toHaveLength(1);
+    expect(lines().map((m) => m.content).some((c) => c.startsWith('skipped'))).toBe(false);
+  });
+  it('an action prompt whose reply carries a tag that will run counts as an action: `[tag] Good morning` runs on a fallback wake', async () => {
+    const { registerTag, clearTags } = await import('./tags/index.js');
+    const ran: string[] = [];
+    registerTag('vfbtag', { offered: () => true, run: async (t) => { ran.push(t.arg); }, instruction: '[vfbtag: x]', requiresArg: true });
+    try {
+      h.mode = 'always';
+      h.fallback.text = '[vfbtag: morning] Good morning, Sam.';
+      expect(await new AgentService().processAutonomous('t1', 'wake', undefined, { needsTools: true })).toContain('Good morning, Sam.');
+      await new Promise((r) => setTimeout(r, 20));
+      expect(ran).toEqual(['morning']);
+      expect(companion()).toHaveLength(1);
+    } finally { clearTags(); }
+  });
+  it('the assembled flag: a Claude rolling turn tells the harness the prompt is already the whole conversation', async () => {
+    h.mode = 'always';
+    await new AgentService().processMessage('t1', 'hi', thread, { platform: 'web' });
+    expect(h.fallback.usedOptions.sanctum).toMatchObject({ assembled: true });
   });
 });

@@ -28,6 +28,8 @@ import { chatTurn, rejectsTools, type ChatMessage, type ChatToolCall, type ChatT
 import { offeredTools, toToolDef, toolUseName, type FallbackTool, type ToolCtx, type ToolGates } from './openai-compat-tools.js';
 
 const SHIPPED_BASE = fileURLToPath(new URL('../../../../../prompts/fallback-base-prompt.md', import.meta.url));
+/** The install's root (the same directory config.ts calls PROJECT_ROOT), without importing it: the tests mock config. */
+const INSTALL_ROOT = fileURLToPath(new URL('../../../../../', import.meta.url)).replace(/[\\/]+$/, '');
 const TOOL_RESULT_CAP = 6000;
 
 // ─── What this turn says about itself ─────────────────────────────────────────────────────────────────────────────────
@@ -133,6 +135,27 @@ function systemText(sp: Options['systemPrompt']): string {
   return (sp as any).append ?? '';
 }
 
+/** The orientation block is written for a harness that has Bash: its TOOLS list tells the model to run `node /abs/path/tools/res.mjs ...`
+ *  and says tool activity shows in a sidebar. None of that is true on the fallback (the [Harness] line is the only tool statement
+ *  there), and the path is the install's own. Drops every stanza of the [Context] block that mentions the res CLI (the short list
+ *  and the full reference), the sidebar sentence and the "not set up" notes; keeps the rest (env, presence, EXPRESSION tags).
+ *  Finally no absolute path of the install goes to a third-party endpoint. */
+export function scrubFallbackContext(text: string): string {
+  if (!text) return text;
+  const stripCtx = (ctx: string): string => {
+    const stanzas: string[][] = [];
+    for (const line of ctx.split('\n')) {
+      if (line === '' || /^\s/.test(line) || stanzas.length === 0) { if (stanzas.length) stanzas[stanzas.length - 1].push(line); else stanzas.push([line]); }
+      else stanzas.push([line]);
+    }
+    const kept = stanzas.filter((st) => !(/^TOOLS \(run via Bash/.test(st[0]) || st.some((l) => /res\.mjs/.test(l)) || /^(Pictures|Voice): not set up/.test(st[0])));
+    return kept.map((st) => st.join('\n')).join('\n').replace(/Tool activity \(tool_use\/tool_result\) shows live in the UI sidebar\.\s?/g, '');
+  };
+  let out = text.replace(/\[Context\][\s\S]*?\n\[\/Context\]/g, (m) => stripCtx(m));
+  for (const root of new Set([INSTALL_ROOT, INSTALL_ROOT.replace(/\\/g, '/')])) if (root.length > 1) out = out.split(root).join('<app>');
+  return out;
+}
+
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
 export function openaiCompatQuery({ prompt, options }: { prompt: string | AsyncIterable<any>; options?: Options }, deps: Partial<HarnessDeps> = {}): Query {
@@ -153,7 +176,7 @@ export function openaiCompatQuery({ prompt, options }: { prompt: string | AsyncI
     if (!model) throw new Error('agent.fallback.model is required for the fallback brain');
     if (!apiKey) throw Object.assign(new Error(`the fallback key is not set: put ${keyVar} in .env`), { kind: 'api_key_missing' });
 
-    const sanctum = (opts as any).sanctum as { threadId: string; userContent: string; autonomous?: boolean; noIngest?: boolean; memory?: 'none'; contextBlock?: string; disabledTools?: string[]; disabledServers?: string[] } | undefined;
+    const sanctum = (opts as any).sanctum as { threadId: string; userContent: string; autonomous?: boolean; noIngest?: boolean; /** agent.ts already put memory, history and [Current message] in the prompt (and ingests/compacts itself): use it as is. */ assembled?: boolean; memory?: 'none'; contextBlock?: string; disabledTools?: string[]; disabledServers?: string[] } | undefined;
     const threadId = sanctum?.threadId ?? '';
     const noMemory = sanctum?.memory === 'none';
     const readOnly = opts.permissionMode === 'plan' || (Array.isArray(opts.tools) && opts.tools.length === 0);
@@ -185,23 +208,28 @@ export function openaiCompatQuery({ prompt, options }: { prompt: string | AsyncI
     };
 
     // ── the message: orientation, memory, summary, the thread's tail, the current message (the thread is the memory here)
+    const assembled = !!sanctum?.assembled && !readOnly;
+    const promptText = scrubFallbackContext(prompt);
+    const contextText = sanctum?.contextBlock ? scrubFallbackContext(sanctum.contextBlock) : sanctum?.contextBlock;
     let memoryBlock = '';
     let mindBlock = '';
-    if (useMemory) {
+    if (useMemory && !assembled) {
       const [memory, mind] = await Promise.all([recallForPrompt(sanctum?.userContent ?? prompt, sanctum?.threadId), mindRecallBlock(sanctum?.userContent ?? prompt)]);
       if (memory) memoryBlock = `${MEMORY_HEADER}\n${memory}`;
       mindBlock = mind;
     }
-    let input = prompt;
+    let input = promptText;
     let rolling: Awaited<ReturnType<typeof assembleRollingHistory>>['rolling'] | undefined;
-    if (!readOnly && !noMemory && sanctum?.threadId) {
+    if (assembled) {
+      // the prompt is the whole conversation already (context, memory, summary, history, one [Current message]): nothing to add
+    } else if (!readOnly && !noMemory && sanctum?.threadId) {
       const history = await assembleRollingHistory(threadId, sanctum.userContent, !!sanctum.autonomous, { force: true, named: true });
       rolling = history.rolling;
-      const { context, message } = splitContextBlock(prompt, sanctum.contextBlock);
+      const { context, message } = splitContextBlock(promptText, contextText);
       input = [context, memoryBlock, mindBlock, history.summary, history.notice, conversationBlock(history.lines), `[Current message]\n${message}`].filter(Boolean).join('\n\n');
     } else if (readOnly) {
       const brief = systemText(opts.systemPrompt);
-      input = brief ? `[System]\n${brief}\n[/System]\n\n${prompt}` : prompt;
+      input = brief ? `[System]\n${brief}\n[/System]\n\n${promptText}` : promptText;
     }
 
     const messages: ChatMessage[] = [{ role: 'system', content: system() }, { role: 'user', content: input }];
@@ -303,7 +331,7 @@ export function openaiCompatQuery({ prompt, options }: { prompt: string | AsyncI
       spend: { input_tokens: usage.in, output_tokens: usage.out, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
     };
     if (ended || sealedText) {
-      if (useMemory && !sanctum?.noIngest && sealedText) void ingestTurn({ threadId: threadId, user: sanctum?.userContent ?? prompt, assistant: sealedText });
+      if (useMemory && !assembled && !sanctum?.noIngest && sealedText) void ingestTurn({ threadId: threadId, user: sanctum?.userContent ?? prompt, assistant: sealedText });
       if (rolling) { try { void Promise.resolve(rolling.maybeCompact(threadId)).catch(() => {}); } catch { /* ignore */ } }
     }
   }

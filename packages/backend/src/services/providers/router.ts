@@ -159,8 +159,11 @@ class Stalled extends Error { constructor() { super('no output'); this.name = 'S
 export function routedQuery(params: { prompt: string | AsyncIterable<any>; options?: Options }, ctx: { onEvent?: (e: BrainEvent) => void } = {}, over: Partial<RouterDeps> = {}): Query {
   const d: RouterDeps = { ...defaultDeps, ...over, onEvent: ctx.onEvent ?? over.onEvent };
   const cfg = d.config();
-  const primaryName = d.primaryName();
   const ready = fallbackReady(d);
+  // No fallback configured (a fresh install: provider "" / mode off, or a half-set block): the primary is returned UNTOUCHED. No
+  // first-output guard, no error interception, no KV writes, no wrapping: byte-for-byte the path that existed before the router.
+  if (!ready || !cfg || cfg.mode === 'off') return d.primary(params);
+  const primaryName = d.primaryName();
   const order = planBrains({ mode: cfg?.mode ?? 'off', fallbackReady: ready, health: readHealth(d), primaryName, now: d.now() });
   const parent = params.options?.abortController;
   const info: BrainInfo = { active: order[0], toolsOffered: null, toolsRun: 0, degraded: false, failedOver: false, cls: null };
@@ -215,9 +218,10 @@ export function routedQuery(params: { prompt: string | AsyncIterable<any>; optio
           const r = await Promise.race([it.next(), committed ? new Promise<never>(() => {}) : stall]);
           if (r.done) break;
           const msg = r.value;
+          if (failure) { failure.msgs!.push(msg); continue; } // draining the rest of a failed attempt
           if (!committed) {
             const fc = failureInMessage(msg);
-            if (fc) { failure = { cls: fc, msgs: [...buf, msg] }; break; }
+            if (fc) { failure = { cls: fc, msgs: [...buf, msg] }; continue; } // read on: agent.ts must still see the usage, the context and the result
             if (!isVisible(msg)) { buf.push(msg); continue; }
             committed = true; clear();
             onCommit(brain);
@@ -229,7 +233,10 @@ export function routedQuery(params: { prompt: string | AsyncIterable<any>; optio
       } catch (e) {
         clear();
         if (parent?.signal.aborted) throw e;
-        if (e instanceof Stalled) {
+        if (failure) {
+          // The failure was already read; the drain just ended badly (hung or threw). The failure stands.
+          currentAc?.abort(); void Promise.resolve(it.return?.()).catch(() => {});
+        } else if (e instanceof Stalled) {
           currentAc?.abort(); void Promise.resolve(it.return?.()).catch(() => {});
           failure = { cls: 'HARNESS_HUNG', err: Object.assign(new Error('the harness produced no output (went silent)'), { kind: 'harness_hung' }) };
         } else if (committed) {

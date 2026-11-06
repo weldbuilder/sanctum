@@ -1715,6 +1715,11 @@ export function markTimerWaiting(id: string): void {
   stmt.run(id);
 }
 
+/** A timer whose action turn was skipped (the fallback brain ran no tool): back to waiting so the turn retries. */
+export function reopenTimerAsWaiting(id: string): void {
+  getDb().prepare("UPDATE timers SET status = 'waiting', fired_at = NULL WHERE id = ? AND status = 'fired'").run(id);
+}
+
 export function cancelTimer(id: string): boolean {
   const stmt = getDb().prepare("UPDATE timers SET status = 'cancelled' WHERE id = ? AND status IN ('pending', 'waiting')");
   const result = stmt.run(id);

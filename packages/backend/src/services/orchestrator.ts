@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { appendFileSync, mkdirSync, existsSync, statSync, renameSync, unlinkSync } from 'fs';
 import { join, dirname, basename } from 'path';
 import { fileURLToPath } from 'url';
-import { AgentService } from './agent.js';
+import { AgentService, AutonomousSkipped } from './agent.js';
 import type { PushService } from './push.js';
 import { registry } from './ws.js';
 import {
@@ -22,6 +22,7 @@ import {
   getDueTimers,
   markTimerFired,
   markTimerWaiting,
+  reopenTimerAsWaiting,
   getActiveTriggers,
   markTriggerWaiting,
   markTriggerFired,
@@ -330,6 +331,8 @@ export class Orchestrator {
   private failsafeInterval: ReturnType<typeof setInterval> | null = null;
   private timerInterval: ReturnType<typeof setInterval> | null = null;
   private lastFailsafeAction: Date = new Date(0);
+  /** Timers whose action turn the fallback honesty guard skipped: retried ONCE, no sooner than `retryAfter` (the primary's unhealthy window). */
+  private timerSkipRetry = new Map<string, { retryAfter: number; retried: boolean }>();
   private failsafeEnabled = true;
   private failsafeGentle = DEFAULT_FAILSAFE_GENTLE;
   private failsafeConcerned = DEFAULT_FAILSAFE_CONCERNED;
@@ -1061,7 +1064,7 @@ export class Orchestrator {
       // Fire the autonomous query. If the firing task carries a per-task model
       // override, pass it; otherwise undefined → falls back to model_autonomous.
       const taskModel = this.tasks.get(wakeType)?.model;
-      const response = await this.agent.processAutonomous(thread.id, prompt, taskModel);
+      const response = await this.agent.processAutonomous(thread.id, prompt, taskModel, { needsTools: !this.wakePrompts[wakeType] });
 
       // Update thread activity
       updateThreadActivity(thread.id, new Date().toISOString(), true);
@@ -1188,6 +1191,10 @@ export class Orchestrator {
           continue;
         }
 
+        // A timer whose action turn was skipped on the fallback brain waits for the primary (see the catch below).
+        const skipState = this.timerSkipRetry.get(timer.id);
+        if (skipState && !skipState.retried && Date.now() < skipState.retryAfter) continue;
+
         // Mark fired BEFORE the turn so an overlapping tick can't double-fire.
         markTimerFired(timer.id, now);
         broadcastOrchestratorUpdate('timers');
@@ -1197,11 +1204,22 @@ export class Orchestrator {
           : `[Timer fired] "${timer.label}" — set at ${timer.created_at}${timer.context ? ` with context: ${timer.context}` : ''}. Deliver/act on this reminder in your own voice in this thread — you set it for a reason; reconnect with that reason.`;
 
         try {
-          const response = await this.agent.processAutonomous(threadId, fullPrompt);
+          if (skipState) skipState.retried = true;
+          const response = await this.agent.processAutonomous(threadId, fullPrompt, undefined, { needsTools: !!timer.prompt });
+          this.timerSkipRetry.delete(timer.id);
           updateThreadActivity(threadId, new Date().toISOString(), true);
           olog(`TIMER TURN DONE: "${timer.label}" (${response.length} chars)`);
         } catch (err) {
           const turnErr = err instanceof Error ? err.message : String(err);
+          // The guard skipped an action turn that ran on the fallback with no tool: nothing was done. Put the timer back to waiting ONCE, so the
+          // action retries when the primary is back (not before its unhealthy window is over). A second skip leaves it fired.
+          if (err instanceof AutonomousSkipped && !skipState?.retried) {
+            const mins = Math.max(1, getSanctumConfig().agent.fallback?.unhealthy_minutes ?? 10);
+            this.timerSkipRetry.set(timer.id, { retryAfter: Date.now() + mins * 60_000, retried: false });
+            reopenTimerAsWaiting(timer.id);
+            broadcastOrchestratorUpdate('timers');
+            olog(`TIMER WAITING: "${timer.label}" (skipped on the fallback brain) — retries once when the primary is back`);
+          } else if (err instanceof AutonomousSkipped) this.timerSkipRetry.delete(timer.id);
           olog(`TIMER ERROR: autonomous turn failed for "${timer.label}" — ${turnErr}`);
         }
       } catch (error) {
@@ -1364,7 +1382,7 @@ export class Orchestrator {
       const basePrompt = trigger.prompt
         || `This ${trigger.kind} fired with no stored prompt. You created it as "${trigger.label}" — reconnect with why you set it and act on it in your own voice, or let it pass quietly if it no longer matters.`;
       const fullPrompt = `${kindLabel}: "${trigger.label}"\n\n${basePrompt}`;
-      const response = await this.agent.processAutonomous(threadId!, fullPrompt);
+      const response = await this.agent.processAutonomous(threadId!, fullPrompt, undefined, { needsTools: !!trigger.prompt });
       updateThreadActivity(threadId!, nowIso, true);
       olog(`TRIGGER DONE: "${trigger.label}" (${response.length} chars)`);
     } catch (error) {

@@ -137,3 +137,24 @@ describe('errorClass reads a provider failure as its lower-case class', () => {
     expect(errorClass(Object.assign(new Error('x'), { name: 'AbortError' }))).toBe('AbortError');
   });
 });
+
+describe('classifyFailure: status numbers need a status context (verifier)', () => {
+  const E = (m: string) => new Error(m);
+  it.each([
+    ['dsh exited with code 1: at run (/app/agent.js:402:17)', 'OTHER'],
+    ['Claude Code process exited with code 1: at cli.js:429:3', 'OTHER'],
+    ['process exited with code 1 at x.js:500:1', 'OTHER'],
+    ['at Object.<anonymous> (/srv/a.js:503:9)', 'OTHER'],
+    ['Connection error. Please try again in a few seconds.', 'NETWORK'],
+    ['HTTP 429 Too Many Requests', 'RATE_LIMIT'],
+    ['status: 402', 'CREDIT'],
+    ['{"status":429,"error":"x"}', 'RATE_LIMIT'],
+    ['request failed, code=503', 'SERVER'],
+    ['529 overloaded', 'SERVER'],
+    ['402 Payment Required', 'CREDIT'],
+  ])('%s -> %s', (m, cls) => { expect(classifyFailure(E(m))).toBe(cls); });
+  it('numeric status fields still classify', () => {
+    expect(classifyFailure({ status: 529 })).toBe('SERVER');
+    expect(classifyFailure({ status: 429 })).toBe('RATE_LIMIT');
+  });
+});

@@ -651,15 +651,17 @@ export class AgentService {
     return st().queue.enqueue(PRIORITIES.discord_other, fn, { rejectInsteadOfReply: true });
   }
 
-  async processAutonomous(threadId: string, prompt: string, modelOverride?: string): Promise<string> {
+  /** `needsTools`: the prompt asks for an action (a timer or trigger with a prompt, a custom routine). Only such a turn is held to the
+   *  fallback honesty guard (a fallback turn that ran no tool is dropped); a plain message (a wake, a check-in, the pulse) is a text job. */
+  async processAutonomous(threadId: string, prompt: string, modelOverride?: string, autonomousOpts?: { needsTools?: boolean }): Promise<string> {
     // The operator's switch (tenants.background_runs / the tenant's own): every autonomous run (wake, pulse, impulse, watcher) is one entry here.
     if (backgroundRunsOff()) return '';
     return st().queue.enqueue(PRIORITIES.autonomous, async () => {
-      return this._processQuery(threadId, prompt, true, undefined, undefined, modelOverride);
+      return this._processQuery(threadId, prompt, true, undefined, undefined, modelOverride, autonomousOpts);
     });
   }
 
-  private async _processQuery(threadId: string, content: string, isAutonomous = false, threadMeta?: { name: string; type: 'daily' | 'named' }, platformOpts?: { platform?: 'web' | 'discord' | 'telegram' | 'api'; platformContext?: string; senderIsOwner?: boolean; images?: AgentImageInput[]; hold?: HoldOptions; memory?: 'none' }, modelOverride?: string): Promise<string> {
+  private async _processQuery(threadId: string, content: string, isAutonomous = false, threadMeta?: { name: string; type: 'daily' | 'named' }, platformOpts?: { platform?: 'web' | 'discord' | 'telegram' | 'api'; platformContext?: string; senderIsOwner?: boolean; images?: AgentImageInput[]; hold?: HoldOptions; memory?: 'none' }, modelOverride?: string, autonomousOpts?: { needsTools?: boolean }): Promise<string> {
     if (this.fenced()) throw new AgentTurnError('tenant_parked'); // parked: no new turn, whatever queued it
     ensureInit();
     const noMemory = platformOpts?.memory === 'none';
@@ -1017,7 +1019,7 @@ export class AgentService {
       // is needed, which keeps resume/session handling simple and uniform.
       // Codex / dsh: the adapter owns thread history and needs the raw user message.
       // The fallback brain reads the same option, so it is set whenever a fallback may run, on Claude too.
-      if (activeProvider() !== 'claude' || fallbackReady()) (options as any).sanctum = { threadId, userContent: content, contextBlock, autonomous: isAutonomous, senderIsOwner: isAutonomous ? undefined : senderIsOwnerFor(platformOpts?.platform, platformOpts?.senderIsOwner), ...(hold ? { noIngest: true } : {}), ...(noMemory ? { memory: 'none' } : {}) };
+      if (activeProvider() !== 'claude' || fallbackReady()) (options as any).sanctum = { threadId, userContent: content, contextBlock, autonomous: isAutonomous, senderIsOwner: isAutonomous ? undefined : senderIsOwnerFor(platformOpts?.platform, platformOpts?.senderIsOwner), ...(hold ? { noIngest: true } : {}), ...(noMemory ? { memory: 'none' } : {}), ...(claudeRolling ? { assembled: true } : {}) };
       // One call site for every brain: the router picks the primary harness or the fallback and moves a turn that failed before
       // it began (signed out, out of credit, rate limited, offline, binary missing, hung) to the other. See providers/router.ts.
       const result = routedQuery({ prompt: enrichedPrompt, options }, { onEvent: (e) => this.announceBrain(threadId, e) });
@@ -1452,8 +1454,11 @@ export class AgentService {
     // cannot have done anything, whatever its text says ("done", "I set it"). It is not logged as done, not stored, not sent: the
     // thread gets one system line and the caller sees a skip. A run that stopped or failed is not this case.
     const brainInfo = (routed as unknown as { brainInfo?: () => BrainInfo } | null)?.brainInfo?.();
-    if (isAutonomous && !wasInterrupted && !turnErrored && brainInfo?.active === 'fallback' && brainInfo.toolsRun === 0
-      && fullResponse.trim() && !fullResponse.trim().startsWith('PULSE_OK')) {
+    // Only an action prompt is guarded (autonomousOpts.needsTools): a plain message (a wake, a check-in, the pulse) is a text job, and a
+    // reply tag that will run ([image: ...], [voice], a registered tag) is an action too.
+    const guardTags = autonomousOpts?.needsTools && isAutonomous ? parseTags(fullResponse) : null;
+    if (isAutonomous && autonomousOpts?.needsTools && !wasInterrupted && !turnErrored && brainInfo?.active === 'fallback' && brainInfo.toolsRun === 0
+      && fullResponse.trim() && !fullResponse.trim().startsWith('PULSE_OK') && !(guardTags && anyTagWillRun(guardTags.tags, guardTags.clean))) {
       const why = brainInfo.degraded || brainInfo.toolsOffered === 0 ? 'the fallback model has no tools this turn' : 'no tool was called';
       postSystemLine(threadId, `skipped an autonomous turn: it ran on the fallback brain and ${why}, so nothing was done or reported as done`, 'brain_notice', { skipped: 'autonomous_no_tools' }, { registry });
       registry.broadcast({ type: 'generation_stopped' });
