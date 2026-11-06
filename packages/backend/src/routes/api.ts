@@ -420,43 +420,6 @@ router.post('/internal/approvals', internalOnly, async (req, res) => {
   if (!closed) res.json({ id: current.id, status: current.status, what: current.what });
 });
 
-router.get('/approvals', (req, res) => {
-  try {
-    const status = typeof req.query.status === 'string' ? req.query.status as any : undefined;
-    res.json({ approvals: listApprovals(status) });
-  } catch (error) {
-    console.error('Error listing approvals:', error);
-    res.status(500).json({ error: 'Failed to list approvals' });
-  }
-});
-
-router.post('/approvals/:id/decide', (req, res) => {
-  try {
-    const decision = req.body?.decision;
-    if (decision !== 'approved' && decision !== 'denied') { res.status(400).json({ error: 'decision must be approved or denied' }); return; }
-    const now = new Date().toISOString();
-    const approval = decideApproval(req.params.id, decision, now);
-    if (!approval) {
-      const existing = getApproval(req.params.id);
-      res.status(existing ? 409 : 404).json({ error: existing ? `Already ${existing.status}` : 'Approval not found', approval: existing });
-      return;
-    }
-    if (approval.thread_id) {
-      const sysMsg = createMessage({
-        id: crypto.randomUUID(), threadId: approval.thread_id, role: 'system',
-        content: `${decision === 'approved' ? 'Allowed' : 'Denied'}: ${approval.what}`,
-        metadata: { kind: 'approval_decided', approval_id: approval.id, decision }, createdAt: now,
-      });
-      registry.broadcast({ type: 'message', message: sysMsg });
-    }
-    registry.broadcast({ type: 'approval_decided', approval });
-    res.json({ approval });
-  } catch (error) {
-    console.error('Error deciding approval:', error);
-    res.status(500).json({ error: 'Failed to decide approval' });
-  }
-});
-
 // --- Internal routes (loopback-only, gated by the internal shared token) ---
 // These are called ONLY by the in-app agent / `res` CLI over loopback, never by
 // a browser. The old source-IP guard is defeated behind cloudflared (it forwards
@@ -1705,6 +1668,44 @@ router.use((req, res, next) => {
   const own = tenantWriteRefusal();
   if (own) { res.status(400).json({ error: own }); return; }
   next();
+});
+
+// Approvals the companion asked for (it files them at POST /internal/approvals, above): the owner lists and answers them, so both need a session.
+router.get('/approvals', (req, res) => {
+  try {
+    const status = typeof req.query.status === 'string' ? req.query.status as any : undefined;
+    res.json({ approvals: listApprovals(status) });
+  } catch (error) {
+    console.error('Error listing approvals:', error);
+    res.status(500).json({ error: 'Failed to list approvals' });
+  }
+});
+
+router.post('/approvals/:id/decide', (req, res) => {
+  try {
+    const decision = req.body?.decision;
+    if (decision !== 'approved' && decision !== 'denied') { res.status(400).json({ error: 'decision must be approved or denied' }); return; }
+    const now = new Date().toISOString();
+    const approval = decideApproval(req.params.id, decision, now);
+    if (!approval) {
+      const existing = getApproval(req.params.id);
+      res.status(existing ? 409 : 404).json({ error: existing ? `Already ${existing.status}` : 'Approval not found', approval: existing });
+      return;
+    }
+    if (approval.thread_id) {
+      const sysMsg = createMessage({
+        id: crypto.randomUUID(), threadId: approval.thread_id, role: 'system',
+        content: `${decision === 'approved' ? 'Allowed' : 'Denied'}: ${approval.what}`,
+        metadata: { kind: 'approval_decided', approval_id: approval.id, decision }, createdAt: now,
+      });
+      registry.broadcast({ type: 'message', message: sysMsg });
+    }
+    registry.broadcast({ type: 'approval_decided', approval });
+    res.json({ approval });
+  } catch (error) {
+    console.error('Error deciding approval:', error);
+    res.status(500).json({ error: 'Failed to decide approval' });
+  }
 });
 
 // Image generation (public: POST /images/generate, GET /images/status).
