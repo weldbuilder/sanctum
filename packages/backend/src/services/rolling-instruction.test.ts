@@ -26,7 +26,7 @@ describe('summarizerInstruction', () => {
   it('the shipped default prompt file exists in the repo and is the one read', async () => {
     const real = await vi.importActual<typeof import('../config.js')>('../config.js');
     const file = real.loadConfig(join(tmpdir(), 'sanctum-nonexistent.yaml')).agent.rolling.summarizer_instructions_file;
-    expect(file.endsWith('prompts/summarizer-own-voice.md')).toBe(true);
+    expect(file.replace(/\\/g, '/').endsWith('prompts/summarizer-own-voice.md')).toBe(true);
     const repoCopy = join(PROJECT_ROOT, 'prompts', 'summarizer-own-voice.md');
     expect(existsSync(repoCopy)).toBe(true);
     expect(file).toBe(repoCopy);
