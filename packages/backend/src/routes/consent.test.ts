@@ -60,11 +60,12 @@ gated.post('/w', appWriteGate, (_req, res) => { res.json({ ok: true }); });
 let gatedServer: Server;
 let gatedBase = '';
 
-const call = async (method: string, path: string, body?: unknown, session = true): Promise<{ status: number; body: any }> => {
-  const r = await fetch(`${base}${path}`, { method, headers: { 'content-type': 'application/json', ...(session ? { 'x-test-session': '1' } : {}) }, body: body === undefined || method === 'GET' ? undefined : JSON.stringify(body) });
+// `session`: false = no session; true = session A; a string = that session's cookie (the PIN token is bound to the cookie's session).
+const call = async (method: string, path: string, body?: unknown, session: boolean | string = true): Promise<{ status: number; body: any }> => {
+  const r = await fetch(`${base}${path}`, { method, headers: { 'content-type': 'application/json', ...(session ? { 'x-test-session': '1', cookie: `sanctum_session=${session === true ? 'A' : session}` } : {}) }, body: body === undefined || method === 'GET' ? undefined : JSON.stringify(body) });
   return { status: r.status, body: await r.json().catch(() => ({})) };
 };
-const verify = async (pin = '4829') => (await call('POST', '/consent/pin/verify', { pin })).body.token as string;
+const verify = async (pin = '4829', session: boolean | string = true) => (await call('POST', '/consent/pin/verify', { pin }, session)).body.token as string;
 
 beforeAll(async () => {
   vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -76,6 +77,10 @@ beforeAll(async () => {
 });
 afterAll(async () => { await new Promise((r) => server.close(r)); await new Promise((r) => gatedServer.close(r)); });
 beforeEach(() => { initDb(':memory:'); _resetTokens(); h.pushes.length = 0; h.password = 'app-pass-1'; });
+
+const ask = (body: Record<string, unknown>) => fetch(`${base}/internal/approvals`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ timeoutMs: 8000, ...body }) });
+const pendingId = async () => { for (let i = 0; i < 50; i++) { const a = listApprovals('pending'); if (a.length) return a[0].id; await new Promise((r) => setTimeout(r, 20)); } throw new Error('no ask'); };
+const decide = (id: string, body: Record<string, unknown>) => call('POST', `/approvals/${id}/decide`, body);
 
 describe('auth', () => {
   it('every /api/consent route refuses without a session', async () => {
@@ -171,8 +176,9 @@ describe('mode', () => {
     expect((await call('POST', '/consent/mode', { mode: 'guard', pin_token: token })).body).toEqual({ mode: 'guard' });
     expect(mode()).toBe('guard');
     expect((await call('POST', '/consent/mode', { mode: 'open' })).status).toBe(403);
+    expect((await call('POST', '/consent/mode', { mode: 'open', pin_token: token })).status).toBe(403); // the first token was spent switching on
     expect(mode()).toBe('guard');
-    expect((await call('POST', '/consent/mode', { mode: 'open', pin_token: token })).body).toEqual({ mode: 'open' });
+    expect((await call('POST', '/consent/mode', { mode: 'open', pin_token: await verify() })).body).toEqual({ mode: 'open' });
   });
   it('a bad mode is a 400', async () => {
     expect((await call('POST', '/consent/mode', { mode: 'lax' })).status).toBe(400);
@@ -277,9 +283,6 @@ describe('the settings routes are not a way round the PIN', () => {
 });
 
 describe('the ask card', () => {
-  const ask = (body: Record<string, unknown>) => fetch(`${base}/internal/approvals`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ timeoutMs: 8000, ...body }) });
-  const pendingId = async () => { for (let i = 0; i < 50; i++) { const a = listApprovals('pending'); if (a.length) return a[0].id; await new Promise((r) => setTimeout(r, 20)); } throw new Error('no ask'); };
-  const decide = (id: string, body: Record<string, unknown>) => call('POST', `/approvals/${id}/decide`, body);
 
   it('an ask without a capability behaves as before: no grant', async () => {
     const waiting = ask({ what: 'send the email' });
@@ -401,5 +404,85 @@ describe('appWriteGate follows the consent gate', () => {
     expect((await post()).status).toBe(403);
     grant('app_write', 15);
     expect((await post()).status).toBe(200);
+  });
+});
+
+
+// ── fix pass: the PIN token is bound to its session and used once; an ended window needs the PIN to come back; the ask defaults ────────────────
+describe('PIN token: bound to the session, single use', () => {
+  it('a token from session A is refused on session B (grant and mode), and still works for A', async () => {
+    setPin('4829');
+    turnOff('shell');
+    const token = await verify('4829', 'A');
+    expect((await call('POST', '/consent/grant', { capability: 'shell', window_minutes: 30, pin_token: token }, 'B')).status).toBe(403);
+    expect((await call('POST', '/consent/mode', { mode: 'guard', pin_token: token }, 'B')).status).toBe(403);
+    expect(mode()).toBe('open');
+    expect(peek('shell').allow).toBe(false);
+    expect((await call('POST', '/consent/grant', { capability: 'shell', window_minutes: 30, pin_token: token }, 'A')).status).toBe(200);
+  });
+  it('a token cannot be reused: the second grant, mode change or revoke with it is refused', async () => {
+    setPin('4829');
+    turnOff('shell'); turnOff('web');
+    const token = await verify();
+    expect((await call('POST', '/consent/grant', { capability: 'shell', window_minutes: 30, pin_token: token })).status).toBe(200);
+    expect((await call('POST', '/consent/grant', { capability: 'web', window_minutes: 30, pin_token: token })).body.error).toBe('pin_required');
+    expect(peek('web').allow).toBe(false);
+    expect((await call('POST', '/consent/mode', { mode: 'guard', pin_token: token })).status).toBe(403);
+    const t2 = await verify();
+    expect((await call('POST', '/consent/mode', { mode: 'guard', pin_token: t2 })).status).toBe(200);
+    expect((await call('POST', '/consent/mode', { mode: 'open', pin_token: t2 })).status).toBe(403);
+  });
+  it('the ask card: a token from another session does not approve it, the right one does once', async () => {
+    setPin('4829'); setMode('guard');
+    const waiting = ask({ what: 'look something up', capability: 'web', window_minutes: 30 });
+    const id = await pendingId();
+    expect((await decide(id, { decision: 'approved', pin_token: await verify('4829', 'B') })).status).toBe(403);
+    expect(peek('web').allow).toBe(false);
+    const token = await verify('4829', 'A');
+    expect((await decide(id, { decision: 'approved', pin_token: token })).body.grant.capability).toBe('web');
+    await waiting;
+    const second = ask({ what: 'again', capability: 'shell', window_minutes: 30 });
+    expect((await decide(await pendingId(), { decision: 'approved', pin_token: token })).status).toBe(403); // spent
+    await decide((listApprovals('pending')[0] as any).id, { decision: 'denied' });
+    await second;
+  });
+});
+
+describe('revoke: an ended window needs the PIN to come back', () => {
+  it('/grant without a token is 403 and so is /revoke of the ended window; with a token it works', async () => {
+    setPin('4829');
+    const w = grant('shell', 15, undefined, {}, Date.now() - 20 * 60_000);
+    expect(peek('shell').allow).toBe(false);
+    expect((await call('POST', '/consent/grant', { capability: 'shell', window_minutes: 30 })).status).toBe(403);
+    expect((await call('POST', '/consent/revoke', { grant_id: w.grant_id })).status).toBe(403);
+    expect(peek('shell').allow).toBe(false);
+    expect((await call('POST', '/consent/revoke', { grant_id: w.grant_id, pin_token: await verify() })).status).toBe(200);
+    expect(peek('shell').allow).toBe(true);
+  });
+  it('stretching a live window to a longer one or to leave-on needs the PIN too; a shorter one does not', async () => {
+    setPin('4829');
+    grant('web', 30);
+    expect((await call('POST', '/consent/grant', { capability: 'web', window_minutes: null })).status).toBe(403);
+    expect((await call('POST', '/consent/grant', { capability: 'web', window_minutes: 60 })).status).toBe(403);
+    expect((await call('POST', '/consent/grant', { capability: 'web', window_minutes: 15 })).status).toBe(200);
+  });
+});
+
+describe('the ask with no window', () => {
+  it('is 60 minutes on the card; "on" (null) only when it is said', async () => {
+    turnOff('web');
+    const waiting = ask({ what: 'look something up', capability: 'web' });
+    const id = await pendingId();
+    expect(listApprovals('pending')[0]).toMatchObject({ capability: 'web', window_minutes: 60 });
+    const d = await decide(id, { decision: 'approved' });
+    const mins = (Date.parse(d.body.grant.expires_at) - Date.parse(d.body.grant.granted_at)) / 60_000;
+    expect(mins).toBe(60);
+    await waiting;
+    turnOff('shell');
+    const w2 = ask({ what: 'x', capability: 'shell', window_minutes: null });
+    await pendingId();
+    expect(listApprovals('pending')[0]).toMatchObject({ capability: 'shell', window_minutes: null });
+    await decide((listApprovals('pending')[0] as any).id, { decision: 'denied' });
+    await w2;
   });
 });

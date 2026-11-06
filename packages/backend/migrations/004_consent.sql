@@ -3,7 +3,7 @@
 --
 -- One row per gated action the gate looked at (allowed, denied or expired) and one per change the person made
 -- (granted, revoked, mode_changed). Receipts are always on, in either mode. `summary` is at most 200 characters and
--- has been through the secret scrubber; it is never the whole command or message. Rows older than 90 days are pruned at boot.
+-- has been through the secret scrubber; it is never the whole command or message. Rows older than 90 days are pruned at boot and every 6 hours.
 CREATE TABLE IF NOT EXISTS consent_receipts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ts TEXT NOT NULL,                 -- ISO 8601, UTC
@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS consent_receipts (
   thread_id TEXT,
   tool_or_route TEXT NOT NULL DEFAULT '',
   summary TEXT NOT NULL DEFAULT '',
-  outcome TEXT NOT NULL             -- allowed | denied | expired | granted | revoked | mode_changed
+  outcome TEXT NOT NULL,            -- allowed | denied | expired | granted | revoked | mode_changed | error
+  count INTEGER DEFAULT 1           -- identical `allowed` calls within a minute are one row (a database that already had the table gets it from db.ts)
 );
 CREATE INDEX IF NOT EXISTS idx_consent_receipts_ts ON consent_receipts(ts);
 CREATE INDEX IF NOT EXISTS idx_consent_receipts_cap ON consent_receipts(capability, id);

@@ -103,7 +103,7 @@ import { FRAME_FILE_NAME, homeFramePath, resolveFrameFile } from '../services/fr
 import { IMAGE_TYPES, freeName, realInside, recentFiles, safeName, sameEntry, sharedRoot, taken } from '../services/shared-files.js';
 import { OwnFileRefused } from '../../../../scripts/own-files-lib.mjs';
 import { loginRateLimiter } from '../middleware/security.js';
-import { authMiddleware } from '../middleware/auth.js';
+import { authMiddleware, requestSessionId } from '../middleware/auth.js';
 import { AVATAR_MAX_BYTES, avatarFile, getSkin, getStoredAvatarUrl, patchProfile, saveAvatar, sniffAvatar } from '../services/companion-profile.js';
 import { internalOnly } from '../middleware/internal-token.js';
 import { appWriteGate } from '../middleware/app-write.js';
@@ -387,7 +387,8 @@ router.post('/internal/approvals', internalOnly, async (req, res) => {
   if (typeof what !== 'string' || !what.trim()) { res.status(400).json({ error: 'what is required' }); return; }
   // An ask may name a consent capability and a window (`res ask --capability web --window 30`); approving the card creates the grant.
   if (capability !== undefined && capability !== null && !isConsentCapability(capability)) { res.status(400).json({ error: 'unknown capability' }); return; }
-  const askWindowMinutes = askWindow === undefined || askWindow === null ? null : normalizeConsentWindow(askWindow);
+  // No window named = 60 minutes; leaving it on is only ever an explicit null (`res ask <capability> on`).
+  const askWindowMinutes = askWindow === undefined ? 60 : askWindow === null ? null : normalizeConsentWindow(askWindow);
   if (askWindowMinutes === undefined) { res.status(400).json({ error: 'window_minutes must be a whole number of minutes' }); return; }
   const wait = Math.min(APPROVAL_MAX_WAIT_MS, Math.max(5_000, Number(timeoutMs) || APPROVAL_DEFAULT_WAIT_MS));
   const now = new Date().toISOString();
@@ -1697,7 +1698,7 @@ router.post('/approvals/:id/decide', (req, res) => {
     if (decision !== 'approved' && decision !== 'denied') { res.status(400).json({ error: 'decision must be approved or denied' }); return; }
     const now = new Date().toISOString();
     // An ask that named a capability: the grant is made through the consent rules (PIN token in the body when they say so) before the card is settled.
-    const askPlan = decision === 'approved' ? planAskGrant(req.params.id, req.body) : null;
+    const askPlan = decision === 'approved' ? planAskGrant(req.params.id, req.body, requestSessionId(req)) : null;
     if (askPlan && !askPlan.ok) { res.status(askPlan.status).json(askPlan.body); return; }
     const approval = decideApproval(req.params.id, decision, now);
     if (!approval) {

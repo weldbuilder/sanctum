@@ -9,9 +9,12 @@
 // An expired window is NOT the default again: open mode keeps it off until the person turns it back on (that is what "a window" means).
 //
 // Every check() writes a receipt (allowed, denied or expired); so does every grant, revoke, switch-off and mode change.
-// If the state cannot be read (no database yet) the gate behaves as the default, Open, and warns; a receipt that cannot be written never blocks.
+// If the state cannot be read: before the database exists (boot) the gate behaves as the default, Open. Once the database is initialised the gate
+// FAILS CLOSED: the last mode it read is kept; with none, an unreadable mode or a corrupt `consent.grants` is read as Guard with no grants (deny),
+// with one `error` receipt and one warning per outage. A receipt that cannot be written never blocks.
 import crypto from 'node:crypto';
 import { getConfig, setConfig } from '../db.js';
+import { NoTenantContext, currentTenant } from '../../tenancy/context.js';
 import { getSanctumConfig } from '../../config.js';
 import { pinIsSet } from './pin.js';
 import { writeReceipt, type ReceiptOutcome } from './receipts.js';
@@ -71,32 +74,87 @@ export interface CheckResult { allow: boolean; reason: string; grantId?: string 
 const warned = new Set<string>();
 const warnOnce = (k: string, m: string) => { if (!warned.has(k)) { warned.add(k); console.warn(m); } };
 
-export function mode(): ConsentMode {
-  try { return getConfig('consent.mode') === 'guard' ? 'guard' : 'open'; }
-  catch (e) { warnOnce('mode', `[Consent] state unreadable (${(e as Error)?.message}); treating the mode as open`); return 'open'; }
+const tenantKey = () => currentTenant()?.id ?? '';
+/** The last mode read successfully, per tenant: what a later unreadable state falls back to. */
+const lastMode = new Map<string, ConsentMode>();
+/** Tenants whose state is unreadable right now (the warning and the `error` receipt are once per outage). */
+const failing = new Set<string>();
+
+/** "Not initialised": there is no database to read yet (boot, or tenancy on and no tenant entered). Anything else that throws is a failure. */
+const notInitialised = (e: unknown) => e instanceof NoTenantContext || /not initiali[sz]ed/i.test((e as Error)?.message ?? '');
+
+interface Snapshot { mode: ConsentMode; entries: Entry[]; unreadable: boolean }
+
+function parseEntries(raw: string | null): Entry[] {
+  if (!raw) return [];
+  const arr = JSON.parse(raw); // throws on corrupt JSON
+  if (!Array.isArray(arr)) throw new Error('consent.grants is not a list');
+  const out: Entry[] = [];
+  for (const e of arr) {
+    if (!e || typeof e !== 'object' || !isCapability(e.capability) || typeof e.grant_id !== 'string') continue;
+    out.push({
+      grant_id: e.grant_id, capability: e.capability, effect: e.effect === 'off' ? 'off' : 'on',
+      granted_at: typeof e.granted_at === 'string' ? e.granted_at : '', expires_at: typeof e.expires_at === 'string' ? e.expires_at : null,
+      ...(typeof e.note === 'string' && e.note ? { note: e.note } : {}),
+    });
+  }
+  return out;
 }
 
-function readEntries(): Entry[] {
-  let raw: string | null = null;
-  try { raw = getConfig('consent.grants'); } catch { return []; }
-  if (!raw) return [];
+/** The state, read once. Fails closed (see the header): unreadable state is Guard with no grants, never Open. */
+function snapshot(): Snapshot {
+  const k = tenantKey();
+  let rawMode: string | null;
+  let rawGrants: string | null;
   try {
-    const arr = JSON.parse(raw);
-    if (!Array.isArray(arr)) return [];
-    const out: Entry[] = [];
-    for (const e of arr) {
-      if (!e || typeof e !== 'object' || !isCapability(e.capability) || typeof e.grant_id !== 'string') continue;
-      out.push({
-        grant_id: e.grant_id, capability: e.capability, effect: e.effect === 'off' ? 'off' : 'on',
-        granted_at: typeof e.granted_at === 'string' ? e.granted_at : '', expires_at: typeof e.expires_at === 'string' ? e.expires_at : null,
-        ...(typeof e.note === 'string' && e.note ? { note: e.note } : {}),
-      });
-    }
-    return out;
-  } catch { return []; }
+    rawMode = getConfig('consent.mode');
+    rawGrants = getConfig('consent.grants');
+  } catch (e) {
+    if (notInitialised(e)) return { mode: 'open', entries: [], unreadable: false }; // boot: no database yet, the default
+    noteFailure(k, e);
+    return { mode: 'guard', entries: [], unreadable: true };
+  }
+  try {
+    const entries = parseEntries(rawGrants);
+    const m: ConsentMode = rawMode === 'guard' ? 'guard' : 'open';
+    lastMode.set(k, m);
+    failing.delete(k);
+    return { mode: m, entries, unreadable: false };
+  } catch (e) {
+    // The mode itself was read; the grants are corrupt. The person's switch-offs and windows are lost to us, so nothing is let through on trust.
+    lastMode.set(k, rawMode === 'guard' ? 'guard' : 'open');
+    noteFailure(k, e);
+    return { mode: 'guard', entries: [], unreadable: true };
+  }
+}
+
+function noteFailure(k: string, e: unknown): void {
+  if (failing.has(k)) return;
+  failing.add(k);
+  const msg = (e as Error)?.message ?? String(e);
+  console.warn(`[Consent] state unreadable (${msg}); failing closed: everything the gate covers is denied until it can be read`);
+  writeReceipt({ capability: '*', outcome: 'error', harness: 'server', toolOrRoute: 'consent state', summary: `consent state unreadable: ${msg}` });
+}
+
+/** Test seam: forget the last mode read and any outage in progress. */
+export function _resetStateCache(): void { lastMode.clear(); failing.clear(); }
+
+/** The mode. Unreadable once the database exists: the last mode read if there is one, else Guard. Before the database exists: Open. */
+export function mode(): ConsentMode {
+  const k = tenantKey();
+  try {
+    const m: ConsentMode = getConfig('consent.mode') === 'guard' ? 'guard' : 'open';
+    lastMode.set(k, m);
+    return m;
+  } catch (e) {
+    if (notInitialised(e)) return 'open';
+    noteFailure(k, e);
+    return lastMode.get(k) ?? 'guard';
+  }
 }
 
 function writeEntries(entries: Entry[]): void { setConfig('consent.grants', JSON.stringify(entries)); }
+const readEntries = (): Entry[] => snapshot().entries;
 
 const entryFor = (entries: Entry[], cap: Capability) => entries.find((e) => e.capability === cap);
 const isExpired = (e: Entry, now: number) => e.expires_at !== null && Date.parse(e.expires_at) <= now;
@@ -124,12 +182,14 @@ function decide(cap: Capability, m: ConsentMode, entries: Entry[], now: number):
 
 /** The decision without a receipt: for orientation, state listing and the run-flag computation. */
 export function peek(cap: Capability, now = Date.now()): Decision {
-  return decide(cap, mode(), readEntries(), now);
+  const s = snapshot();
+  return decide(cap, s.mode, s.entries, now);
 }
 
 /** Ask the gate. Writes a receipt every time. */
 export function check(cap: Capability, ctx: CheckCtx, now = Date.now()): CheckResult {
-  const d = decide(cap, mode(), readEntries(), now);
+  const s = snapshot();
+  const d = s.unreadable ? { ...decide(cap, 'guard', [], now), reason: `${CAPABILITY_SHORT[cap]} is off: the consent state cannot be read, so the gate is closed` } : decide(cap, s.mode, s.entries, now);
   writeReceipt({ capability: cap, outcome: d.outcome, grantId: d.grantId, harness: ctx.harness, threadId: ctx.threadId, toolOrRoute: ctx.tool, summary: ctx.summary });
   return { allow: d.allow, reason: d.reason, ...(d.grantId ? { grantId: d.grantId } : {}) };
 }
@@ -221,10 +281,21 @@ export function revoke(grantId: string, who: { harness?: string; route?: string 
   return hit;
 }
 
+/** Switch mode. Switching Guard ON clears every `on` entry (windows and leave-on) so nothing granted in Open mode carries into Guard; the receipt lists
+ *  what was cleared. Switching back to Open restores nothing: the grants are gone and every capability is on by default again. The person's
+ *  switch-offs (`off` entries) are kept in both directions: they are the person's own choice, not a grant. */
 export function setMode(next: ConsentMode, who: { harness?: string; route?: string } = {}): void {
   const prev = mode();
+  let cleared: Entry[] = [];
+  if (next === 'guard' && prev !== 'guard') {
+    const all = readEntries();
+    cleared = all.filter((e) => e.effect === 'on');
+    if (cleared.length) writeEntries(all.filter((e) => e.effect !== 'on'));
+  }
   setConfig('consent.mode', next);
-  writeReceipt({ capability: '*', outcome: 'mode_changed', harness: who.harness ?? 'app', toolOrRoute: who.route ?? 'mode', summary: `mode ${prev} → ${next}` });
+  lastMode.set(tenantKey(), next);
+  const list = cleared.length ? `; cleared: ${cleared.map((e) => `${e.capability} (${e.expires_at ? 'window' : 'on'})`).join(', ')}` : '';
+  writeReceipt({ capability: '*', outcome: 'mode_changed', harness: who.harness ?? 'app', toolOrRoute: who.route ?? 'mode', summary: `mode ${prev} → ${next}${list}` });
   emit({ mode: next, change: 'mode' });
 }
 
@@ -244,8 +315,7 @@ export interface CapabilityState {
 }
 
 export function listState(now = Date.now()): { mode: ConsentMode; capabilities: CapabilityState[] } {
-  const m = mode();
-  const entries = readEntries();
+  const { mode: m, entries } = snapshot();
   return {
     mode: m,
     capabilities: CAPABILITIES.map((cap) => {
@@ -263,29 +333,41 @@ export function listState(now = Date.now()): { mode: ConsentMode; capabilities: 
 
 export type PinNeed = 'none' | 'pin';
 
-/** Does this change need the PIN? Switching Guard mode either way: always. A grant in Guard mode: always. Otherwise, only a change that
- *  lets something through that was not let through (turning back on what was turned off, or whose window ended) and only once a PIN exists.
- *  Turning off never needs it. */
-export function pinNeededForGrant(cap: Capability, now = Date.now()): PinNeed {
-  const m = mode();
-  if (m === 'guard') return 'pin';
+/** Does this change need the PIN? Switching Guard mode either way: always. A grant in Guard mode: always. Otherwise, any change that makes the
+ *  capability MORE permissive than it is now, and only once a PIN exists: turning back on what was turned off or whose window ended, and also
+ *  stretching a live window to a longer one or to leave-on (`windowMinutes`, when the caller knows it). Turning off never needs it. */
+export function pinNeededForGrant(cap: Capability, now = Date.now(), windowMinutes?: number | null): PinNeed {
+  const s = snapshot();
+  if (s.mode === 'guard') return 'pin';
   if (!pinIsSet()) return 'none';
-  return decide(cap, m, readEntries(), now).allow ? 'none' : 'pin';
+  if (!decide(cap, s.mode, s.entries, now).allow) return 'pin';
+  const e = entryFor(s.entries, cap);
+  if (e && e.effect === 'on' && e.expires_at !== null && windowMinutes !== undefined) {
+    const until = windowMinutes === null ? Infinity : now + windowMinutes * 60_000;
+    if (until > Date.parse(e.expires_at)) return 'pin'; // a window made longer, or left on
+  }
+  return 'none';
 }
 
-export function pinNeededForRevoke(grantId: string): PinNeed {
+/** Removing an entry needs the PIN when it lets the capability through that was not let through: a switch-off, an EXPIRED window (an ended window
+ *  is off until the person turns it back on), or anything else whose removal flips deny to allow. In Guard, removing a grant makes the capability
+ *  off, so it needs none. */
+export function pinNeededForRevoke(grantId: string, now = Date.now()): PinNeed {
   if (!pinIsSet()) return 'none';
-  const hit = readEntries().find((e) => e.grant_id === grantId);
-  // Removing a switch-off lets the capability through again.
-  return hit?.effect === 'off' ? 'pin' : 'none';
+  const s = snapshot();
+  const hit = s.entries.find((e) => e.grant_id === grantId);
+  if (!hit) return 'none';
+  const before = decide(hit.capability, s.mode, s.entries, now).allow;
+  const after = decide(hit.capability, s.mode, s.entries.filter((e) => e !== hit), now).allow;
+  return !before && after ? 'pin' : 'none';
 }
 
 /** An ask that named a capability, approved: when the capability is already let through with no end, there is nothing to grant (a window
  *  would only put an end on it). Otherwise the grant is made. */
 export function askWouldChange(cap: Capability, now = Date.now()): boolean {
-  const m = mode();
-  const e = entryFor(readEntries(), cap);
-  const d = decide(cap, m, readEntries(), now);
+  const s = snapshot();
+  const e = entryFor(s.entries, cap);
+  const d = decide(cap, s.mode, s.entries, now);
   if (!d.allow) return true;
   return !!e && e.expires_at !== null; // a window in force: the new window replaces it
 }
@@ -339,8 +421,7 @@ export function runLimits(
   ctx: { harness: string; threadId?: string | null; readOnly?: boolean },
   now = Date.now(),
 ): RunLimits {
-  const m = mode();
-  const entries = readEntries();
+  const { mode: m, entries } = snapshot();
   const off = (cap: Capability) => !decide(cap, m, entries, now).allow;
   let sandboxMode = configured.sandboxMode;
   let networkAccess = configured.networkAccess;

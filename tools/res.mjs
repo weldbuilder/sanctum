@@ -159,6 +159,7 @@ switch (cmd) {
   // 10 minutes). Prints approved / denied / expired. Exit 0 only when approved.
   // res ask "why" --capability <name> --window <minutes|on>   or the short form   res ask <capability> <minutes|on>
   // A capability ask is the way to a window for something the consent gate has off: approving the card creates the grant.
+  // No window named = 60 minutes. "on" (leave it on, no end) only when it is said.
   case 'ask': {
     const CAPS = ['app_write', 'shell', 'files_outside_home', 'web', 'outward_telegram', 'outward_discord', 'google_write', 'self_code_edit', 'voice_out'];
     const rest = [];
@@ -188,7 +189,7 @@ switch (cmd) {
       const r = await fetch(`${BASE}/approvals`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(INTERNAL_TOKEN ? { 'x-internal-token': INTERNAL_TOKEN } : {}) },
-        body: JSON.stringify({ what, detail, threadId: thread, timeoutMs, ...(capability ? { capability, window_minutes: windowMinutes === undefined ? null : windowMinutes } : {}) }),
+        body: JSON.stringify({ what, detail, threadId: thread, timeoutMs, ...(capability ? { capability, window_minutes: windowMinutes === undefined ? 60 : windowMinutes } : {}) }),
         signal: AbortSignal.timeout(timeoutMs + 30_000),
       });
       const data = await r.json().catch(() => ({}));

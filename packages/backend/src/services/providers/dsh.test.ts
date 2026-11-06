@@ -243,7 +243,7 @@ describe('dsh adapter', () => {
     try {
       await drain(dshQuery({ prompt: 'hi', options: { sanctum: { threadId: 'th1', userContent: 'hi' } } as any }));
       expect(h.exec.params.sandboxMode).toBe('read-only');
-      expect(h.limits.calls).toMatchObject([{ cfg: { sandboxMode: 'workspace-write' }, ctx: { harness: 'dsh', threadId: 'th1' } }]);
+      expect(h.limits.calls).toMatchObject([{ cfg: { sandboxMode: 'workspace-write', networkAccess: false }, ctx: { harness: 'dsh', threadId: 'th1' } }]); // (no network flag exists for dsh: nothing to narrow, so no "web narrowed" receipt)
       h.limits.calls = [];
       await drain(dshQuery({ prompt: 'summarise', options: { permissionMode: 'plan', tools: [] } as any }));
       expect(h.limits.calls).toEqual([]);

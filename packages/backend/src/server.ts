@@ -52,7 +52,7 @@ import houseUpdateRoutes from './routes/house-update.js';
 import { flushUpdateJob, initUpdater, setRestartControl, stopUpdateWork } from './services/updater.js';
 import authPreferencesRoutes from './routes/auth-preferences.js';
 import consentRoutes from './routes/consent.js';
-import { pruneReceipts } from './services/consent/receipts.js';
+import { startReceiptPruning } from './services/consent/receipts.js';
 import googleRoutes from './routes/google-routes.js';
 import { startOutlookPoller, stopOutlookPoller } from './services/outlook.js';
 import { startOutlookAuthor, stopOutlookAuthor } from './services/outlook-author.js';
@@ -108,7 +108,6 @@ if (!TENANT_MODE) {
   console.log('Initializing database...');
   db = initDb(DB_PATH);
   deleteExpiredSessions();
-  try { const n = pruneReceipts(); if (n) console.log(`[Consent] pruned ${n} receipt(s) older than 90 days`); } catch (e) { console.warn(`[Consent] receipt prune failed: ${(e as Error)?.message}`); }
   retireLegacyModelRow(); // the row /model used to write (nothing read it): named once, deleted
   loadVectorCache();
   console.log('Database initialized');
@@ -131,6 +130,9 @@ if (TENANT_MODE) {
   // and the router itself is mounted below with the rest of the chain (helmet, rate limiter, body parsers), tenancy/operator.ts.
   app.use((req, res, next) => { if (operatorBypassesResolve(req)) next(); else tenantResolve(req, res, next); });
 }
+
+// Consent receipts older than 90 days go at boot and every 6 hours after (each tenant's database too in tenant mode).
+const stopReceiptPruning = startReceiptPruning(() => tenantRuntimes?.values() ?? null);
 
 // Environment-conditional origins
 const IS_DEV = process.env.NODE_ENV !== 'production';
@@ -472,6 +474,7 @@ server.listen(PORT, HOST, () => {
 async function gracefulStop(signal: string): Promise<void> {
   console.log(`${signal} received, shutting down gracefully...`);
   stopUpdateWork(); // an update's build children (npm, tsc, vite: each its own process group) go with the app, and the stage is deleted at the next start
+  stopReceiptPruning();
   orchestrator?.stop(); // (null in tenant mode)
   mindWatchdog?.stop();
   if (tenantRuntimes) await stopTenantServices(tenantRuntimes.values()); // each tenant's orchestrator, watchdog and timers, then its database below

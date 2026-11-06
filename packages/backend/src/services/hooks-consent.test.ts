@@ -78,6 +78,56 @@ describe('PreToolUse: Bash and the shell switch', () => {
   });
 });
 
+describe('PreToolUse: the ask channel works with shell off', () => {
+  it('res ask shell 30 passes the hook with shell off or in Guard, and leaves no receipt', async () => {
+    turnOff('shell');
+    expect(decision(await pre('Bash', { command: 'res ask shell 30' }))).toBeUndefined();
+    expect(decision(await pre('Bash', { command: 'res help ask' }))).toBeUndefined();
+    setMode('guard');
+    expect(decision(await pre('Bash', { command: 'res ask shell 30' }))).toBeUndefined();
+    expect(decision(await pre('Bash', { command: 'node /srv/sanctum/tools/res.mjs ask web 15' }))).toBeUndefined();
+    expect(receipts()).toEqual([]);
+  });
+  it('res ask shell 30; rm -rf / is denied', async () => {
+    turnOff('shell');
+    const r = await pre('Bash', { command: 'res ask shell 30; rm -rf /' });
+    expect(decision(r)).toBe('deny');
+    expect(reason(r)).toMatch(/^Blocked: Shell access is turned off/);
+  });
+  it('res tg "x" with shell off is denied by the hook; with shell on and outward_telegram off the server refuses it regardless (routes/consent.test.ts, telegram-send)', async () => {
+    turnOff('shell');
+    expect(decision(await pre('Bash', { command: 'res tg "x"' }))).toBe('deny');
+    expect(decision(await pre('Bash', { command: 'res voice hi' }))).toBe('deny');
+    expect(decision(await pre('Bash', { command: 'res image a cat' }))).toBe('deny');
+  });
+  it('the deny hint\'s own advice now works: ask, then the grant makes the next Bash call pass', async () => {
+    turnOff('shell');
+    expect(decision(await pre('Bash', { command: 'ls' }))).toBe('deny');
+    expect(decision(await pre('Bash', { command: 'res ask shell 30' }))).toBeUndefined();
+    grant('shell', 30);
+    expect(decision(await pre('Bash', { command: 'ls' }))).toBeUndefined();
+  });
+});
+
+describe('PreToolUse: a write the old prefix rule denies leaves no allowed receipt', () => {
+  it('Write outside the configured prefixes: denied by the prefix rule, no files_outside_home allowed row', async () => {
+    const r = await pre('Write', { file_path: '/nowhere/else/x.md', content: 'x' });
+    expect(reason(r)).toBe('Blocked: file write outside configured workspace');
+    expect(receipts().filter((x) => x.outcome === 'allowed')).toEqual([]);
+  });
+  it('a destructive command is denied by its rule with no allowed shell row', async () => {
+    const r = await pre('Bash', { command: 'rm -rf /' });
+    expect(reason(r)).toMatch(/destructive command pattern/);
+    expect(receipts()).toEqual([]);
+  });
+  it('a write the prefix rule lets through still leaves its receipt, and the gate\'s own refusal still wins when it is off', async () => {
+    expect(decision(await pre('Write', { file_path: '/home/other/x.md', content: 'x' }))).toBeUndefined();
+    expect(receipts()).toEqual([{ capability: 'files_outside_home', outcome: 'allowed', harness: 'claude', thread_id: 'thread-1', tool_or_route: 'Write' }]);
+    turnOff('files_outside_home');
+    expect(reason(await pre('Write', { file_path: '/nowhere/else/x.md', content: 'x' }))).toMatch(/^Blocked: File access outside the home folder is turned off/);
+  });
+});
+
 describe('PreToolUse: the mapping, end to end', () => {
   const cases: Array<[string, Record<string, unknown>, string | null]> = [
     ['WebFetch', { url: 'https://example.com' }, 'web'],

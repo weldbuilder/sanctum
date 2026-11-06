@@ -1,11 +1,16 @@
 // Receipts: what the consent gate looked at and what the person changed. Always on, in either mode.
 // Nothing is written for things the gate does not cover (chat replies, writes inside the companion's home).
 import { getDb } from '../db.js';
+import { runInTenant, type TenantRuntime } from '../../tenancy/context.js';
 
-export type ReceiptOutcome = 'allowed' | 'denied' | 'expired' | 'granted' | 'revoked' | 'mode_changed';
-export const RECEIPT_OUTCOMES: readonly ReceiptOutcome[] = ['allowed', 'denied', 'expired', 'granted', 'revoked', 'mode_changed'];
+export type ReceiptOutcome = 'allowed' | 'denied' | 'expired' | 'granted' | 'revoked' | 'mode_changed' | 'error';
+export const RECEIPT_OUTCOMES: readonly ReceiptOutcome[] = ['allowed', 'denied', 'expired', 'granted', 'revoked', 'mode_changed', 'error'];
 export const RECEIPT_KEEP_DAYS = 90;
 export const SUMMARY_MAX = 200;
+/** Consecutive `allowed` receipts for the same capability, harness, thread and tool within this long are one row with a count. */
+export const COALESCE_MS = 60_000;
+/** How often the prune runs while the process is up (it also runs at boot). */
+export const PRUNE_EVERY_MS = 6 * 60 * 60 * 1000;
 
 export interface Receipt {
   id: number;
@@ -17,6 +22,8 @@ export interface Receipt {
   tool_or_route: string;
   summary: string;
   outcome: ReceiptOutcome;
+  /** How many identical `allowed` calls this row stands for (1 unless they were coalesced). */
+  count: number;
 }
 
 /** There is no general secret scrubber in the app, so this one covers what a command line or a message can carry: URL logins,
@@ -46,12 +53,26 @@ export interface ReceiptInput {
   summary?: string;
 }
 
-/** Write one receipt. A receipt that cannot be written never blocks or fails the action it describes. */
+/** Write one receipt. A receipt that cannot be written never blocks or fails the action it describes.
+ *  An `allowed` call that repeats the latest row for the same (capability, harness, thread, tool) within a minute is counted on that row instead of
+ *  adding one (a Bash-heavy turn is one row, not thirty); the first call's summary stays. Denied, expired and every change are always their own row. */
 export function writeReceipt(r: ReceiptInput): void {
   try {
-    getDb().prepare(
-      'INSERT INTO consent_receipts (ts, capability, grant_id, harness, thread_id, tool_or_route, summary, outcome) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    ).run(new Date().toISOString(), r.capability, r.grantId ?? null, r.harness ?? '', r.threadId ?? null, String(r.toolOrRoute ?? '').slice(0, 120), scrubSummary(r.summary), r.outcome);
+    const db = getDb();
+    const now = Date.now();
+    const tool = String(r.toolOrRoute ?? '').slice(0, 120);
+    if (r.outcome === 'allowed') {
+      const last = db.prepare(
+        'SELECT id, ts, harness, thread_id, outcome FROM consent_receipts WHERE capability = ? AND tool_or_route = ? ORDER BY id DESC LIMIT 1',
+      ).get(r.capability, tool) as { id: number; ts: string; harness: string; thread_id: string | null; outcome: string } | undefined;
+      if (last && last.outcome === 'allowed' && last.harness === (r.harness ?? '') && last.thread_id === (r.threadId ?? null) && now - Date.parse(last.ts) < COALESCE_MS) {
+        db.prepare('UPDATE consent_receipts SET count = COALESCE(count, 1) + 1 WHERE id = ?').run(last.id);
+        return;
+      }
+    }
+    db.prepare(
+      'INSERT INTO consent_receipts (ts, capability, grant_id, harness, thread_id, tool_or_route, summary, outcome, count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)',
+    ).run(new Date(now).toISOString(), r.capability, r.grantId ?? null, r.harness ?? '', r.threadId ?? null, tool, scrubSummary(r.summary), r.outcome);
   } catch (e) {
     console.warn(`[Consent] receipt not written: ${(e as Error)?.message ?? e}`);
   }
@@ -74,8 +95,28 @@ export function listReceipts(q: ReceiptQuery = {}): { receipts: Receipt[]; next_
   return { receipts: page, next_before: more ? page[page.length - 1].id : null };
 }
 
-/** Remove receipts older than the retention window. Run at boot. Returns how many went. */
+/** Remove receipts older than the retention window. Returns how many went. */
 export function pruneReceipts(days = RECEIPT_KEEP_DAYS, now = Date.now()): number {
   const cutoff = new Date(now - days * 86_400_000).toISOString();
   return Number(getDb().prepare('DELETE FROM consent_receipts WHERE ts < ?').run(cutoff).changes);
+}
+
+/** Prune the process's database, or every tenant's (each inside its own tenant context). One database failing does not stop the others. */
+export function pruneAllReceipts(tenants?: Iterable<TenantRuntime> | null): number {
+  let total = 0;
+  const one = (label: string, fn: () => number) => {
+    try { const n = fn(); total += n; if (n) console.log(`[Consent] ${label}pruned ${n} receipt(s) older than ${RECEIPT_KEEP_DAYS} days`); }
+    catch (e) { console.warn(`[Consent] ${label}receipt prune failed: ${(e as Error)?.message}`); }
+  };
+  if (tenants) for (const rt of tenants) one(`tenant ${rt.id}: `, () => runInTenant(rt, () => pruneReceipts()));
+  else one('', () => pruneReceipts());
+  return total;
+}
+
+/** Prune now, then every 6 hours for as long as the process is up. Returns the stop function. `tenants` is read at each run. */
+export function startReceiptPruning(tenants?: () => Iterable<TenantRuntime> | null, everyMs = PRUNE_EVERY_MS): () => void {
+  pruneAllReceipts(tenants?.());
+  const timer = setInterval(() => pruneAllReceipts(tenants?.()), everyMs);
+  timer.unref?.();
+  return () => clearInterval(timer);
 }

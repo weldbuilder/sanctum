@@ -56,20 +56,20 @@ describe('the PIN', () => {
   it('the PIN never reaches the log, and no result carries it', () => {
     const spies = (['log', 'warn', 'error', 'info', 'debug'] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
     setPin('482913');
-    const results = [verifyPin('482913'), verifyPin('999999'), issueToken()];
+    const results = [verifyPin('482913'), verifyPin('999999'), issueToken('A')];
     for (const s of spies) { expect(JSON.stringify(s.mock.calls)).not.toContain('482913'); s.mockRestore(); }
     expect(JSON.stringify(results.slice(0, 2))).not.toContain('482913');
     expect(JSON.stringify(results)).not.toMatch(/scrypt/);
   });
   it('verify tokens live 10 minutes and are unknown after a reset', () => {
-    const { token, expires_in } = issueToken(T);
+    const { token, expires_in } = issueToken('A', T);
     expect(expires_in).toBe(PIN_TOKEN_MS / 1000);
-    expect(tokenValid(token, T + PIN_TOKEN_MS - 1)).toBe(true);
-    expect(tokenValid(token, T + PIN_TOKEN_MS)).toBe(false);
-    expect(tokenValid('nope')).toBe(false);
-    expect(tokenValid(undefined)).toBe(false);
-    const again = issueToken();
+    expect(tokenValid(token, 'A', T + PIN_TOKEN_MS - 1)).toBe(true);
+    expect(tokenValid(token, 'A', T + PIN_TOKEN_MS)).toBe(false);
+    expect(tokenValid('nope', 'A')).toBe(false);
+    expect(tokenValid(undefined, 'A')).toBe(false);
+    const again = issueToken('A');
     setPin('1234'); // a new PIN invalidates what the old one vouched for
-    expect(tokenValid(again.token)).toBe(false);
+    expect(tokenValid(again.token, 'A')).toBe(false);
   });
 });

@@ -81,6 +81,8 @@ export function openDb(dbPath: string): Database.Database {
   // The consent gate's receipts (every statement IF NOT EXISTS).
   const consentMigrationPath = join(__dirname, '../../migrations/004_consent.sql');
   if (existsSync(consentMigrationPath)) db.exec(readFileSync(consentMigrationPath, 'utf-8'));
+  // consent_receipts.count (coalesced `allowed` rows): fresh tables get it from 004's CREATE TABLE, an existing one here (additive, idempotent).
+  try { db.exec('ALTER TABLE consent_receipts ADD COLUMN count INTEGER DEFAULT 1'); } catch { /* column already exists */ }
 
   // Insert default config if not exists
   const stmt = db.prepare('INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)');

@@ -22,7 +22,7 @@ import { logToolUse } from './audit.js';
 import { saveFile, saveFileFromBase64, saveFileInternal, getContentTypeFromMime } from './files.js';
 import { getSanctumConfig, PROJECT_ROOT } from '../config.js';
 import { browserToolsConfigured } from './browser-gate.js';
-import { check as consentCheck, denyHint, orientationLine as consentOrientationLine } from './consent/gate.js';
+import { check as consentCheck, denyHint, orientationLine as consentOrientationLine, peek as consentPeek } from './consent/gate.js';
 import { toolCapability } from './consent/tools.js';
 import crypto from 'crypto';
 import { existsSync } from 'fs';
@@ -851,20 +851,24 @@ function buildPreToolUse(ctx: HookContext): HookCallback {
 
     // --- Consent gate: FIRST, before any other rule. Raw tool → capability (consent/tools.ts); a tool with none is not gated and
     //     leaves no receipt. The hook runs before the SDK executes the tool, so this holds under bypassPermissions too.
+    //     A refusal is decided and receipted here. An ALLOW is receipted further down, after the destructive-command and write-prefix rules,
+    //     so a call those rules then deny leaves no `allowed` receipt for something that did not happen.
     const capability = toolCapability(rawToolName, toolInput, { agentCwd: getSanctumConfig().agent.cwd, installDir: PROJECT_ROOT });
-    if (capability) {
-      const verdict = consentCheck(capability, { harness: 'claude', threadId: ctx.threadId, tool: rawToolName, summary: inputSummary });
-      if (!verdict.allow) {
-        console.warn(`[Hook] consent: ${rawToolName} refused (${verdict.reason})`);
-        return {
-          continue: true,
-          hookSpecificOutput: {
-            hookEventName: 'PreToolUse' as const,
-            permissionDecision: 'deny' as const,
-            permissionDecisionReason: denyHint(capability, verdict.reason),
-          },
-        };
-      }
+    const consentDeny = (reason: string) => {
+      console.warn(`[Hook] consent: ${rawToolName} refused (${reason})`);
+      return {
+        continue: true,
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse' as const,
+          permissionDecision: 'deny' as const,
+          permissionDecisionReason: denyHint(capability!, reason),
+        },
+      };
+    };
+    const consentCtx = { harness: 'claude', threadId: ctx.threadId, tool: rawToolName, summary: inputSummary };
+    if (capability && !consentPeek(capability).allow) {
+      const verdict = consentCheck(capability, consentCtx);
+      if (!verdict.allow) return consentDeny(verdict.reason);
     }
 
     // Track tool insertion with text offset for interleaved rendering
@@ -934,6 +938,12 @@ function buildPreToolUse(ctx: HookContext): HookCallback {
           };
         }
       }
+    }
+
+    // --- Consent gate, allowed side: the receipt (and a last look, in case the state changed since the first one).
+    if (capability) {
+      const verdict = consentCheck(capability, consentCtx);
+      if (!verdict.allow) return consentDeny(verdict.reason);
     }
 
     // --- Tool-loop guard: identical call repeated 3× → warn, 6th → deny ---

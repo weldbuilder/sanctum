@@ -44,6 +44,16 @@ describe('res ask', () => {
     await res('ask', 'shell', 'on');
     expect(bodies[0]).toMatchObject({ capability: 'shell', window_minutes: null });
   });
+  it('no window named = 60 minutes, not "on"; "on" is only ever explicit', async () => {
+    await res('ask', 'shell');
+    expect(bodies[0]).toMatchObject({ capability: 'shell', window_minutes: 60 });
+    await res('ask', 'why', '--capability', 'web');
+    expect(bodies[0]).toMatchObject({ capability: 'web', window_minutes: 60 });
+    await res('ask', 'web', 'on');
+    expect(bodies[0]).toMatchObject({ capability: 'web', window_minutes: null });
+    await res('ask', 'why', '--capability', 'web', '--window', 'on');
+    expect(bodies[0]).toMatchObject({ window_minutes: null });
+  });
   it('long form with a reason', async () => {
     await res('ask', 'I need to read the docs', '--capability', 'web', '--window', '15');
     expect(bodies[0]).toMatchObject({ what: 'I need to read the docs', capability: 'web', window_minutes: 15 });

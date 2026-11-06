@@ -10,7 +10,9 @@ import {
   CAPABILITIES, check, grant, listState, mode, orientationLine, peek, pinNeededForGrant, pinNeededForRevoke, requireCapability, revoke, runLimits, setMode, turnOff,
   ConsentDeniedError, askWouldChange, normalizeWindow, denyHint, denyMessage, onConsentChanged,
 } from './gate.js';
-import { listReceipts, pruneReceipts, scrubSummary, writeReceipt } from './receipts.js';
+import { COALESCE_MS, listReceipts, pruneAllReceipts, pruneReceipts, scrubSummary, startReceiptPruning, writeReceipt } from './receipts.js';
+import { openDb } from '../db.js';
+import { enableTenancy } from '../../tenancy/context.js';
 import { setPin, _resetTokens } from './pin.js';
 import { buildExecArgs } from '../providers/codex-exec.js';
 
@@ -95,9 +97,7 @@ describe('the rules matrix: mode x override x window x expiry', () => {
     expect(normalizeWindow(null)).toBeNull();
     expect(normalizeWindow(99999999)).toBeUndefined();
   });
-  it('an unreadable or junk state reads as the default (open, nothing off)', () => {
-    setConfig('consent.grants', '{not json');
-    expect(peek('shell').allow).toBe(true);
+  it('a junk mode value reads as open; a corrupt grants list fails closed (see gate-failclosed.test.ts)', () => {
     setConfig('consent.mode', 'nonsense');
     expect(mode()).toBe('open');
   });
@@ -141,7 +141,7 @@ describe('receipts', () => {
     expect(scrubSummary('git status')).toBe('git status');
   });
   it('paging: newest first, filters, before=', () => {
-    for (let i = 0; i < 5; i++) check('shell', { ...ctx, summary: `n${i}` });
+    for (let i = 0; i < 5; i++) check('shell', { ...ctx, tool: `Bash${i}`, summary: `n${i}` });
     check('web', ctx);
     turnOff('web');
     const p1 = listReceipts({ limit: 3 });
@@ -289,5 +289,146 @@ describe('state → codex exec flags, end to end', () => {
     expect(a[a.indexOf('--sandbox') + 1]).toBe('read-only');
     expect(a).not.toContain('--add-dir');
     expect(a).toContain('sandbox_workspace_write.network_access=false');
+  });
+});
+
+
+describe('fix pass: PIN on anything that lets a capability through', () => {
+  it('an ended window: revoking it needs the PIN once one exists (and none before)', () => {
+    const w = grant('shell', 15, undefined, {}, T0);
+    expect(pinNeededForRevoke(w.grant_id, T0 + 20 * 60_000)).toBe('none'); // no PIN set yet
+    setPin('1234');
+    expect(pinNeededForRevoke(w.grant_id, T0 + 20 * 60_000)).toBe('pin');
+    expect(pinNeededForRevoke(w.grant_id, T0 + 5 * 60_000)).toBe('none'); // still live: removing it changes nothing
+  });
+  it('an OFF override needs it; in Guard, revoking a grant makes it off, so it does not', () => {
+    setPin('1234');
+    expect(pinNeededForRevoke(turnOff('web').grant_id)).toBe('pin');
+    setMode('guard');
+    expect(pinNeededForRevoke(grant('shell', 30).grant_id)).toBe('none');
+  });
+  it('stretching a live window (longer or leave-on) needs it; a shorter one does not', () => {
+    setPin('1234');
+    grant('web', 30, undefined, {}, T0);
+    expect(pinNeededForGrant('web', T0 + 1000, null)).toBe('pin');
+    expect(pinNeededForGrant('web', T0 + 1000, 60)).toBe('pin');
+    expect(pinNeededForGrant('web', T0 + 1000, 15)).toBe('none');
+  });
+});
+
+describe('fix pass: switching Guard on is a clean slate', () => {
+  it('clears every window and leave-on entry (listed on the receipt), keeps switch-offs, and Open does not bring them back', () => {
+    grant('shell', null);
+    grant('web', 30);
+    const off = turnOff('voice_out');
+    setMode('guard');
+    expect(mode()).toBe('guard');
+    expect(listState().capabilities.filter((c) => c.source === 'grant')).toEqual([]);
+    expect(peek('shell').allow).toBe(false);
+    expect(peek('web').allow).toBe(false);
+    const rec = last();
+    expect(rec).toMatchObject({ capability: '*', outcome: 'mode_changed' });
+    expect(rec.summary).toBe('mode open → guard; cleared: shell (on), web (window)');
+    setMode('open');
+    expect(last().summary).toBe('mode guard → open');
+    expect(peek('shell')).toMatchObject({ allow: true, reason: 'Shell access is on' });
+    expect(listState().capabilities.find((c) => c.capability === 'shell')).toMatchObject({ source: 'default', grant_id: null });
+    expect(listState().capabilities.find((c) => c.capability === 'web')).toMatchObject({ source: 'default' });
+    expect(peek('voice_out')).toMatchObject({ allow: false, grantId: off.grant_id }); // the person's own switch-off is theirs, not a grant
+  });
+  it('a grant made IN Guard is not wiped by setMode(guard) again', () => {
+    setMode('guard');
+    grant('shell', 30);
+    setMode('guard');
+    expect(peek('shell').allow).toBe(true);
+  });
+});
+
+describe('fix pass: receipts are coalesced', () => {
+  const rows = () => getDb().prepare('SELECT capability, tool_or_route, outcome, count, summary FROM consent_receipts ORDER BY id').all() as any[];
+  it('consecutive allowed rows for the same capability, thread and tool within 60 s are one row with a count', () => {
+    for (let i = 0; i < 5; i++) check('shell', { ...ctx, summary: `cmd ${i}` });
+    expect(rows()).toEqual([{ capability: 'shell', tool_or_route: 'Bash', outcome: 'allowed', count: 5, summary: 'cmd 0' }]);
+  });
+  it('a different thread, tool or capability is its own row; a denied row in between breaks the run; denied rows are never merged', () => {
+    check('shell', ctx);
+    check('shell', { ...ctx, threadId: 't2' });
+    check('shell', { ...ctx, tool: 'Other' });
+    check('web', ctx);
+    expect(rows()).toHaveLength(4);
+    turnOff('shell');
+    check('shell', ctx); check('shell', ctx);
+    expect(rows().filter((r) => r.outcome === 'denied')).toHaveLength(2);
+  });
+  it('after 60 s a new row starts', () => {
+    check('shell', ctx);
+    getDb().prepare('UPDATE consent_receipts SET ts = ?').run(new Date(Date.now() - COALESCE_MS - 1000).toISOString());
+    check('shell', ctx);
+    expect(rows().map((r) => r.count)).toEqual([1, 1]);
+  });
+  it('a database that had the table before count existed gets the column, with 1 on old rows', () => {
+    const raw = openDb(':memory:');
+    raw.exec('DROP TABLE consent_receipts');
+    raw.exec("CREATE TABLE consent_receipts (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, capability TEXT NOT NULL, grant_id TEXT, harness TEXT NOT NULL DEFAULT '', thread_id TEXT, tool_or_route TEXT NOT NULL DEFAULT '', summary TEXT NOT NULL DEFAULT '', outcome TEXT NOT NULL)");
+    raw.exec("INSERT INTO consent_receipts (ts, capability, outcome) VALUES ('2026-01-01T00:00:00Z', 'shell', 'allowed')");
+    raw.exec('ALTER TABLE consent_receipts ADD COLUMN count INTEGER DEFAULT 1');
+    expect((raw.prepare('SELECT count FROM consent_receipts').get() as any).count).toBe(1);
+  });
+  it('the list route\'s rows carry the count', () => {
+    check('shell', ctx); check('shell', ctx);
+    expect(listReceipts().receipts[0]).toMatchObject({ outcome: 'allowed', count: 2 });
+  });
+});
+
+describe('fix pass: pruning runs on a timer, tenant databases included', () => {
+  it('prunes at start and every 6 hours, in the process database and in each tenant\'s', () => {
+    vi.useFakeTimers();
+    try {
+      const old = new Date(Date.now() - 100 * 86_400_000).toISOString();
+      const mk = () => { const db = openDb(':memory:'); db.prepare("INSERT INTO consent_receipts (ts, capability, outcome) VALUES (?, 'shell', 'allowed')").run(old); return db; };
+      const tdb = mk();
+      const rt = { id: 'tenant-a', db: tdb, parked: false } as any;
+      const countOf = (db: any) => (db.prepare('SELECT COUNT(*) AS n FROM consent_receipts').get() as any).n;
+      getDb().prepare("INSERT INTO consent_receipts (ts, capability, outcome) VALUES (?, 'shell', 'allowed')").run(old);
+      enableTenancy(true);
+      let stop: () => void;
+      try { stop = startReceiptPruning(() => [rt] as any); } finally { enableTenancy(false); }
+      // (the first run pruned the tenant's database; the process database is pruned by the same call when no tenants are given)
+      expect(countOf(tdb)).toBe(0);
+      expect(countOf(getDb())).toBe(1);
+      stop();
+      const stop2 = startReceiptPruning();
+      expect(countOf(getDb())).toBe(0);
+      getDb().prepare("INSERT INTO consent_receipts (ts, capability, outcome) VALUES (?, 'shell', 'allowed')").run(old);
+      vi.advanceTimersByTime(6 * 3600_000 - 1);
+      expect(countOf(getDb())).toBe(1);
+      vi.advanceTimersByTime(2);
+      expect(countOf(getDb())).toBe(0);
+      stop2();
+      getDb().prepare("INSERT INTO consent_receipts (ts, capability, outcome) VALUES (?, 'shell', 'allowed')").run(old);
+      vi.advanceTimersByTime(7 * 3600_000);
+      expect(countOf(getDb())).toBe(1); // stopped
+    } finally { vi.useRealTimers(); }
+  });
+  it('one tenant failing does not stop the others', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const good = openDb(':memory:');
+    const old = new Date(Date.now() - 100 * 86_400_000).toISOString();
+    good.prepare("INSERT INTO consent_receipts (ts, capability, outcome) VALUES (?, 'shell', 'allowed')").run(old);
+    const parked = { id: 'p', db: openDb(':memory:'), parked: true } as any;
+    enableTenancy(true);
+    let n: number;
+    try { n = pruneAllReceipts([parked, { id: 'g', db: good, parked: false }] as any); } finally { enableTenancy(false); }
+    expect(n).toBe(1);
+  });
+});
+
+describe('fix pass: dsh does not claim a web narrowing it does not apply', () => {
+  it('web off + shell on, networkAccess false (what dsh passes): no restriction, no receipt', () => {
+    turnOff('web');
+    const before = count();
+    expect(runLimits({ sandboxMode: 'workspace-write', networkAccess: false }, { harness: 'dsh', threadId: 't1' })).toMatchObject({ sandboxMode: 'workspace-write', restricted: [] });
+    expect(count()).toBe(before);
+    expect(getDb().prepare("SELECT COUNT(*) AS n FROM consent_receipts WHERE tool_or_route = 'run flags'").get()).toEqual({ n: 0 });
   });
 });

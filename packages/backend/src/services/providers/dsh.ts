@@ -284,7 +284,8 @@ export function dshQuery({ prompt, options }: { prompt: string | AsyncIterable<a
     // The consent gate narrows the sandbox it is launched with: shell off (or Guard mode without a grant) → read-only. dsh's launch flags
     // carry no network or extra-folder switch, so web and files_outside_home are NOT enforced by flag here; their outward effects are
     // caught at the server choke points (Telegram, Discord, Google, TTS, app writes) and the limit is documented in docs/CONFIGURATION.md.
-    const sandboxMode = readOnly ? 'read-only' as const : runLimits({ sandboxMode: dx.sandbox_mode, networkAccess: true }, { harness: 'dsh', threadId: sanctum?.threadId }).sandboxMode;
+    // networkAccess is passed as false on purpose: there is no flag for it here, so a "web narrowed" receipt would claim something that was not applied.
+    const sandboxMode = readOnly ? 'read-only' as const : runLimits({ sandboxMode: dx.sandbox_mode, networkAccess: false }, { harness: 'dsh', threadId: sanctum?.threadId }).sandboxMode;
 
     const useMemory = !readOnly && !sanctum?.autonomous && !noMemory;
     let memoryBlock = '';
