@@ -471,9 +471,11 @@ The server never makes a password up for the setup screen (it could not hand one
 Claude runs in one of two **auth modes**, kept in the database (`auth_preferences`, not in `sanctum.yaml` or `.env`):
 
 - `subscription` (the default): the run signs in with your Claude plan (`claude login`). The app **removes** `ANTHROPIC_API_KEY` (and the OAuth and host-managed variables) from every run, so a key in `.env` alone does nothing.
-- `api_key`: the run uses the key stored with the mode. `ANTHROPIC_API_KEY` in `.env` is used only in this mode.
+- `api_key`: the run uses the key stored with the mode (`auth_preferences`, saved by setup). The `ANTHROPIC_API_KEY` value in `.env` is not what the run uses: it is only the default setup offers when you run it again, and what the boot and `npm run doctor` check looks at.
 
 The rule: **pasting a key in setup selects `api_key`** (it stores the key and the mode together); leaving the key empty (the Claude plan, `claude login`) selects `subscription`. Setup does this in both forms (`npm run setup`, and the first-run page). If a key is in `.env` while the mode is `subscription` (an older install, or a hand-edited `.env`), boot logs one line, `ANTHROPIC_API_KEY is set but auth mode is subscription, so it is ignored; run setup again or set auth mode to api_key`, and `npm run doctor` prints the same as a WARN. To change the mode without setup, `PUT /api/auth-preferences` with `auth_mode` (and `api_key`). Codex and DeepSeek Harness do not use this setting.
+
+The terminal wizard writes the mode to the database named by `server.db_path` (default `data/sanctum.db`), creating its folder if needed. If the app is running while you use the terminal wizard, restart it so it picks up the new mode; the first-run page and Settings apply it live.
 
 ### `summarizer` — who writes the companion's memory of itself
 

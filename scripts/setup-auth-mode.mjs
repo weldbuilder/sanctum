@@ -7,12 +7,21 @@ import { wizardDbPath } from './setup-discord.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
+/** The first stderr line that names an Error, else the whole stderr trimmed to 300 characters (the last line is only the Node version). */
+function failureText(r) {
+  const err = String(r.stderr || '').trim();
+  if (!err) return r.error?.message || 'the auth service did not run';
+  const lines = err.split('\n'); // a thrown Error prints its source line first, then `Error: message`
+  return (lines.find((l) => /^\w*Error\b/.test(l.trim())) || lines.find((l) => /Error/.test(l)))?.trim().slice(0, 300) || err.slice(0, 300);
+}
+
 /** A setAuthMode(update) for applySetup(opts): throws (the wizard then says so) when the service cannot be run. */
 export function terminalSetAuthMode(cfgRoot = root, existing = {}, env = process.env) {
-  return (update) => {
-    const r = spawnSync(process.execPath, ['--import', 'tsx', join(root, 'packages', 'backend', 'src', 'set-auth-mode.ts'), wizardDbPath(cfgRoot, existing, env.DB_PATH)], {
+  // `cfg` is the config the wizard just loaded/wrote, so server.db_path from sanctum.yaml is honoured.
+  return (update, cfg) => {
+    const r = spawnSync(process.execPath, ['--import', 'tsx', join(root, 'packages', 'backend', 'src', 'set-auth-mode.ts'), wizardDbPath(cfgRoot, cfg ?? existing, env.DB_PATH)], {
       input: JSON.stringify(update), encoding: 'utf-8', cwd: root, timeout: 60000,
     });
-    if (r.status !== 0) throw new Error(String(r.stderr || r.error?.message || 'the auth service did not run').trim().split('\n').pop());
+    if (r.status !== 0) throw new Error(failureText(r));
   };
 }

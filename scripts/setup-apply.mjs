@@ -341,7 +341,7 @@ function applySetupIn(answers, plan, io, opts) {
     const want = a.anthropicKey ? { auth_mode: 'api_key', api_key: a.anthropicKey } : { auth_mode: 'subscription' };
     result.authMode = want.auth_mode;
     if (opts.setAuthMode) {
-      try { opts.setAuthMode(want); say(`Auth mode: ${want.auth_mode === 'api_key' ? 'API key (the key you pasted)' : 'subscription (claude login)'}`); }
+      try { opts.setAuthMode(want, cfg); say(`Auth mode: ${want.auth_mode === 'api_key' ? 'API key (the key you pasted)' : 'subscription (claude login)'}`); }
       catch (err) { result.authMode = null; say(`The key was saved to .env, but the auth mode could not be set (${err?.message || err}): the app ignores that key until the mode is api_key.`); }
     }
   }
