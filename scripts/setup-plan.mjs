@@ -304,15 +304,7 @@ export function setupPlan(existingConfig, env = {}) {
     },
     question: (v) => `Long-conversation memory on ${HARNESS_NAME[v.provider] || 'Claude'}?`,
     default: (v) => (roll.upgrade || roll.saved[v.provider] ? roll.effective[v.provider] : true),
-  });
-  add({
-    id: 'summarizerModel', kind: 'text', section: 'Long-conversation memory', when: (v) => v.rolling === true,
-    help: ['The summarizer is the model that does the folding. A small, cheap one is fine.'],
-    question: 'Summarizer model id (empty = the autonomous model, then the chat model)', default: exr.model || '',
-  });
-  add({
-    id: 'summarizerProvider', kind: 'text', section: 'Long-conversation memory', when: (v) => v.rolling === true && isCodex(v),
-    question: 'Summarizer provider (empty = same as chat)', default: exr.model_provider || '', outro: () => [''],
+    outro: () => [''],
   });
 
   // ── plugins ─────────────────────────────────────────────────────────────────
@@ -349,6 +341,8 @@ export function setupPlan(existingConfig, env = {}) {
   const imageChosen = (v) => imageOff && (v.imageProvider === 'runware' || v.imageProvider === 'replicate');
   const IMAGE_KEY = { runware: 'RUNWARE_API_KEY', replicate: 'REPLICATE_API_TOKEN' };
   const summaryOff = !ex.agent?.summarizer?.provider;
+  // A deprecated agent.rolling.model still names the summarizer when agent.summarizer is not set; the wizard no longer asks for it (summaryWho is the one summarizer prompt).
+  const legacyModel = typeof exr.model === 'string' ? exr.model.trim() : '';
   const summaryOwn = (v) => summaryOff && v.summaryWho === 'other';
   const summaryKeyVar = ex.agent?.summarizer?.api_key_env || 'SUMMARIZER_API_KEY';
   add({
@@ -386,7 +380,7 @@ export function setupPlan(existingConfig, env = {}) {
       { value: 'other', label: 'Another model through an OpenAI-compatible endpoint', detail: 'For example OpenRouter. The key goes in .env as SUMMARIZER_API_KEY.' },
     ],
     cli: ['1) the chat model (default)', '2) another model through an OpenAI-compatible endpoint'],
-    after: (value) => (value === 'other' ? [] : ['The chat model writes them.']),
+    after: (value) => (value === 'other' ? [] : [legacyModel ? `${legacyModel} writes them (agent.rolling.model, deprecated; move it to agent.summarizer.model).` : 'The chat model writes them.']),
   });
   add({
     id: 'summaryEndpoint', kind: 'text', section: 'Optional: pictures and summaries', when: summaryOwn,
@@ -720,10 +714,6 @@ export function buildAnswers(v, plan, opts = {}) {
   }
   a.appWrite = v.appWrite;
   a.rolling = v.rolling;
-  if (v.rolling) {
-    a.summarizerModel = v.summarizerModel;
-    if (v.provider === 'codex') a.summarizerProvider = v.summarizerProvider;
-  }
   if (imageChosenOf(v, plan)) { a.imageProvider = v.imageProvider; if (v.imageKey) a.imageKey = v.imageKey; }
   if (summaryOwnOf(v, plan) && /^https?:\/\/\S+ \S+$/.test(String(v.summaryEndpoint || ''))) {
     const [baseUrl, model] = v.summaryEndpoint.split(' ');

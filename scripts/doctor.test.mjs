@@ -419,6 +419,8 @@ describe('doctor: pictures and summaries', () => {
       expect(c.message).toContain('agent.summarizer.model');
       expect(c.message).toContain('agent.summarizer.base_url');
       expect(c.message).toContain('SUMMARIZER_API_KEY');
+      expect(c.message).toContain('every summary fails until they are set');
+      expect(c.message).not.toContain('falls back');
     } finally { cleanup(root); }
     const named = app('  summarizer:\n    provider: openai-compat\n    model: big\n    base_url: https://x.test/v1\n    api_key_env: MY_SUM_KEY\n');
     try {
@@ -427,6 +429,19 @@ describe('doctor: pictures and summaries', () => {
       expect(c.message).toContain('MY_SUM_KEY');
       expect(c.message).not.toContain('agent.summarizer.model');
     } finally { cleanup(named); }
+  });
+
+  it('the deprecated rolling.model_provider is a provider only when it names a harness; otherwise it is a route', () => {
+    const route = app('  rolling:\n    model_provider: deepseek\n    model: m1\n');
+    try {
+      const [c] = find(go(route), 'summarizer');
+      expect(c.message).toContain('route "deepseek"');
+    } finally { cleanup(route); }
+    const harness = app('  rolling:\n    model_provider: codex\n');
+    try {
+      const [c] = find(go(harness), 'summarizer');
+      expect(c.message).toContain('run on codex');
+    } finally { cleanup(harness); }
   });
 
   it('a small-tier summarizer model is a WARN; gemini is not small', () => {

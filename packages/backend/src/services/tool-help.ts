@@ -18,7 +18,9 @@ export interface ToolHelpOptions {
   /** Image generation is configured (imagegen.provider set and its key present): lists the `image` topic. Never set it otherwise.
    *  An explicit `false` (not just unset) adds the one "Pictures: not set up" line to the orientation, so the companion can answer "can you make pictures?" truthfully. */
   image?: boolean;
-  /** Voice is on (`voice.enabled`). Only an explicit `false` adds the one "Voice: not set up" line; the voice verbs are not gated by it. */
+  /** Why `image` is false: not set up at all, or set up but app writes are off. Unset reads as not set up. */
+  imageReason?: 'not_configured' | 'app_write_off' | 'offered';
+  /** Voice is on (`voice.enabled`). Only an explicit `false` adds the one "Voice: not set up" line and drops the voice verbs from the short list and the chat/Telegram topics. */
   voice?: boolean;
   /** Plugin help topics, id -> help.md text (see services/plugins.ts pluginHelp). */
   pluginHelp?: Record<string, string>;
@@ -34,8 +36,12 @@ function pluginLine(text: string): string {
  *  never OFFERED these (no topic, no verb, no tool); the line only lets it say so truthfully when asked. */
 export function notSetUpLines(o: ToolHelpOptions): string[] {
   const lines: string[] = [];
-  if (o.image === false) lines.push('Pictures: not set up on this install (the person can enable it; see UPGRADE.md → image generation)');
-  if (o.voice === false) lines.push('Voice: not set up on this install (the person can enable it; see UPGRADE.md → voice notes)');
+  if (o.image === false) {
+    lines.push(o.imageReason === 'app_write_off'
+      ? 'Pictures: off on this install while app writes are disabled (agent.app_write)'
+      : 'Pictures: not set up on this install (the person can enable it; see UPGRADE.md, "Pictures and companion-voiced summaries")');
+  }
+  if (o.voice === false) lines.push('Voice: not set up on this install (the person can enable it; see UPGRADE.md, "Pictures and companion-voiced summaries", What to add)');
   return lines;
 }
 
@@ -57,7 +63,7 @@ export function toolHelpSections(o: ToolHelpOptions): Record<ToolTopic, string[]
       `  ${SC} touch last "❤️"             (react to last message)`,
       `  ${SC} touch last-2 "🔥"           (react to 2nd-to-last message)`,
       `  ${SC} touch last "❤️" remove      (remove a reaction)`,
-      `  ${SC} voice "[whispers] hey [sighs] I missed you"`,
+      ...(o.voice === false ? [] : [`  ${SC} voice "[whispers] hey [sighs] I missed you"`]),
       `  ${SC} search "semantic query"              (search all threads by meaning)`,
       `  ${SC} search "query" --thread THREAD_ID    (search specific thread)`,
       `  ${SC} search "query" --role companion|user  (filter by speaker)`,
@@ -161,7 +167,7 @@ export function toolHelpSections(o: ToolHelpOptions): Record<ToolTopic, string[]
       `  ${SC} tg doc /path/to/file.pdf "caption"`,
       `  ${SC} tg gif "search query" "optional caption"`,
       `  ${SC} tg react last "❤️"`,
-      `  ${SC} tg voice "text with [tone tags]"`,
+      ...(o.voice === false ? [] : [`  ${SC} tg voice "text with [tone tags]"`]),
       `  ${SC} tg text "proactive message"`,
     ] : [],
   };
@@ -195,7 +201,9 @@ export function shortToolList(o: ToolHelpOptions): string {
     `TOOLS (run via Bash; full syntax for any topic: ${SC} help <topic>):`,
     `  ${SC} meal 10:30 [what] | meal now | meal undo  log a meal when ${o.userName} says they ate`,
     `  ${SC} ask "what"                               permission, waits for the answer`,
-    `  ${SC} canvas | share | touch | voice | search  notes, files, reactions, voice notes, semantic search`,
+    o.voice === false
+      ? `  ${SC} canvas | share | touch | search          notes, files, reactions, semantic search`
+      : `  ${SC} canvas | share | touch | voice | search  notes, files, reactions, voice notes, semantic search`,
     `  ${SC} orb | note | face | context              my presence on the mantelpiece, ${o.userName}'s card`,
     `  ${SC} timer | routine | impulse | watch        reminders, scheduled wakes, one-shot and recurring triggers`,
     `  ${SC} pulse | failsafe                         awareness checks, inactivity escalation`,
@@ -204,7 +212,7 @@ export function shortToolList(o: ToolHelpOptions): string {
   if (o.ccEnabled) lines.push(`  ${SC} cc <tool> '<json>'                        care log, cycle, routines, pets (tools: ${CC_TOOL_NAMES.join(', ')})`);
   if (o.browser) lines.push(`  ${SC} help browser                             browser tools (navigate, snapshot, click, type) in the shared tab`);
   if (o.image) lines.push(`  ${SC} image "prompt" [--size WxH]            generate a picture and post it in the chat`);
-  if (o.telegram) lines.push(`  ${SC} tg photo|doc|gif|react|voice|text        Telegram extras`);
+  if (o.telegram) lines.push(`  ${SC} tg ${o.voice === false ? 'photo|doc|gif|react|text' : 'photo|doc|gif|react|voice|text'}        Telegram extras`);
   for (const l of notSetUpLines(o)) lines.push(`  ${l}`);
   // The built-in rows pad what follows SC to VERB_COL, so the descriptions line up whatever SC is
   // (a bare `res`, or `node /abs/path/tools/res.mjs`). Plugin rows pad the same way.

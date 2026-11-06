@@ -296,8 +296,8 @@ SUMMARIZER_API_KEY=...
 ```
 
 **Image generation** is offered to your companion only when the provider is set, its key is in `.env`, and `agent.app_write` is on.
-**Voice notes** need `voice.enabled: true`, `ELEVENLABS_API_KEY` in `.env` and a voice id (`voice.elevenlabs_voice_id`). Until then your
-companion is told, in one line, that pictures or voice are not set up here, so it can answer "can you make pictures?" truthfully. Every
+**Voice notes** need `voice.enabled: true`, `ELEVENLABS_API_KEY` in `.env` and a voice id (`voice.elevenlabs_voice_id`). Until pictures are
+on, your companion is told in one line that they are not set up here (or that app writes are off), so it can answer "can you make pictures?" truthfully; a line about voice appears only when `voice.enabled` is false. Every
 key is in [docs/CONFIGURATION.md](docs/CONFIGURATION.md): `imagegen`, "Inline expression tags" and `summarizer`.
 
 `agent.rolling.model` and `agent.rolling.model_provider` still work for this release (read only while `agent.summarizer.model` and
@@ -314,8 +314,8 @@ key is in [docs/CONFIGURATION.md](docs/CONFIGURATION.md): `imagegen`, "Inline ex
 - **An old `/model` row is dropped.** If the database holds the old `agent.model` row, the app ignores it, deletes it and logs one line
   saying so. Your chosen model is the one the `/model` command or the Models editor set (`preferred_model`); `sanctum.yaml` and
   `AGENT_MODEL` win again after `/model reset`.
-- **Three dead keys are removed,** each with one line in the log: `hooks.context_injection`, `google.enabled` (and `GOOGLE_ENABLED`) and
-  `command_center.care_categories`. Delete them from your files.
+- **Three dead keys are removed:** `hooks.context_injection`, `google.enabled` and `command_center.care_categories`. One log line names any of
+  them still in `sanctum.yaml`; `GOOGLE_ENABLED` is simply no longer read. Delete them from your files.
 - **The first fold writes in the new voice.** Summaries already stored are kept as they are. The next time a thread folds, the new
   summary is written by your companion in the first person, so a thread's memory may read differently from that point on.
 
@@ -328,4 +328,4 @@ npm run doctor
 Its `imagegen` line is OK with a provider and its key, a WARN naming the variable when the provider is set and the key is missing, and an
 INFO line when pictures are off. Its `summarizer` lines warn when `openai-compat` lacks its model, base URL or key, and when the model
 looks small-tier (haiku, mini, small, lite, nano, or 8b and under). It reads `sanctum.yaml` and `.env`; a value saved in Settings is not
-read, so check the Files page too.
+read, so check Settings too.

@@ -47,6 +47,24 @@ describe('the optional group: what is asked', () => {
     expect(asked({ imageProvider: 'none', summaryWho: 'chat' })).toEqual(['imageProvider', 'summaryWho']);
   });
 
+  it('a fresh install with rolling memory on is asked about the summarizer once, and the old summarizer prompts are gone', () => {
+    const { plan, asked } = sandbox();
+    const w = walkValues(plan, { provider: 'codex', rolling: true });
+    const ids = w.rows.filter((r) => r.active).map((r) => r.step.id);
+    expect(ids.filter((id) => /summar/i.test(id))).toEqual(['summaryWho']);
+    expect(ids).not.toContain('summarizerModel');
+    expect(ids).not.toContain('summarizerProvider');
+    expect(asked({ provider: 'codex', rolling: true })).toEqual(['imageProvider', 'summaryWho']);
+  });
+
+  it('with a legacy agent.rolling.model in the yaml, "chat" says that model writes the summaries', () => {
+    const { plan } = sandbox({ yaml: { agent: { rolling: { model: 'old-model' } } } });
+    const d = describePlan(plan, { summaryWho: 'chat' });
+    expect(JSON.stringify(d.notes)).toContain('old-model writes them (agent.rolling.model, deprecated; move it to agent.summarizer.model)');
+    const fresh = describePlan(sandbox().plan, { summaryWho: 'chat' });
+    expect(JSON.stringify(fresh.notes)).toContain('The chat model writes them.');
+  });
+
   it('the longest path is five prompts', () => {
     const { asked } = sandbox();
     expect(asked({ imageProvider: 'runware', summaryWho: 'other' })).toEqual(GROUP);

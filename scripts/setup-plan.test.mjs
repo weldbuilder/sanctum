@@ -45,7 +45,7 @@ describe('setupPlan: the steps', () => {
     expect(plan.map((s) => s.id)).toEqual([
       'companionName', 'userName', 'timezone', 'home', 'homeCreate',
       'provider', 'addProvider', 'providerId', 'providerName', 'providerBaseUrl', 'providerKey', 'providerModel', 'providerDefault', 'codexModel', 'codexProvider', 'claudeModel', 'anthropicKey', 'dshModel', 'dshKey',
-      'sandbox', 'extraDirs', 'appWrite', 'rolling', 'summarizerModel', 'summarizerProvider', 'pluginsTrust', 'plugins',
+      'sandbox', 'extraDirs', 'appWrite', 'rolling', 'pluginsTrust', 'plugins',
       'imageProvider', 'imageKey', 'summaryWho', 'summaryEndpoint', 'summaryKey',
       'discordEnable', 'discordOwnerUserId', 'discordOwnerChannelId', 'discordPrivateDir', 'password',
       'memory', 'codexMemoriesOff', 'codexMemoriesOn', 'browserSeat', 'browserEntry', 'phoneOrigin',
@@ -66,10 +66,10 @@ describe('setupPlan: the steps', () => {
     const { plan } = sandbox();
     const codex = askedIds(plan, { provider: 'codex' });
     const claude = askedIds(plan, { provider: 'claude' });
-    expect(codex).toEqual(expect.arrayContaining(['addProvider', 'codexModel', 'codexProvider', 'sandbox', 'extraDirs', 'summarizerProvider']));
+    expect(codex).toEqual(expect.arrayContaining(['addProvider', 'codexModel', 'codexProvider', 'sandbox', 'extraDirs']));
     expect(codex).not.toContain('claudeModel');
     expect(claude).toEqual(expect.arrayContaining(['claudeModel', 'anthropicKey']));
-    for (const id of ['addProvider', 'codexModel', 'sandbox', 'extraDirs', 'summarizerProvider']) expect(claude, id).not.toContain(id);
+    for (const id of ['addProvider', 'codexModel', 'sandbox', 'extraDirs']) expect(claude, id).not.toContain(id);
   });
 
   it('takes its defaults from the existing config, .env and Codex config, as the terminal always has', () => {
@@ -271,6 +271,7 @@ describe('buildAnswers', () => {
     expect(claude).toMatchObject({ provider: 'claude', claudeModel: 'claude-sonnet-5-5' });
     expect(claude.sandbox).toBeUndefined();
     expect(claude.summarizerProvider).toBeUndefined();
+    expect(codex.summarizerModel).toBeUndefined();
   });
 });
 

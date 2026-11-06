@@ -220,7 +220,12 @@ function checkOptionalFeatures(r, file, env) {
   }
 
   const sum = dig(file, 'agent.summarizer');
-  const sp = clean(dig(sum, 'provider')) || clean(dig(file, 'agent.rolling.model_provider'));
+  // The backend's rule (summarizer/config.ts): the deprecated agent.rolling.model_provider is a provider only when it names a harness or openai-compat; anything else is a route of the chat harness.
+  const oldP = clean(dig(file, 'agent.rolling.model_provider'));
+  const oldIsProvider = ['claude', 'codex', 'dsh', 'openai-compat'].includes(oldP);
+  let sp = clean(dig(sum, 'provider'));
+  const route = !sp && oldP && !oldIsProvider ? oldP : '';
+  if (!sp && oldIsProvider) sp = oldP;
   const model = clean(dig(sum, 'model')) || clean(dig(file, 'agent.rolling.model'));
   if (sp === 'openai-compat') {
     const keyVar = clean(dig(sum, 'api_key_env')) || 'SUMMARIZER_API_KEY';
@@ -228,9 +233,10 @@ function checkOptionalFeatures(r, file, env) {
     if (!model) missing.push('agent.summarizer.model');
     if (!clean(dig(sum, 'base_url'))) missing.push('agent.summarizer.base_url');
     if (!clean(env[keyVar])) missing.push(`${keyVar} (in .env or the environment)`);
-    if (missing.length) r.warn('summarizer', `agent.summarizer.provider is "openai-compat" but ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} missing: every summary falls back to the chat model (${UPGRADE_PICTURES}).`);
+    if (missing.length) r.warn('summarizer', `agent.summarizer.provider is "openai-compat" but ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} missing: every summary fails until ${missing.length === 1 ? 'it is' : 'they are'} set (${UPGRADE_PICTURES}).`);
     else r.ok('summarizer', `the companion's summaries are written through ${clean(dig(sum, 'base_url'))} on ${model}; ${keyVar} is set.`);
-  } else if (!sp) r.ok('summarizer', 'the chat model writes the companion\'s summaries (agent.summarizer.provider is ""); another model: see ' + UPGRADE_PICTURES + '.');
+  } else if (route) r.ok('summarizer', `the companion's summaries run on the chat harness's route "${route}"${model ? ` (${model})` : ''} (agent.rolling.model_provider, deprecated; see agent.summarizer.provider).`);
+  else if (!sp) r.ok('summarizer', 'the chat model writes the companion\'s summaries (agent.summarizer.provider is ""); another model: see ' + UPGRADE_PICTURES + '.');
   else r.ok('summarizer', `the companion's summaries run on ${sp}${model ? ` (${model})` : ''}.`);
   if (model && SMALL_TIER.test(model)) r.warn('summarizer model', `${model} looks small-tier; the summarizer writes the companion's own memory and a small or fast model flattens its voice. Use a capable mid-tier model or better (docs/CONFIGURATION.md, summarizer).`);
 }
