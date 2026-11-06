@@ -150,3 +150,72 @@ describe('the effective chat model is reported, not the yaml value', () => {
     expect((await get('/system/status')).agent.model).toBe('claude-chosen');
   });
 });
+
+describe('PUT /api/preferences: the summarizer and picture fields', () => {
+  it('GET shows the registry defaults for both blocks', async () => {
+    const g = await get('/preferences');
+    expect(g.agent.summarizer).toEqual({ provider: '', model: '', base_url: '', api_key_env: 'SUMMARIZER_API_KEY' });
+    expect(g.imagegen).toEqual({ provider: 'none', model: '', size: '1024x1024', safety_checker: false });
+  });
+
+  it('writes only what changed: echoing the defaults leaves the file alone, a real change lands and is listed', async () => {
+    const g = await get('/preferences');
+    const echo = await put({ agent: { summarizer: g.agent.summarizer }, imagegen: g.imagegen });
+    expect(echo.written).toEqual([]);
+    expect(readFileSync(file(), 'utf8')).toBe(YAML);
+    const r = await put({
+      agent: { summarizer: { provider: 'openai-compat', model: 'm-1', base_url: 'https://example.test/v1', api_key_env: 'MY_KEY' } },
+      imagegen: { provider: 'runware', size: '1024x1536', safety_checker: true },
+    });
+    expect(r.written.sort()).toEqual([
+      'agent.summarizer.api_key_env', 'agent.summarizer.base_url', 'agent.summarizer.model', 'agent.summarizer.provider',
+      'imagegen.provider', 'imagegen.safety_checker', 'imagegen.size',
+    ]);
+    const saved = yaml.load(readFileSync(file(), 'utf8')) as any;
+    expect(saved.agent.summarizer.provider).toBe('openai-compat');
+    expect(saved.imagegen.provider).toBe('runware');
+  });
+
+  it('refuses a bad provider, size, key-env name (a key pasted in its place) and non-boolean checker', async () => {
+    for (const body of [
+      { agent: { summarizer: { provider: 'gpt' } } },
+      { agent: { summarizer: { api_key_env: 'sk-abc 123' } } },
+      { imagegen: { provider: 'midjourney' } },
+      { imagegen: { size: '10x10' } },
+      { imagegen: { safety_checker: 'yes' } },
+    ]) {
+      const res = await fetch(`${base}/preferences`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+    expect(readFileSync(file(), 'utf8')).toBe(YAML);
+  });
+});
+
+describe('PUT /api/preferences: the memory choice writes the right trio', () => {
+  const saved = () => yaml.load(readFileSync(file(), 'utf8')) as any;
+  it('reads as Revien when the file says nothing, and each choice writes revien.enabled, agent.harness_memory and agent.local_recall together', async () => {
+    expect((await get('/preferences')).memory).toBe('revien');
+    let r = await put({ memory: 'sanctum' });
+    expect(r.written.sort()).toEqual(['agent.harness_memory', 'agent.local_recall', 'revien.enabled']);
+    expect(saved().agent.local_recall).toBe(true);
+    expect(saved().revien.enabled).toBe(false);
+    expect((await get('/preferences')).memory).toBe('sanctum');
+    r = await put({ memory: 'harness' });
+    expect(saved().agent.harness_memory).toBe(true);
+    expect(saved().agent.local_recall).toBeUndefined();
+    expect((await get('/preferences')).memory).toBe('harness');
+    await put({ memory: 'none' });
+    expect(saved().revien.enabled).toBe(false);
+    expect(saved().agent.harness_memory).toBe(false);
+    expect((await get('/preferences')).memory).toBe('none');
+    await put({ memory: 'revien' });
+    expect(saved().revien.enabled).toBe(true);
+    expect((await get('/preferences')).memory).toBe('revien');
+  });
+  it('posting back the choice it was shown writes nothing; an unknown choice is a 400', async () => {
+    const r = await put({ memory: 'revien' });
+    expect(r.written).toEqual([]);
+    const bad = await fetch(`${base}/preferences`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ memory: 'own' }) });
+    expect(bad.status).toBe(400);
+  });
+});
