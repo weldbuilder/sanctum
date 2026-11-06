@@ -1355,6 +1355,11 @@ export function FilesView() {
           pointer-events: none;
         }
 
+        /* On a phone the three-chip toggle goes on its own row under the crumb, so the crumb keeps its width. */
+        @media (max-width: 520px) {
+          .fl-panel-tools { flex: 1 1 100%; margin-left: 0; flex-wrap: wrap; }
+        }
+
         @media (max-width: 768px) {
           .fl-scroll { padding: 0 0.6rem calc(env(safe-area-inset-bottom, 0px) + 3rem); gap: 0.85rem; }
           .fl-head { padding: 1rem 0.25rem 0.25rem; align-items: stretch; }

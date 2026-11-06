@@ -18,7 +18,7 @@ vi.mock('../ws.js', async () => {
 
 import { parseTags, expressionInstructions, runTags, anyTagWillRun, streamView } from '../tags/index.js';
 import '../tags/builtin.js';
-import { initDb, createThread, getMessages, getDb } from '../db.js';
+import { initDb, createThread, createMessage, getMessages, searchMessages, getDb } from '../db.js';
 import { addSticker } from './stickers.js';
 import { search } from './giphy.js';
 import { mediaRelayOf, discordPayloadFor, telegramCallFor } from './relay.js';
@@ -121,6 +121,14 @@ describe('runner', () => {
     await run('words [gif: zzzz]');
     expect(getMessages({ threadId: 't1' })).toHaveLength(0);
     expect(h.broadcasts).toHaveLength(0);
+  });
+  it('searchMessages reads a gif row as "gif" (and a plain image as "image"), without returning metadata', () => {
+    const base = { threadId: 't1', role: 'companion' as const, createdAt: new Date().toISOString() };
+    createMessage({ ...base, id: 'sg1', content: 'zebra dance', contentType: 'gif', metadata: { gif_url: 'https://media.giphy.com/g1.gif' } });
+    createMessage({ ...base, id: 'sg2', content: 'zebra photo', contentType: 'image' });
+    const { messages } = searchMessages({ query: 'zebra' });
+    expect(messages.map((m) => [m.id, m.content_type]).sort()).toEqual([['sg1', 'gif'], ['sg2', 'image']]);
+    expect(messages.every((m) => !('metadata' in m))).toBe(true);
   });
   it('search() maps results to {id, url, preview, title}', async () => {
     expect(await search('cat', { limit: 2 })).toEqual([

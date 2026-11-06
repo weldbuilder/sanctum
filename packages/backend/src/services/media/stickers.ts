@@ -10,7 +10,7 @@ export const STICKER_MIMES = ['image/png', 'image/jpeg', 'image/webp', 'image/gi
 export const STICKER_LIST_CAP = 20;
 
 export interface Sticker { id: string; name: string; file_id: string; created_at: string }
-export class StickerError extends Error { constructor(public readonly code: 'name_required' | 'name_too_long' | 'name_taken' | 'not_image' | 'too_large', msg: string) { super(msg); this.name = 'StickerError'; } }
+export class StickerError extends Error { constructor(public readonly code: 'name_required' | 'name_too_long' | 'name_invalid' | 'name_taken' | 'not_image' | 'too_large', msg: string) { super(msg); this.name = 'StickerError'; } }
 
 export function listStickers(): Sticker[] {
   return getDb().prepare('SELECT id, name, file_id, created_at FROM stickers ORDER BY name COLLATE NOCASE').all() as Sticker[];
@@ -44,7 +44,9 @@ export function sniffImageMime(b: Buffer): string | null {
 export function addSticker(name: string, buffer: Buffer, filename: string, mimeType: string): Sticker {
   const clean = name.replace(/\s+/g, ' ').trim();
   if (!clean) throw new StickerError('name_required', 'A sticker needs a name');
-  if (clean.length > STICKER_NAME_MAX || /[\][:\n]/.test(clean)) throw new StickerError('name_too_long', `A name is up to ${STICKER_NAME_MAX} characters, without brackets or colons`);
+  if (name !== name.trim()) throw new StickerError('name_invalid', 'A name does not start or end with a space');
+  if (name.length > STICKER_NAME_MAX) throw new StickerError('name_too_long', `A name is up to ${STICKER_NAME_MAX} characters`);
+  if (/[\][:,\n]/.test(clean)) throw new StickerError('name_invalid', 'A name has no brackets, colons or commas');
   if (buffer.length > STICKER_MAX_BYTES) throw new StickerError('too_large', 'A sticker is 2 MB or smaller');
   const real = sniffImageMime(buffer);
   if (!real || !STICKER_MIMES.includes(real)) throw new StickerError('not_image', 'A sticker is a png, jpg, webp or gif picture');

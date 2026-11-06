@@ -83,6 +83,16 @@ describe('sticker routes', () => {
     expect(((await (await fetch(`${base}/stickers`)).json()) as any).stickers).toHaveLength(1);
   });
 
+  it('refuses names with a comma, edge whitespace, or more than 40 characters (400), and takes exactly 40', async () => {
+    for (const bad of ['one, two', ' Wave', 'Wave ', '\tWave', 'x'.repeat(41)]) {
+      const r = await up(bad, PNG);
+      expect(r.status, JSON.stringify(bad)).toBe(400);
+      expect(typeof ((await r.json()) as any).message).toBe('string');
+    }
+    expect((await up('x'.repeat(40), PNG)).status).toBe(201);
+    expect(((await (await fetch(`${base}/stickers`)).json()) as any).stickers).toHaveLength(1);
+  });
+
   it('upload answers 403 when app writes are off; list and delete do not', async () => {
     const { sticker } = await (await up('Wave', PNG)).json() as any;
     h.appWrite = false;

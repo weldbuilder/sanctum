@@ -1560,12 +1560,12 @@ export function MessageBubble({ message, isStreaming = false, streamTokens = '',
         .att-thumb-btn:active { transform: scale(0.97); }
 
         /* A companion gif: shown as itself (not cropped square), a small GIF badge on a dark scrim so it reads on any picture. */
-        .gif-frame { position: relative; display: inline-block; max-width: min(18rem, 100%); border-radius: 0.625rem; overflow: hidden; background: rgba(0, 0, 0, 0.35); line-height: 0; }
+        .gif-frame { position: relative; display: inline-block; max-width: min(18rem, 100%); border-radius: 0.625rem; overflow: hidden; background: var(--surface-chrome-deep, #2c1a10); line-height: 0; }
         .gif-img { display: block; max-width: 100%; max-height: 16rem; width: auto; height: auto; }
         .gif-badge {
           position: absolute; left: 0.4rem; top: 0.4rem;
           padding: 0.1rem 0.4rem; border-radius: 0.3rem;
-          background: rgba(0, 0, 0, 0.7); color: #fff;
+          background: var(--surface-chrome, #3a2416); color: var(--surface-chrome-text, #efe4d0);
           font-family: var(--font-mono, 'JetBrains Mono', monospace); font-size: 0.65rem; font-weight: 600; letter-spacing: 0.08em; line-height: 1.4;
         }
 
