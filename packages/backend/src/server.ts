@@ -27,6 +27,7 @@ import { existsSync, mkdirSync, readFileSync } from 'fs';
 import { loadConfig, getSanctumConfig, browserFrameOrigin, checkBrowserUrl } from './config.js';
 import { warnIfBrowserUnfiltered } from './services/browser-gate.js';
 import { warnIfSmallSummarizer, checkSummarizerConfig } from './services/summarizer/config.js';
+import { checkAuthKeyMode } from './services/auth-preferences.js';
 import { initDb, deleteExpiredSessions } from './services/db.js';
 import { loadVectorCache } from './services/vector-cache.js';
 import { createWebSocketServer, setVoiceService, setGatewayServices, registry } from './services/ws.js';
@@ -111,6 +112,7 @@ if (!TENANT_MODE) {
   retireLegacyModelRow(); // the row /model used to write (nothing read it): named once, deleted
   loadVectorCache();
   console.log('Database initialized');
+  checkAuthKeyMode();
 }
 
 // Create Express app

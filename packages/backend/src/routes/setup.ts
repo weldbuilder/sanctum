@@ -29,6 +29,7 @@ import { tenantEditRefusal } from '../tenancy/edit.js';
 import { authMiddleware, getCookieName } from '../middleware/auth.js';
 import { checkSetupCode, ensureSetupCode, noteWrongGuess, setupGuessBlocked } from '../services/setup-code.js';
 import { deleteWebSessionsExcept, getConfig } from '../services/db.js';
+import { updateAuthPreferences } from '../services/auth-preferences.js';
 import { hasBotToken } from '../services/bot-token.js';
 import { applySetup, gatherSetupEnv } from '../../../../scripts/setup-apply.mjs';
 import { buildAnswers, describePlan, setupPlan, walkValues } from '../../../../scripts/setup-plan.mjs';
@@ -264,7 +265,7 @@ router.post('/apply', setupGate, (req, res) => {
     const check = rt ? (candidate: unknown) => tenantEditRefusal(candidate, existsSync(join(rt.dir, 'tenant.yaml')) ? readOwnText(join(rt.dir, 'tenant.yaml')) : '') : undefined;
     // ONE scan of the tenant folder per request: the pre-write check, the dry run and the reload below share it (withScanMemo; this part is synchronous).
     const result = withScanMemo(() => {
-      const applied = applySetup(answers, plan, { say: (line = '') => { if (line) notes.push(line); } }, { writer: 'the setup wizard', backupConfig: true, ...(check ? { check } : {}) });
+      const applied = applySetup(answers, plan, { say: (line = '') => { if (line) notes.push(line); } }, { writer: 'the setup wizard', backupConfig: true, setAuthMode: (u) => { updateAuthPreferences(u); }, ...(check ? { check } : {}) });
       if (rt) {
         // A tenant's password and key go to its own config and .env (applySetup wrote them there), never into process.env: this tenant reads them again,
         // after the same checks as at boot, and no other tenant is touched.

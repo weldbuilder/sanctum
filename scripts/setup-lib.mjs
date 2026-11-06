@@ -1038,3 +1038,8 @@ export function mergeBrowserMcp(text, filterPath, workdir) {
   doc.mcpServers.browser = entry;
   return { action: 'added', text: JSON.stringify(doc, null, 2) + '\n' };
 }
+
+/** The one line boot logs and `npm run doctor` prints (as WARN) when a key sits in .env that the auth mode ignores. */
+export const AUTH_KEY_IGNORED_LINE = 'ANTHROPIC_API_KEY is set but auth mode is subscription, so it is ignored; run setup again or set auth mode to api_key';
+/** True when ANTHROPIC_API_KEY is present and the auth mode is subscription (applyAuthToEnv removes the key from every run in that mode). */
+export const authKeyIgnored = (authMode, envKey) => authMode === 'subscription' && !!String(envKey ?? '').trim();

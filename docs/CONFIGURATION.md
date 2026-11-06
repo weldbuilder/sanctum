@@ -466,6 +466,15 @@ The server never makes a password up for the setup screen (it could not hand one
 | `codex.base_instructions_file` | `./prompts/codex-base-prompt.md` | The harness prompt on Codex. Used only when the home has no `config/codex-base-prompt.md`. `""` gives stock Codex back. See `FORK_NOTES.md`. |
 | `dsh.base_instructions_file` | `./prompts/dsh-base-prompt.md` | The harness prompt on DeepSeek Harness. Used only when the home has no `config/dsh-base-prompt.md`; if neither exists dsh's stock persona is used. See `docs/DSH.md`. |
 
+#### Signing in to Claude: the auth mode and `ANTHROPIC_API_KEY`
+
+Claude runs in one of two **auth modes**, kept in the database (`auth_preferences`, not in `sanctum.yaml` or `.env`):
+
+- `subscription` (the default): the run signs in with your Claude plan (`claude login`). The app **removes** `ANTHROPIC_API_KEY` (and the OAuth and host-managed variables) from every run, so a key in `.env` alone does nothing.
+- `api_key`: the run uses the key stored with the mode. `ANTHROPIC_API_KEY` in `.env` is used only in this mode.
+
+The rule: **pasting a key in setup selects `api_key`** (it stores the key and the mode together); leaving the key empty (the Claude plan, `claude login`) selects `subscription`. Setup does this in both forms (`npm run setup`, and the first-run page). If a key is in `.env` while the mode is `subscription` (an older install, or a hand-edited `.env`), boot logs one line, `ANTHROPIC_API_KEY is set but auth mode is subscription, so it is ignored; run setup again or set auth mode to api_key`, and `npm run doctor` prints the same as a WARN. To change the mode without setup, `PUT /api/auth-preferences` with `auth_mode` (and `api_key`). Codex and DeepSeek Harness do not use this setting.
+
 ### `summarizer` — who writes the companion's memory of itself
 
 `agent.summarizer` is the model that condenses a thread into the short accounts the companion later reads back as its own memory. It writes four kinds, all through the one runner and all in the companion's own first person, "this is what happened today, this is where we left off, this is what I've been doing":

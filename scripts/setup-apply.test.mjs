@@ -94,6 +94,34 @@ describe('applySetup for the app: the password', () => {
   });
 });
 
+describe('applySetup sets the auth mode from the Claude way in', () => {
+  it('a pasted key selects api_key and hands the key with it; no key (claude login) selects subscription; Codex sets nothing', () => {
+    const { run } = sandbox();
+    const calls = [];
+    const opts = { writer: 'the setup wizard', backupConfig: true, setAuthMode: (u) => calls.push(u) };
+    const keyed = run({ provider: 'claude', password: SECRETS[0], anthropicKey: SECRETS[1] }, opts);
+    expect(calls).toEqual([{ auth_mode: 'api_key', api_key: SECRETS[1] }]);
+    expect(keyed.result.authMode).toBe('api_key');
+    expect(keyed.said.join('\n')).not.toContain(SECRETS[1]);
+    calls.length = 0;
+    const login = run({ provider: 'claude', password: SECRETS[0], anthropicKey: '' }, opts);
+    expect(calls).toEqual([{ auth_mode: 'subscription' }]);
+    expect(login.result.authMode).toBe('subscription');
+    calls.length = 0;
+    run({ provider: 'codex', password: SECRETS[0], addProvider: false }, opts);
+    expect(calls).toEqual([]);
+  });
+
+  it('a hook that throws is said (no secret in it) and the rest of the apply stands; with no hook the choice is still on the result', () => {
+    const { run, env } = sandbox();
+    const bad = run({ provider: 'claude', password: SECRETS[0], anthropicKey: SECRETS[1] }, { writer: 'w', setAuthMode: () => { throw new Error('no database'); } });
+    expect(bad.result.authMode).toBeNull();
+    expect(bad.said.join('\n')).toMatch(/auth mode could not be set \(no database\)/);
+    expect(read(env.envPath)).toContain(SECRETS[1]);
+    expect(run({ provider: 'claude', password: SECRETS[0], anthropicKey: SECRETS[1] }).result.authMode).toBe('api_key');
+  });
+});
+
 describe('applySetup never says or returns a secret', () => {
   it('the password, the Anthropic key and a provider key appear in no line said and nowhere in what is returned', () => {
     const { run, env } = sandbox();

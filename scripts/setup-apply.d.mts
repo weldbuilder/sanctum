@@ -48,9 +48,11 @@ export interface ApplyResult {
   ratified: string[];
   restartNeeded: boolean;
   config: Record<string, any>;
+  /** Claude only: the auth mode the answers chose (a pasted key = api_key, none = subscription); null when setting it failed. */
+  authMode?: 'api_key' | 'subscription' | null;
 }
 export function configPathIn(root: string): string;
 export function gatherSetupEnv(root: string, opts?: GatherOptions): SetupEnv;
 export function backupFile(path: string, now?: () => string, mode?: number): string;
 export function restartNeeded(before: Record<string, any>, after: Record<string, any>): boolean;
-export function applySetup(answers: SetupAnswers, plan: Plan, io?: { say?: (line?: string) => void }, opts?: { writer?: string; backupConfig?: boolean; now?: () => string; check?: (tenantYaml: Record<string, any>) => string | null | undefined }): ApplyResult;
+export function applySetup(answers: SetupAnswers, plan: Plan, io?: { say?: (line?: string) => void }, opts?: { writer?: string; backupConfig?: boolean; now?: () => string; check?: (tenantYaml: Record<string, any>) => string | null | undefined; setAuthMode?: (update: { auth_mode: 'api_key' | 'subscription'; api_key?: string }) => void }): ApplyResult;
