@@ -96,6 +96,13 @@
       "enabled": false,
       "elevenlabs_voice_id": ""
     },
+    "imagegen": {
+      "provider": "none",
+      "model": "",
+      "size": "1024x1024",
+      "safety_checker": false,
+      "timeout_ms": 90000
+    },
     "discord": {
       "enabled": false,
       "owner_user_id": "",
@@ -284,6 +291,13 @@
     "voice": {
       "enabled": false,
       "elevenlabs_voice_id": ""
+    },
+    "imagegen": {
+      "provider": "none",
+      "model": "",
+      "size": "1024x1024",
+      "safety_checker": false,
+      "timeout_ms": 90000
     },
     "discord": {
       "enabled": false,

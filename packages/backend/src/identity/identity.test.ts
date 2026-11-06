@@ -42,6 +42,7 @@ function makeConfig(overrides: Partial<SanctumConfig> = {}): SanctumConfig {
     handoff: { enabled: false },
     hooks: { context_injection: true, safe_write_prefixes: [], workspace_root: '', vault_path: '', extra_write_paths: [] },
     voice: { enabled: false, elevenlabs_voice_id: '' },
+    imagegen: { provider: 'none', model: '', size: '1024x1024', safety_checker: false, timeout_ms: 90000 },
     discord: {
       enabled: false, owner_user_id: '', owner: { user_id: '', channel_id: '' },
       public: { enabled: false, guild_ids: [], role_ids: [], bots: 'never', bot_exchange_limit: 4, bot_hourly_limit: 20, history_lines: 12, exclusions_file: '' },

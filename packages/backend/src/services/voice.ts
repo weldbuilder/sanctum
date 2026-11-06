@@ -12,6 +12,13 @@ const GROQ_WHISPER_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
 const ELEVENLABS_BASE = 'https://api.elevenlabs.io/v1/text-to-speech';
 const HUME_BATCH_URL = 'https://api.hume.ai/v0/batch/jobs';
 
+/** What the TTS path can actually colour. The only per-call lever it has is eleven_v3's `stability` (0 creative / 0.5 natural / 1 robust),
+ *  so these three are the emotions on offer: expressive, the default, steady. Nothing here is a prompt tag the model could ignore. */
+export const VOICE_EMOTIONS = ['playful', 'warm', 'calm'] as const;
+export type VoiceEmotion = typeof VOICE_EMOTIONS[number];
+const EMOTION_STABILITY: Record<VoiceEmotion, number> = { playful: 0, warm: 0.5, calm: 1 };
+export function isVoiceEmotion(v: string): v is VoiceEmotion { return (VOICE_EMOTIONS as readonly string[]).includes(v); }
+
 export class VoiceService {
   private groqKey: string | undefined;
   private elevenLabsKey: string | undefined;
@@ -293,7 +300,7 @@ export class VoiceService {
    * Generate TTS audio from text using ElevenLabs.
    * Returns raw MP3 Buffer (no side effects — caller decides what to do with it).
    */
-  async generateTTS(text: string): Promise<Buffer> {
+  async generateTTS(text: string, opts?: { emotion?: VoiceEmotion }): Promise<Buffer> {
     if (!this.elevenLabsKey || !this.elevenLabsVoiceId) {
       throw new Error('ElevenLabs not configured — set ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID');
     }
@@ -308,7 +315,7 @@ export class VoiceService {
       body: JSON.stringify({
         text,
         model_id: 'eleven_v3',
-        voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+        voice_settings: { stability: opts?.emotion ? EMOTION_STABILITY[opts.emotion] : 0.5, similarity_boost: 0.75 },
       }),
     });
 
@@ -324,8 +331,8 @@ export class VoiceService {
    * Generate TTS and save as an audio message in the thread.
    * Used by the /api/internal/tts endpoint.
    */
-  async generateTTSForMessage(text: string, threadId: string): Promise<{ messageId: string; fileId: string }> {
-    const audioBuffer = await this.generateTTS(text);
+  async generateTTSForMessage(text: string, threadId: string, opts?: { emotion?: VoiceEmotion; transcript?: boolean }): Promise<{ messageId: string; fileId: string }> {
+    const audioBuffer = await this.generateTTS(text, { emotion: opts?.emotion });
     const fileMeta = saveFile(audioBuffer, 'voice-note.mp3', 'audio/mpeg');
 
     const now = new Date().toISOString();
@@ -335,7 +342,8 @@ export class VoiceService {
       id: crypto.randomUUID(),
       threadId,
       role: 'companion',
-      content: text,
+      // transcript:false is for a voice note that follows the same words as a text message (an inline [voice] reply): the player alone, no second copy of the text.
+      content: opts?.transcript === false ? '' : text,
       contentType: 'text',
       metadata: {
         source: 'voice',

@@ -15,6 +15,8 @@ export interface ToolHelpOptions {
   telegram?: boolean;
   /** The shared browser seat is configured (integrations.browser_url set, or a `browser` server in .mcp.json): lists the `browser` topic. */
   browser?: boolean;
+  /** Image generation is configured (imagegen.provider set and its key present): lists the `image` topic. Never set it otherwise. */
+  image?: boolean;
   /** Plugin help topics, id -> help.md text (see services/plugins.ts pluginHelp). */
   pluginHelp?: Record<string, string>;
 }
@@ -135,6 +137,11 @@ export function toolHelpSections(o: ToolHelpOptions): Record<ToolTopic, string[]
       '  Read the browser skill (.claude/skills/browser/SKILL.md) for the full rules.',
       '  Without integrations.browser_url there is no viewer tab: the person cannot watch or take over.',
     ] : [],
+    image: o.image ? [
+      'IMAGE GENERATION (FLUX; the picture is posted into the chat as my own image message):',
+      `  ${SC} image "what to draw" [--size 1024x1024|1024x1536|1536x1024]`,
+      '  Prints one line when done. On Claude the same thing is the generate_image tool. Do not re-send or describe the file.',
+    ] : [],
     tg: o.telegram ? [
       'TELEGRAM TOOLS (available because user is on Telegram):',
       `  ${SC} tg photo /path/to/image.png "caption"`,
@@ -182,6 +189,7 @@ export function shortToolList(o: ToolHelpOptions): string {
   ];
   if (o.ccEnabled) lines.push(`  ${SC} cc <tool> '<json>'                        care log, cycle, routines, pets (tools: ${CC_TOOL_NAMES.join(', ')})`);
   if (o.browser) lines.push(`  ${SC} help browser                             browser tools (navigate, snapshot, click, type) in the shared tab`);
+  if (o.image) lines.push(`  ${SC} image "prompt" [--size WxH]            generate a picture and post it in the chat`);
   if (o.telegram) lines.push(`  ${SC} tg photo|doc|gif|react|voice|text        Telegram extras`);
   // The built-in rows pad what follows SC to VERB_COL, so the descriptions line up whatever SC is
   // (a bare `res`, or `node /abs/path/tools/res.mjs`). Plugin rows pad the same way.

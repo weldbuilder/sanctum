@@ -246,6 +246,37 @@ switch (cmd) {
     await post('tts', { text: args[0], threadId: thread });
     break;
 
+  // res image "prompt" [--size 1024x1024|1024x1536|1536x1024]  -> one line; exit 0 only on success
+  case 'image': {
+    const rest = [...args];
+    let size;
+    const si = rest.indexOf('--size');
+    if (si !== -1) { size = (rest[si + 1] || '').toLowerCase().replace('*', 'x'); rest.splice(si, 2); }
+    const prompt = rest.join(' ').trim();
+    if (!prompt) { console.error('Usage: res image "prompt" [--size 1024x1024|1024x1536|1536x1024]'); process.exitCode = 2; break; }
+    try {
+      const r = await fetch(`${BASE}/image`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(INTERNAL_TOKEN ? { 'x-internal-token': INTERNAL_TOKEN } : {}) },
+        body: JSON.stringify({ prompt, ...(size ? { size } : {}), threadId: thread }),
+        signal: AbortSignal.timeout(150000), // the server's own limit is imagegen.timeout_ms (default 90s)
+      });
+      let j = null;
+      try { j = await r.json(); } catch { /* not JSON */ }
+      if (r.ok && j && j.ok) {
+        console.log(`Image generated and posted (${j.provider}, ${j.model})`);
+      } else {
+        const why = j && j.error ? `${j.error}${j.detail ? `: ${j.detail}` : ''}${j.provider ? ` (${j.provider})` : ''}` : `HTTP ${r.status}`;
+        console.error(`Error: image failed: ${why}`);
+        process.exitCode = 1;
+      }
+    } catch (e) {
+      console.error(e.name === 'TimeoutError' ? 'Error: request timed out' : `Error: ${e.message}`);
+      process.exitCode = 1;
+    }
+    break;
+  }
+
   case 'routine':
   case 'schedule': {
     const sub = args[0];

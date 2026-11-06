@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import { PROJECT_ROOT } from '../config.js';
 import { tenantOrNull } from '../tenancy/context.js';
 import { companionPath } from '../tenancy/house.js';
-import { ownAssertReadable, ownMkdir, ownReadable, ownUnlink, ownWriteFile } from '../tenancy/own-files.js';
+import { ownAssertReadable, ownMkdir, ownReadable, ownUnlink, ownWriteFile, readOwnText } from '../tenancy/own-files.js';
 
 /** Where uploads live: <project>/data/files, or <tenant>/data/files in tenant mode. A function, not a constant, so each request reads its own. */
 function filesDir(): string {
@@ -39,6 +39,31 @@ const EXT_TO_MIME: Record<string, string> = {
   '.doc': 'application/msword', '.xls': 'application/vnd.ms-excel',
 };
 
+/** Who made a file, kept beside it as `<fileId>.meta.json` (the files folder is a plain directory of `<uuid>.<ext>`, with no database row to hold it).
+ *  The name does not match the `<uuid>.<ext>` pattern the listing and the downloader use, so a sidecar is never listed or served as a file. */
+export interface FileSource {
+  source: string;
+  /** The name the file was saved under (the stored name is the uuid). */
+  filename?: string;
+  prompt?: string;
+  provider?: string;
+  model?: string;
+  createdAt: string;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const sidecarPath = (fileId: string): string => join(filesDir(), `${fileId}.meta.json`);
+
+export function readFileMeta(fileId: string): FileSource | null {
+  if (!UUID_RE.test(fileId)) return null;
+  try {
+    const p = sidecarPath(fileId);
+    if (!existsSync(p) || !ownReadable(p)) return null;
+    const v = JSON.parse(readOwnText(p));
+    return v && typeof v === 'object' && typeof v.source === 'string' ? (v as FileSource) : null;
+  } catch { return null; }
+}
+
 export interface FileMetadata {
   fileId: string;
   filename: string;
@@ -64,7 +89,8 @@ export function resolveMimeType(originalFilename: string, browserMime: string): 
   return EXT_TO_MIME[ext] || browserMime;
 }
 
-export function saveFile(buffer: Buffer, originalFilename: string, mimeType: string): FileMetadata {
+/** `meta` (optional) is written as a sidecar so the list route can say where the file came from. */
+export function saveFile(buffer: Buffer, originalFilename: string, mimeType: string, meta?: Omit<FileSource, 'createdAt'>): FileMetadata {
   if (buffer.length > MAX_FILE_SIZE) throw new Error(`File exceeds ${MAX_FILE_SIZE / 1024 / 1024}MB limit`);
   mimeType = resolveMimeType(originalFilename, mimeType);
   if (!ALLOWED_TYPES[mimeType]) throw new Error(`File type ${mimeType} not allowed`);
@@ -72,6 +98,10 @@ export function saveFile(buffer: Buffer, originalFilename: string, mimeType: str
   const fileId = crypto.randomUUID();
   const ext = ALLOWED_TYPES[mimeType];
   ownWriteFile(join(filesDir(), `${fileId}${ext}`), buffer);
+  if (meta) {
+    try { ownWriteFile(sidecarPath(fileId), JSON.stringify({ ...meta, filename: originalFilename, createdAt: new Date().toISOString() })); }
+    catch { /* the file is saved; losing the label must not lose the file */ }
+  }
   return { fileId, filename: originalFilename, mimeType, size: buffer.length, contentType: getContentTypeFromMime(mimeType), url: companionPath(`/api/files/${fileId}`) };
 }
 
@@ -88,13 +118,19 @@ export function getFile(fileId: string): { path: string; mimeType: string; filen
 export interface FileListEntry {
   fileId: string; filename: string; mimeType: string; size: number;
   contentType: 'image' | 'audio' | 'file'; createdAt: string;
+  /** Where the file came from, when it was made by the app (e.g. image generation). Absent for uploads. */
+  meta?: FileSource;
 }
 
 export function deleteFile(fileId: string): boolean {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(fileId)) return false;
   for (const ext of Object.values(ALLOWED_TYPES)) {
     const filePath = join(filesDir(), `${fileId}${ext}`);
-    if (existsSync(filePath)) { ownUnlink(filePath); return true; }
+    if (existsSync(filePath)) {
+      ownUnlink(filePath);
+      try { if (existsSync(sidecarPath(fileId))) ownUnlink(sidecarPath(fileId)); } catch { /* best effort */ }
+      return true;
+    }
   }
   return false;
 }
@@ -113,7 +149,8 @@ export function listFiles(): FileListEntry[] {
     try {
       if (!ownReadable(join(filesDir(), file))) continue;
       const stat = statSync(join(filesDir(), file));
-      entries.push({ fileId: match[1], filename: file, mimeType, size: stat.size, contentType: getContentTypeFromMime(mimeType), createdAt: stat.birthtime.toISOString() });
+      const meta = readFileMeta(match[1]);
+      entries.push({ fileId: match[1], filename: file, mimeType, size: stat.size, contentType: getContentTypeFromMime(mimeType), createdAt: stat.birthtime.toISOString(), ...(meta ? { meta } : {}) });
     } catch {}
   }
   entries.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
