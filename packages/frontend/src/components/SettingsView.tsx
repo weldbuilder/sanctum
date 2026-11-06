@@ -1,164 +1,36 @@
 /**
- * SettingsView — multi-section panel with left sub-sidebar.
+ * SettingsView — six tabs and a Status page, with a left sub-sidebar (a wrapped pill strip on a phone).
  *
- * Nav rail (Home/Chat/Settings) stays unchanged at the app level.
- * Inside Settings: sub-sidebar on the left lists 7 sections, content pane renders
- * the selected section.
- *
- * Sections: Preferences · Appearance · Orchestrator · Discord · Telegram · MCPs · Skills & Status
+ * You & them · Mind · Rhythm · Channels · Permissions · Look, then Status (read-only panels, Google, the server). The tab list is
+ * settingsTabs.ts; each tab is one component in ./settings.
  */
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
-import { PreferencesSection } from './settings/PreferencesSection';
+import { useChatStore } from '../store/chat';
 import { AppearanceSection } from './settings/AppearanceSection';
 import { OrchestratorSection } from './settings/OrchestratorSection';
-import { ChannelsSection } from './settings/ChannelsSection';
-import { McpSection } from './settings/McpSection';
-import { SkillsStatusSection } from './settings/SkillsStatusSection';
-import { UsageSection } from './settings/UsageSection';
-import { GoogleSection } from './settings/GoogleSection';
-import { MindSection } from './settings/MindSection';
-import { LogsSection } from './settings/LogsSection';
-import { PluginsSection } from './settings/PluginsSection';
-import { IdentitySection } from './settings/IdentitySection';
+import { YouThemTab } from './settings/YouThemTab';
+import { MindTab } from './settings/MindTab';
+import { ChannelsTab } from './settings/ChannelsTab';
+import { PermissionsSection } from './settings/PermissionsSection';
+import { StatusTab } from './settings/StatusTab';
 import { PRIMITIVES_CSS } from './settings/primitives';
-
-// ─── Base URL ─────────────────────────────────────────────────────────────────
+import { DEFAULT_TAB, TABS, type SectionId } from './settingsTabs';
 
 import { BASE } from '../lib/base';
 
-// ─── Section registry ─────────────────────────────────────────────────────────
+const ICON = { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round', strokeLinejoin: 'round' } as const;
 
-type SectionId =
-  | 'preferences'
-  | 'appearance'
-  | 'orchestrator'
-  | 'channels'
-  | 'mcps'
-  | 'skills'
-  | 'usage'
-  | 'integrations'
-  | 'plugins'
-  | 'identity'
-  | 'logs';
-
-interface SectionMeta {
-  id: SectionId;
-  label: string;
-  sub?: string;
-  icon: React.ReactNode;
-}
-
-const SECTIONS: SectionMeta[] = [
-  {
-    id: 'preferences',
-    label: 'preferences',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'appearance',
-    label: 'appearance',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="10" />
-        <path d="M12 2a10 10 0 010 20" />
-        <path d="M12 2v20" />
-        <path d="M2 12h20" />
-      </svg>
-    ),
-  },
-  {
-    id: 'orchestrator',
-    label: 'orchestrator',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="3" />
-        <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
-      </svg>
-    ),
-  },
-  {
-    id: 'channels',
-    label: 'channels',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="6" cy="12" r="2" />
-        <circle cx="18" cy="12" r="2" />
-        <line x1="8" y1="12" x2="16" y2="12" />
-      </svg>
-    ),
-  },
-  {
-    id: 'mcps',
-    label: 'registered MCPs',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
-      </svg>
-    ),
-  },
-  {
-    id: 'skills',
-    label: 'skills & status',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-      </svg>
-    ),
-  },
-  {
-    id: 'usage',
-    label: 'usage & model',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <line x1="18" y1="20" x2="18" y2="10" />
-        <line x1="12" y1="20" x2="12" y2="4" />
-        <line x1="6" y1="20" x2="6" y2="14" />
-      </svg>
-    ),
-  },
-  {
-    id: 'integrations',
-    label: 'integrations',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="3" />
-        <path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12" />
-      </svg>
-    ),
-  },
-  {
-    id: 'plugins',
-    label: 'plugins',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 2v5M8 2v5M16 2v5M6 7h12v4a6 6 0 01-12 0V7z" /><path d="M12 17v5" />
-      </svg>
-    ),
-  },
-  {
-    id: 'identity',
-    label: 'identity',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 2l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5l8-3z" /><path d="M9 12l2 2 4-4" />
-      </svg>
-    ),
-  },
-  {
-    id: 'logs',
-    label: 'logs',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M4 4h16M4 9h16M4 14h10M4 19h7" />
-      </svg>
-    ),
-  },
-];
+const ICONS: Record<SectionId, React.ReactNode> = {
+  you: <svg {...ICON}><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20c.5-3.5 3-5.5 6.5-5.5s6 2 6.5 5.5" /><circle cx="18" cy="9" r="2.5" /><path d="M17 14.5c2.5 0 4 1.5 4.5 4" /></svg>,
+  mind: <svg {...ICON}><path d="M12 2a7 7 0 00-4 12.7V18h8v-3.3A7 7 0 0012 2z" /><path d="M9.5 21h5" /></svg>,
+  rhythm: <svg {...ICON}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>,
+  channels: <svg {...ICON}><circle cx="6" cy="12" r="2" /><circle cx="18" cy="12" r="2" /><line x1="8" y1="12" x2="16" y2="12" /></svg>,
+  permissions: <svg {...ICON}><path d="M12 2l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5l8-3z" /><path d="M9 12l2 2 4-4" /></svg>,
+  look: <svg {...ICON}><circle cx="12" cy="12" r="10" /><path d="M12 2a10 10 0 010 20" /><path d="M12 2v20" /><path d="M2 12h20" /></svg>,
+  status: <svg {...ICON}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>,
+};
 
 // ─── Sub-sidebar ──────────────────────────────────────────────────────────────
 
@@ -174,14 +46,14 @@ function SubSidebar({
   return (
     <nav className="settings-subnav" aria-label="Settings sections">
       <div className="settings-subnav-label">settings</div>
-      {SECTIONS.map(sec => (
+      {TABS.map(sec => (
         <button
           key={sec.id}
           className={`settings-subnav-btn${active === sec.id ? ' active' : ''}`}
           onClick={() => onChange(sec.id)}
           aria-current={active === sec.id ? 'page' : undefined}
         >
-          <span className="settings-subnav-icon" aria-hidden="true">{sec.icon}</span>
+          <span className="settings-subnav-icon" aria-hidden="true">{ICONS[sec.id]}</span>
           <span className="settings-subnav-text">{sec.label}</span>
           {active === sec.id && (
             <span className="settings-subnav-indicator" aria-hidden="true" />
@@ -212,25 +84,16 @@ function SubSidebar({
 // ─── Content renderer ─────────────────────────────────────────────────────────
 
 function SectionContent({ id, logsQuery, onOpenLogs }: { id: SectionId; logsQuery: string; onOpenLogs: (q: string) => void }) {
+  const navigate = useNavigate();
+  const openThread = (threadId: string) => { void useChatStore.getState().loadThread(threadId); navigate('/chat'); };
   switch (id) {
-    case 'preferences': return <PreferencesSection base={BASE} />;
-    case 'appearance':  return <AppearanceSection />;
-    case 'orchestrator': return <OrchestratorSection base={BASE} />;
-    case 'channels':    return <ChannelsSection base={BASE} onOpenLogs={onOpenLogs} />;
-    case 'mcps':        return <McpSection base={BASE} />;
-    case 'skills':        return <SkillsStatusSection base={BASE} />;
-    case 'usage':         return <UsageSection base={BASE} />;
-    case 'integrations':  return (
-      <>
-        {/* The Mind card first — the seam lives at the top of Integrations
-            (MIND-SURFACE-SPEC §Phase-1.1), then Google below. */}
-        <MindSection base={BASE} />
-        <GoogleSection base={BASE} />
-      </>
-    );
-    case 'plugins':       return <PluginsSection base={BASE} />;
-    case 'identity':      return <IdentitySection base={BASE} />;
-    case 'logs':          return <LogsSection base={BASE} initialQuery={logsQuery} />;
+    case 'you':         return <YouThemTab base={BASE} />;
+    case 'mind':        return <MindTab base={BASE} />;
+    case 'rhythm':      return <OrchestratorSection base={BASE} />;
+    case 'channels':    return <ChannelsTab base={BASE} onOpenLogs={onOpenLogs} />;
+    case 'permissions': return <PermissionsSection base={BASE} openThread={openThread} />;
+    case 'look':        return <AppearanceSection />;
+    case 'status':      return <StatusTab base={BASE} logsQuery={logsQuery} />;
     default: return null;
   }
 }
@@ -238,17 +101,20 @@ function SectionContent({ id, logsQuery, onOpenLogs }: { id: SectionId; logsQuer
 // ─── SettingsView ─────────────────────────────────────────────────────────────
 
 export function SettingsView() {
-  const [activeSection, setActiveSection] = useState<SectionId>('preferences');
-  // A card can send the person to the log viewer with a filter already typed (the Discord card: `[discord]`).
+  const [activeSection, setActiveSection] = useState<SectionId>(DEFAULT_TAB);
+  // A card can send the person to the log viewer with a filter already typed (the Discord card: `[discord]`); the log lives on Status.
   const [logsQuery, setLogsQuery] = useState('');
-  const openLogs = (q: string) => { setLogsQuery(q); setActiveSection('logs'); };
-  // Only the card's button seeds the filter: leaving Logs, or opening it from the sidebar, starts clean.
+  const openLogs = (q: string) => { setLogsQuery(q); setActiveSection('status'); };
+  // Only the card's button seeds the filter: leaving Status, or opening it from the sidebar, starts clean.
   const chooseSection = (id: SectionId) => { setLogsQuery(''); setActiveSection(id); };
 
-  const activeMeta = SECTIONS.find(s => s.id === activeSection)!;
+  const activeMeta = TABS.find(s => s.id === activeSection)!;
+  // A new tab opens at its top, not where the last one was scrolled to.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { scrollRef.current?.scrollTo({ top: 0 }); }, [activeSection]);
 
   return (
-    <div className="settings-view">
+    <div className="settings-view" data-settings-tab={activeSection}>
       {/* Inject primitives CSS once */}
       <style>{PRIMITIVES_CSS}</style>
 
@@ -257,12 +123,13 @@ export function SettingsView() {
 
       {/* Content pane */}
       <div className="settings-content" role="main">
-        <div className="settings-content-scroll">
+        <div className="settings-content-scroll" ref={scrollRef}>
           <div className="settings-content-inner">
 
             {/* Section header */}
             <header className="settings-section-header">
               <h1 className="settings-section-title">{activeMeta.label}</h1>
+              <p className="settings-section-sub">{activeMeta.sub}</p>
             </header>
 
             {/* Section body */}
@@ -363,6 +230,7 @@ export function SettingsView() {
           text-align: left;
           transition: color 150ms var(--hearth-curve, ease), background 150ms var(--hearth-curve, ease);
           isolation: isolate;
+          min-height: 40px;
         }
 
         .settings-subnav-btn::before {
@@ -421,7 +289,7 @@ export function SettingsView() {
             width: auto;
             border-radius: 1.5rem;
             flex-shrink: 1;
-            min-height: 36px;
+            min-height: 40px;
             border: 1px solid rgba(255, 255, 255, 0.05);
           }
           .settings-subnav-btn.active {
@@ -518,6 +386,12 @@ export function SettingsView() {
         .settings-section-header {
           margin-bottom: 0.125rem;
         }
+        .settings-section-sub {
+          margin: 0.125rem 0 0;
+          font-size: 0.8125rem;
+          color: var(--text-muted);
+        }
+        @media (min-width: 769px) { .settings-section-sub { font-size: 14px; } }
 
         .settings-section-title {
           font-family: var(--font-serif, 'Lora', serif);
@@ -588,6 +462,16 @@ export function SettingsView() {
         .settings-view .hsel-trigger:disabled { color: var(--settings-disabled-text, #b7a98f); }
         /* Field text uses the field's own ink, not the lavender the mono slot carries. */
         .settings-view input, .settings-view textarea, .settings-view select, .settings-view .mono, .settings-view .sp-field-value.mono, .settings-view code { color: var(--settings-field-text, #f3ead7) !important; }
+
+        /* ── Tap targets: every control in Settings is at least 40px to hit. Buttons and fields grow; a switch keeps its painted
+           track and gets an invisible hit area round it, so no skin's switch changes. ── */
+        .settings-view .sp-btn, .settings-view .sp-btn.small, .settings-view .hsel-trigger, .settings-view .sp-form-input,
+        .settings-view select.sp-form-input, .settings-view .sysprompt-save, .settings-view .pend-cancel-btn, .settings-view .pend-expand-toggle {
+          min-height: 40px;
+        }
+        .settings-view .pend-cancel-btn, .settings-view .pend-expand-toggle { min-width: 40px; }
+        .settings-view .sp-toggle { position: relative; }
+        .settings-view .sp-toggle::after { content: ''; position: absolute; inset: 50% auto auto 50%; width: 48px; height: 44px; transform: translate(-50%, -50%); }
       `}</style>
     </div>
   );

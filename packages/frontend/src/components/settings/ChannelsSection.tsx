@@ -161,6 +161,38 @@ function DiscordFailures({ base, onOpenLogs }: { base: string; onOpenLogs?: (q: 
   );
 }
 
+// ─── Discord lanes (owner and public), read-only ──────────────────────────────
+
+const LANE_WORDS: Record<string, string> = {
+  on: 'on', off: 'off', paused: 'paused', blocked: 'blocked by the gate', unsupported_harness: 'not available on this harness',
+};
+
+function DiscordLanes({ base }: { base: string }) {
+  const [lanes, setLanes] = useState<{ owner?: { state?: string; userIdSet?: boolean; channelIdSet?: boolean }; public?: { state?: string; guilds?: number } } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`${base}/api/discord/status`);
+        if (!res.ok) return;
+        const d = await res.json() as { lanes?: typeof lanes };
+        if (alive && d.lanes) setLanes(d.lanes);
+      } catch { /* no status: no lane rows */ }
+    })();
+    return () => { alive = false; };
+  }, [base]);
+  if (!lanes) return null;
+  const word = (s?: string) => LANE_WORDS[s ?? ''] ?? s ?? 'unknown';
+  return (
+    <>
+      <FieldRow label="owner lane" value={word(lanes.owner?.state)} sub={lanes.owner?.channelIdSet ? undefined : ' (no channel set yet)'}
+        hint="You, in your own channel and by direct message." />
+      <FieldRow label="public lane" value={word(lanes.public?.state)} sub={lanes.public?.guilds ? ` (${lanes.public.guilds} server${lanes.public.guilds === 1 ? '' : 's'})` : undefined}
+        hint="Listed servers. Its servers and limits are set in sanctum.yaml (discord.public); Permissions can switch Discord sending off." />
+    </>
+  );
+}
+
 // ─── ChannelCard ──────────────────────────────────────────────────────────────
 
 function ChannelCard({
@@ -451,6 +483,7 @@ function ChannelCard({
               />
             )}
 
+            {id === 'discord' && <DiscordLanes base={base} />}
             {/* Telegram only: read-only owner chat ID */}
             {id === 'telegram' && (
               <FieldRow

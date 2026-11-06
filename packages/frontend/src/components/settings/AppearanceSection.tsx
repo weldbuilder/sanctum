@@ -120,9 +120,7 @@ const SAVE_DEBOUNCE_MS = 500;
 const STATUS_HOLD_MS = 2200;
 
 export function AppearanceSection() {
-  const legacyOverrides = useThemeStore(s => s.overrides);
-  const setLegacyToken = useThemeStore(s => s.setToken);
-  const saveTheme = useThemeStore(s => s.saveTheme);
+  // The v2 appearance document is the only editor. The legacy server-synced token set (store/theme.ts) is no longer edited here; reset clears it.
   const resetTheme = useThemeStore(s => s.resetTheme);
 
   const applied = useAppearanceStore(s => s.applied);
@@ -164,16 +162,6 @@ export function AppearanceSection() {
     statusTimerRef.current = setTimeout(() => setStatus('idle'), STATUS_HOLD_MS);
   }, []);
 
-  // Classic palette: every pick applies live at once, the network save waits for a pause.
-  const scheduleLegacySave = useCallback(() => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(async () => {
-      setStatus('saving');
-      const ok = await saveTheme(useThemeStore.getState().overrides);
-      holdStatus(ok);
-    }, SAVE_DEBOUNCE_MS);
-  }, [saveTheme, holdStatus]);
-
   // ── room / material / readability: previewed, then applied or cancelled ──
   const change = (next: AppearanceDoc) => { setMessage(''); preview(next); };
 
@@ -183,30 +171,22 @@ export function AppearanceSection() {
   };
   const onCancel = () => { cancel(); setMessage('Cancelled. Your previous appearance is back.'); };
 
-  const ownOverrides = isClassic ? legacyOverrides : (doc.customByMaterial[material] ?? {});
+  const ownOverrides = doc.customByMaterial[material] ?? {};
   const issues = useMemo(() => readabilityIssues(material, ownOverrides), [material, ownOverrides]);
-  const held = useMemo(() => guardedOverrides(doc, legacyOverrides).held, [doc, legacyOverrides]);
+  const held = useMemo(() => guardedOverrides(doc, {}).held, [doc]);
 
   const effectiveValue = (key: string): string => ownOverrides[key] ?? baseTokenValue(material, key);
 
   const handleColorChange = (key: string, hex: string) => {
-    if (isClassic) { setLegacyToken(key, hex); scheduleLegacySave(); }
-    else setCustom(material, key, hex);
+    setCustom(material, key, hex);
   };
   const handleFontChange = (key: string, value: string) => {
-    if (isClassic) { setLegacyToken(key, value); scheduleLegacySave(); }
-    else setCustom(material, key, value);
+    setCustom(material, key, value);
   };
 
   const restoreReadable = async () => {
     clearTimers();
-    if (isClassic) {
-      setStatus('saving');
-      const ok = await resetTheme();
-      holdStatus(ok);
-    } else {
-      clearCustom(material);
-    }
+    clearCustom(material);
     setMessage('Custom colours removed. This material’s own readable palette is back.');
   };
   const resetEverything = async () => {
@@ -353,6 +333,7 @@ export function AppearanceSection() {
           </div>
         )}
 
+        {!isClassic && (<>
         <button
           type="button"
           className="ap-collapse"
@@ -362,14 +343,12 @@ export function AppearanceSection() {
         >
           <span className="ap-collapse-chev" aria-hidden="true">{customOpen ? '\u25BE' : '\u25B8'}</span>
           <span className="ap-collapse-label">customize</span>
-          <span className="ap-collapse-sub">{isClassic ? 'colours & fonts, live, saved to your hearth' : `colours & fonts for ${MATERIALS[material].label}`}</span>
+          <span className="ap-collapse-sub">{`colours & fonts for ${MATERIALS[material].label}`}</span>
         </button>
         {customOpen && <div id="ap-customize">
         <Group>
           <p className="appearance-lead">
-            {isClassic
-              ? 'Colours and fonts here write straight into the hearth’s own palette the instant you change them, and follow you on reload.'
-              : 'These customise only the chosen material, in this browser. Switching material keeps each one’s own set. Extra readable ignores custom colours.'}
+            These customise only the chosen material, in this browser. Switching material keeps each one’s own set. Extra readable ignores custom colours.
           </p>
         </Group>
 
@@ -444,6 +423,16 @@ export function AppearanceSection() {
           </Btn>
         </div>
         </div>}
+        </>)}
+        {isClassic && (
+          <div className="theme-actions">
+            <span className="appearance-lead">The Hedgewitch kitchen is drawn in its own painted palette; pick another surface to customise colours and fonts.</span>
+            <SaveIndicator status={status} />
+            <Btn variant="muted" small onClick={resetEverything} disabled={status === 'saving'}>
+              reset to defaults
+            </Btn>
+          </div>
+        )}
       </div>
 
       <style>{`
