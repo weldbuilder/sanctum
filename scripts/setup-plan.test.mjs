@@ -4,13 +4,13 @@ import * as path from 'node:path';
 import { tmpdir } from 'node:os';
 import { appFixture } from './__fixtures__/setup/scenarios.mjs';
 import { gatherSetupEnv } from './setup-apply.mjs';
-import { STEP_KINDS, setupPlan, walkValues, describePlan, checkKind, buildAnswers, parseAnswer, defaultText, evalStep } from './setup-plan.mjs';
+import { PHASE_ONE, STEP_KINDS, setupPlan, walkValues, describePlan, checkKind, buildAnswers, parseAnswer, defaultText, evalStep } from './setup-plan.mjs';
 
 const made = [];
 afterEach(() => { while (made.length) fs.rmSync(made.pop(), { recursive: true, force: true }); });
 
 /** A sandbox app folder (fixed starter template and one shipped plugin) and its plan. `yaml` is an object written as JSON (valid YAML). */
-function sandbox({ yaml, files = {}, codex = true, plugins = [] } = {}) {
+function sandbox({ yaml, files = {}, codex = true, plugins = [], phase } = {}) {
   const sbx = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), 'setup-plan-')));
   made.push(sbx);
   const root = path.join(sbx, 'app');
@@ -23,6 +23,7 @@ function sandbox({ yaml, files = {}, codex = true, plugins = [] } = {}) {
   if (yaml) fs.writeFileSync(path.join(root, 'sanctum.yaml'), JSON.stringify(yaml));
   for (const [rel, text] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(sbx, rel)), { recursive: true }); fs.writeFileSync(path.join(sbx, rel), text); }
   const env = gatherSetupEnv(root, { processEnv: {}, homeDir: path.join(sbx, 'home'), codexInstalled: codex, timezoneDefault: 'UTC' });
+  if (phase) env.phase = phase;
   return { sbx, root, env, plan: setupPlan(env.existing, env) };
 }
 const listing = (dir) => fs.readdirSync(dir, { recursive: true }).map(String).sort();
@@ -45,7 +46,7 @@ describe('setupPlan: the steps', () => {
     expect(plan.map((s) => s.id)).toEqual([
       'companionName', 'userName', 'timezone', 'home', 'homeCreate',
       'provider', 'addProvider', 'providerId', 'providerName', 'providerBaseUrl', 'providerKey', 'providerModel', 'providerDefault', 'codexModel', 'codexProvider', 'claudeModel', 'anthropicKey', 'dshModel', 'dshKey',
-      'sandbox', 'extraDirs', 'appWrite', 'rolling', 'pluginsTrust', 'plugins',
+      'sandbox', 'extraDirs', 'appWrite', 'orchestrator', 'rolling', 'pluginsTrust', 'plugins',
       'imageProvider', 'imageKey', 'summaryWho', 'summaryEndpoint', 'summaryKey',
       'discordEnable', 'discordOwnerUserId', 'discordOwnerChannelId', 'discordPrivateDir', 'password',
       'memory', 'codexMemoriesOff', 'codexMemoriesOn', 'browserSeat', 'browserEntry', 'phoneOrigin',
@@ -323,5 +324,143 @@ describe('setupPlan: household mode (a companion shares the house password)', ()
     const per = plan({ household: false });
     expect(per.env.household).toBe(false);
     expect(askedIds(per.plan, { provider: 'claude' })).toEqual(expect.arrayContaining(['password', 'tenantHost']));
+  });
+});
+
+// ── phases ────────────────────────────────────────────────────────────────────
+
+/** The step ids of the wizard before it had phases (43 with the app fixture's one shipped plugin, 3 more ratify slots per plugin picked): the set this change must keep, plus the one it adds. */
+const BASE_IDS = [
+  'companionName', 'userName', 'timezone', 'home', 'homeCreate',
+  'provider', 'addProvider', 'providerId', 'providerName', 'providerBaseUrl', 'providerKey', 'providerModel', 'providerDefault', 'codexModel', 'codexProvider', 'claudeModel', 'anthropicKey', 'dshModel', 'dshKey',
+  'sandbox', 'extraDirs', 'appWrite', 'rolling', 'pluginsTrust', 'plugins',
+  'imageProvider', 'imageKey', 'summaryWho', 'summaryEndpoint', 'summaryKey',
+  'discordEnable', 'discordOwnerUserId', 'discordOwnerChannelId', 'discordPrivateDir', 'password',
+  'memory', 'codexMemoriesOff', 'codexMemoriesOn', 'browserSeat', 'browserEntry', 'phoneOrigin',
+  'ledgerDir', 'ratify_0', 'ratify_1', 'ratify_2',
+];
+const CONFIGURED = {
+  identity: { companion_name: 'Ada', user_name: 'Sam', timezone: 'Europe/Berlin' },
+  agent: { cwd: '<HOME>', provider: 'claude', model: 'claude-sonnet-5-5', app_write: true, rolling: { claude: true } },
+  orchestrator: { enabled: true },
+  revien: { enabled: false },
+};
+/** A configured install: the yaml above (its home folder made) and a saved password. */
+function configured(extra = {}) {
+  const sbx = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), 'setup-plan-')));
+  made.push(sbx);
+  const home = path.join(sbx, 'home', 'Documents', 'companion-home');
+  fs.mkdirSync(path.join(home, 'identity'), { recursive: true });
+  fs.writeFileSync(path.join(home, 'identity', 'profile.md'), 'p\n');
+  const yaml = JSON.parse(JSON.stringify(CONFIGURED).replace('<HOME>', home.replaceAll('\\', '\\\\')));
+  Object.assign(yaml, extra);
+  return { home, yaml };
+}
+const askedIn = (o) => {
+  const s = sandbox(o);
+  return { ...s, ids: askedIds(s.plan, {}) };
+};
+
+describe('setupPlan: phases', () => {
+  it('keeps every step id of the wizard before phases, and adds only `orchestrator` (nothing merged, nothing dropped)', () => {
+    const { plan } = sandbox({ plugins: ['alpha', 'beta'] });
+    expect(plan.map((s) => s.id).sort()).toEqual([...BASE_IDS, 'orchestrator'].sort());
+    expect(plan.mode).toBe('all');
+  });
+
+  it('every step is in exactly one phase: phase one is the tier-zero list, phase two is the rest', () => {
+    const { plan } = sandbox({ plugins: ['alpha'] });
+    const one = plan.filter((s) => s.phase === 1).map((s) => s.id);
+    const two = plan.filter((s) => s.phase === 2).map((s) => s.id);
+    expect(one.sort()).toEqual([...PHASE_ONE].filter((id) => plan.some((s) => s.id === id)).sort());
+    expect([...one, ...two].sort()).toEqual(plan.map((s) => s.id).sort());
+    expect(two).toEqual(expect.arrayContaining(['addProvider', 'sandbox', 'extraDirs', 'rolling', 'pluginsTrust', 'imageProvider', 'summaryWho', 'discordEnable', 'browserSeat', 'phoneOrigin', 'ledgerDir', 'ratify_0']));
+  });
+
+  it('a fresh install asks exactly the tier-zero prompts in order, and the longest path is 12', () => {
+    // Codex (the default), the harness memory, Codex memories not yet on in config.toml: the longest Codex path
+    const codex = sandbox({ phase: 'one', plugins: ['alpha'] });
+    expect(askedIds(codex.plan, {})).toEqual(['companionName', 'userName', 'timezone', 'home', 'homeCreate', 'provider', 'codexModel', 'appWrite', 'orchestrator', 'password', 'memory']);
+    const longestCodex = askedIds(codex.plan, { memory: 'harness' });
+    expect(longestCodex).toEqual(['companionName', 'userName', 'timezone', 'home', 'homeCreate', 'provider', 'codexModel', 'appWrite', 'orchestrator', 'password', 'memory', 'codexMemoriesOn']);
+    const claude = askedIds(codex.plan, { provider: 'claude' });
+    expect(claude).toEqual(['companionName', 'userName', 'timezone', 'home', 'homeCreate', 'provider', 'claudeModel', 'anthropicKey', 'appWrite', 'orchestrator', 'password', 'memory']);
+    const dsh = askedIds(codex.plan, { provider: 'dsh' });
+    expect(dsh).toEqual(['companionName', 'userName', 'timezone', 'home', 'homeCreate', 'provider', 'dshModel', 'dshKey', 'appWrite', 'orchestrator', 'password', 'memory']);
+    for (const ids of [longestCodex, claude, dsh]) expect(ids.length).toBeLessThanOrEqual(12);
+    expect(askedIds(codex.plan, { provider: 'claude', memory: 'harness' }).length).toBeLessThanOrEqual(12);
+  });
+
+  it('phase one gives a fresh install the answers Enter would have: Codex sandbox, rolling memory on, no plugins written', () => {
+    const { plan } = sandbox({ phase: 'one', plugins: ['alpha'] });
+    const w = walkValues(plan, { provider: 'claude', password: 'a-long-password' });
+    expect(w.problems).toEqual([]);
+    const a = buildAnswers(w.values, plan);
+    expect(a).toMatchObject({ provider: 'claude', appWrite: true, orchestrator: true, rolling: true, phoneOrigin: '' });
+    expect(a.pluginsTrust).toBeUndefined();
+    expect(a.discord).toBeNull();
+    expect(a.browserEntry).toBeUndefined();
+  });
+
+  it('a configured install asks nothing in phase one, and says what it kept', () => {
+    const { yaml } = configured();
+    const { plan, ids } = askedIn({ phase: 'one', yaml, plugins: ['alpha'], files: { 'app/.env': 'APP_PASSWORD=hunter2-pass\n' } });
+    expect(ids).toEqual([]);
+    const d = describePlan(plan, {});
+    expect(d.steps).toEqual([]);
+    expect(d.notes).toEqual(expect.arrayContaining(["Kept: Your companion's name = Ada", 'Kept: Provider = Claude', 'Kept: App password = (saved)']));
+    expect(d.notes.join('\n')).not.toContain('hunter2-pass');
+    // and what it would write is what is there
+    const a = buildAnswers(walkValues(plan, {}).values, plan);
+    expect(a).toMatchObject({ companionName: 'Ada', userName: 'Sam', timezone: 'Europe/Berlin', provider: 'claude', claudeModel: 'claude-sonnet-5-5', appWrite: true, orchestrator: true, password: '' });
+  });
+
+  it('a phase-one question that is not answered yet is still asked on a configured install (no user name here)', () => {
+    const { yaml } = configured();
+    yaml.identity.user_name = '';
+    expect(askedIn({ phase: 'one', yaml, files: { 'app/.env': 'APP_PASSWORD=hunter2-pass\n' } }).ids).toEqual(['userName']);
+  });
+
+  it('`more` lists the rest: none of phase one when it is set, all of phase two', () => {
+    const { yaml } = configured();
+    const files = { 'app/.env': 'APP_PASSWORD=hunter2-pass\n' };
+    const more = askedIn({ phase: 'more', yaml, plugins: ['alpha'], files });
+    expect(more.ids).not.toEqual(expect.arrayContaining(['companionName']));
+    expect(more.ids).toEqual(['rolling', 'pluginsTrust', 'plugins', 'imageProvider', 'summaryWho', 'discordEnable', 'browserSeat', 'phoneOrigin']);
+    const codex = askedIn({ phase: 'more', yaml: { ...yaml, agent: { ...yaml.agent, provider: 'codex' } }, plugins: ['alpha'], files });
+    expect(codex.ids).toEqual(['addProvider', 'providerId', 'codexProvider', 'sandbox', 'extraDirs', 'rolling', 'pluginsTrust', 'plugins', 'imageProvider', 'summaryWho', 'discordEnable', 'browserSeat', 'phoneOrigin']);
+    // phase one and phase two together are the whole wizard
+    const one = askedIn({ phase: 'one', yaml: { ...yaml, agent: { ...yaml.agent, provider: 'codex' } }, plugins: ['alpha'] }).ids;
+    expect(new Set([...one, ...codex.ids]).size).toBe(one.length + codex.ids.length);
+  });
+
+  it('`more` on a fresh install asks the phase-one questions that are not answered, then the rest', () => {
+    const ids = askedIn({ phase: 'more', plugins: ['alpha'] }).ids;
+    expect(ids.slice(0, 6)).toEqual(['companionName', 'userName', 'timezone', 'home', 'homeCreate', 'provider']);
+    expect(ids).toEqual(expect.arrayContaining(['rolling', 'discordEnable', 'password']));
+  });
+
+  it('`all` is the wizard as it was: every question, in the order it was asked', () => {
+    const ids = askedIn({ phase: 'all', plugins: ['alpha'] }).ids;
+    expect(ids.indexOf('home')).toBeLessThan(ids.indexOf('provider'));
+    expect(ids.indexOf('appWrite')).toBeLessThan(ids.indexOf('rolling'));
+    expect(ids.indexOf('password')).toBeLessThan(ids.indexOf('memory'));
+  });
+
+  it('a run that did not ask leaves Discord, the browser entry and the plugins alone, even when they are on', () => {
+    const { yaml } = configured({ discord: { enabled: true }, plugins: { trust: 'companion', enabled: ['alpha'] } });
+    const { plan } = sandbox({ phase: 'one', yaml, plugins: ['alpha'], files: { 'app/.env': 'APP_PASSWORD=hunter2-pass\n' } });
+    const a = buildAnswers(walkValues(plan, {}).values, plan);
+    expect(a.discord).toBeNull();
+    expect(a.pluginsTrust).toBeUndefined();
+    expect(a.pluginsPicked).toBeUndefined();
+    expect(a.browserEntry).toBeUndefined();
+  });
+
+  it('a tenant is never split: its plan asks everything whatever phase is asked for', () => {
+    const { plan } = sandbox({ phase: 'one' });
+    expect(plan.mode).toBe('one');
+    const t = setupPlan({}, { ...plan.env, tenantDir: path.join(plan.env.root, 'tenants', 'x'), phase: 'one' });
+    expect(t.mode).toBe('all');
   });
 });

@@ -4,12 +4,14 @@
 // wizard; the writes are one function (scripts/setup-apply.mjs applySetup). So the two cannot drift.
 //
 //   GET  /status    open: is a password set (does the page need the setup code, or a sign-in)
-//   GET  /plan      the steps for the current config. No secret is ever in it: a saved one is only marked `saved`.
-//   POST /plan      the same, for the answers given so far ({ answers }): later steps appear, disappear and change their words
-//   POST /validate  one step's value, as the app checks it: { id, value, answers? } -> { ok, message }
+//   GET  /plan      the steps for the current config. No secret is ever in it: a saved one is only marked `saved`. Phase one by default (the
+//                   tier-zero questions a first run needs; one already answered is kept, not asked); `?more=1` (or `?phase=more`) is the rest,
+//                   `?phase=all` every question. The response says which: { phase: 'one' | 'more' | 'all', more }, and each step has its `phase` (1 | 2).
+//   POST /plan      the same, for the answers given so far ({ answers, more? }): later steps appear, disappear and change their words
+//   POST /validate  one step's value, as the app checks it: { id, value, answers?, more? } -> { ok, message }
 //   POST /test      a probe a step can run: { probe, value?, answers? } -> { ok, state, message, ... }; probe 'connection' is the
 //                   onboarding's "Connect your AI" check ({ harness, method, key?, baseUrl?, providerName? })
-//   POST /apply     { answers } -> writes sanctum.yaml, .env, Codex's config.toml and .mcp.json (backed up first), makes the home
+//   POST /apply     { answers, more? } (the same phase as the plan the answers came from) -> writes sanctum.yaml, .env, Codex's config.toml and .mcp.json (backed up first), makes the home
 //                   folder, ratifies plugins in person mode, makes the Discord lists, reloads the config -> { restartNeeded, changed[] }
 //
 // The gate: once a password exists, the normal session (authMiddleware). Before one exists the server is fail-closed, so every route
@@ -91,7 +93,19 @@ function readDbToggle(): string | null {
 }
 
 /** Everything the plan reads, from the same places the terminal reads it; the app's own database answers the Discord toggle. */
-export function buildPlan() {
+export type SetupPhase = 'one' | 'more' | 'all';
+
+/** The phase a request asks for: `phase` ('one' | 'more' | 'all'), else `more` (true / 1 / "true" / "1"), in the query or the body; phase one by default. */
+export function phaseOf(req: Request): SetupPhase {
+  const body = (req.body ?? {}) as { phase?: unknown; more?: unknown };
+  const pick = (k: 'phase' | 'more'): unknown => (body[k] !== undefined ? body[k] : (req.query ?? {})[k]);
+  const phase = pick('phase');
+  if (phase === 'one' || phase === 'more' || phase === 'all') return phase;
+  const more = pick('more');
+  return more === true || more === 1 || more === 'true' || more === '1' ? 'more' : 'one';
+}
+
+export function buildPlan(phase: SetupPhase = 'one') {
   const rt = currentTenant();
   const env = gatherSetupEnv(PROJECT_ROOT, {
     processEnv: process.env,
@@ -100,6 +114,7 @@ export function buildPlan() {
     savedPassword: getSanctumConfig().auth.password || '',
     ...(rt ? { tenantDir: rt.dir, tenantId: rt.id, household: householdMode() } : {}),
   });
+  env.phase = phase; // (a tenant's plan is never split: the plan reads its tenant folder and asks everything)
   return setupPlan(env.existing, env);
 }
 
@@ -124,9 +139,9 @@ router.get('/status', (_req, res) => {
 
 function sendPlan(req: Request, res: Response): void {
   try {
-    const plan = buildPlan();
+    const plan = buildPlan(phaseOf(req));
     const { steps, notes, problems } = describePlan(plan, answersOf(req.body));
-    res.json({ steps, notes, problems, passwordSource: getAppPasswordSource(), mode: getSanctumConfig().auth.password ? 'rerun' : 'first_run' });
+    res.json({ steps, notes, problems, phase: plan.mode, more: plan.mode !== 'one', passwordSource: getAppPasswordSource(), mode: getSanctumConfig().auth.password ? 'rerun' : 'first_run' });
   } catch (err) {
     console.error('[setup] plan failed:', (err as Error).message);
     // A tenant file that is a link or a pipe is the tenant's to put right, not a server fault.
@@ -141,7 +156,7 @@ router.post('/validate', setupGate, (req, res) => {
   const body = (req.body ?? {}) as { id?: unknown; value?: unknown };
   if (typeof body.id !== 'string' || !body.id) { res.status(400).json({ error: 'id must be the id of a step' }); return; }
   try {
-    const plan = buildPlan();
+    const plan = buildPlan(phaseOf(req));
     const w = walkValues(plan, { ...answersOf(req.body), [body.id]: body.value });
     const row = w.rows.find((r) => r.step.id === body.id);
     if (!row) { res.status(400).json({ error: `no step called ${body.id}` }); return; }
@@ -232,7 +247,7 @@ router.post('/apply', setupGate, (req, res) => {
   const rt = currentTenant();
   try {
     const sent = answersOf(req.body);
-    const plan = buildPlan();
+    const plan = buildPlan(phaseOf(req));
     const w = walkValues(plan, sent);
     if (w.problems.length) { res.status(400).json({ error: 'Some answers need another look.', problems: w.problems }); return; }
     const answers = buildAnswers(w.values, plan);

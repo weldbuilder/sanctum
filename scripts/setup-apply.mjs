@@ -211,7 +211,10 @@ function applySetupIn(answers, plan, io, opts) {
   // ratified NOW: the shipped ones that ratified in this run, and the person's own that already have a ratification (an
   // unratified one is left out, with a message naming the Settings page). Declined, failed or unratifiable ones are left
   // out. When the companion manages plugins there is nothing to ratify: the chosen ones are turned on as they are.
-  if (a.pluginsTrust === 'companion') {
+  // (A run that did not ask about plugins, `pluginsTrust` unset, leaves plugins.enabled and the ledger exactly as they are.)
+  if (a.pluginsTrust === undefined) {
+    // nothing asked, nothing written
+  } else if (a.pluginsTrust === 'companion') {
     if (shipped.length || (Array.isArray(ex.plugins?.enabled) && ex.plugins.enabled.length)) {
       a.pluginsEnabled = chooseCompanionPlugins(ex.plugins?.enabled, shipped, a.pluginsPicked || []);
     }

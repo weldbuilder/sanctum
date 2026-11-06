@@ -97,10 +97,14 @@ function snapshotAfter(before) {
   return files;
 }
 
-function runPty(answers, outDir, label, { tenant, create } = {}) {
+// A checkout that has phases asks only the first-run questions by default: SETUP_PROOF_ARGS=--all makes it ask them all, as the original did
+// (the recordings of the original are of that); a scenario with a `phase` of its own passes the flag for it.
+const phaseArgs = (sc) => (sc.phase ? (sc.phase === 'one' ? [] : [`--${sc.phase}`]) : (process.env.SETUP_PROOF_ARGS || '').split(' ').filter(Boolean));
+
+function runPty(answers, outDir, label, { tenant, create, phase } = {}) {
   const preload = join(here, '__fixtures__', 'setup', 'deterministic.mjs');
   const job = {
-    cmd: [process.execPath, '--import', preload, join(SBX, 'app', 'scripts', 'setup.mjs'), ...(tenant ? ['--tenant', tenant, ...(create ? ['--create'] : [])] : [])],
+    cmd: [process.execPath, '--import', preload, join(SBX, 'app', 'scripts', 'setup.mjs'), ...phaseArgs({ phase }), ...(tenant ? ['--tenant', tenant, ...(create ? ['--create'] : [])] : [])],
     cwd: join(SBX, 'app'),
     env: { PATH: `${join(SBX, 'bin')}:${dirname(process.execPath)}:/usr/bin:/bin`, HOME: join(SBX, 'home'), USERPROFILE: join(SBX, 'home'), TZ: 'UTC', LANG: 'C.UTF-8', TERM: 'xterm' },
     answers,

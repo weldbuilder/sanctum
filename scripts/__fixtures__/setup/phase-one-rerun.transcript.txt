@@ -1,0 +1,23 @@
+
+Sanctum Mobile setup
+====================
+Just the essentials. Press Enter to keep the value in brackets. Run this again any time.
+
+Kept: Your companion's name = Ada
+Kept: Your name = Sam
+Kept: Your timezone = Europe/Berlin
+Kept: Home folder = <SBX>/home/Documents/companion-home
+Kept: Provider = Codex
+Kept: Chat model id = deepseek-chat
+Kept: Let your companion write to the app's features = yes
+Kept: Let your companion keep time (timers, reminders, check-ins) = yes
+Kept: App password = (saved)
+Kept: Memory = Revien
+Wrote <SBX>/app/sanctum.yaml
+
+Next, in this folder:
+  npm run build
+  npm start
+Then open the address it prints and log in with your password.
+To change any of this later: Settings in the app, or npm run setup again.
+More options (Discord, the browser, plugins, pictures, Codex providers, write folders): npm run setup -- --more
