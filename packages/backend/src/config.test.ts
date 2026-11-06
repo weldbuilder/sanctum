@@ -296,6 +296,28 @@ describe('plugins block (BLOCKER A)', () => {
     expect(cfg.plugins.dir).toBe('');
     expect(warn.mock.calls.flat().join('\n')).toMatch(/plugins_dir.*plugins\.dir/s);
   });
+  it('removed keys (nothing read them): one startup line names them, the values never reach the config, and live keys are not named', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { cfg } = await load('hooks:\n  context_injection: true\n  workspace_root: ""\ngoogle:\n  enabled: true\n  client_id: gid\ncommand_center:\n  enabled: true\n  care_categories:\n    toggles: [a]\ntelegram:\n  owner_chat_id: "77"\n');
+    const lines = warn.mock.calls.flat().map(String).filter((l) => l.includes('removed in this version'));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(/hooks\.context_injection, google\.enabled, command_center\.care_categories: ignored, removed in this version/);
+    expect(lines[0]).not.toMatch(/owner_chat_id|client_id/);
+    expect(cfg.hooks).not.toHaveProperty('context_injection');
+    expect(cfg.google).not.toHaveProperty('enabled');
+    expect(cfg.command_center).not.toHaveProperty('care_categories');
+    expect(cfg.google.client_id).toBe('gid');
+    expect(cfg.telegram.owner_chat_id).toBe('77'); // still read (telegram/config.ts), so still a key
+  });
+  it('a yaml with none of the removed keys gets no such line, and GOOGLE_ENABLED is no longer read', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    process.env.GOOGLE_ENABLED = 'true';
+    try {
+      const { cfg } = await load('agent:\n  model: x\n');
+      expect(warn.mock.calls.flat().map(String).join('\n')).not.toMatch(/removed in this version/);
+      expect(cfg.google).not.toHaveProperty('enabled');
+    } finally { delete process.env.GOOGLE_ENABLED; }
+  });
   it('S6: the legacy warning names the new key and the value it would have migrated', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     await load('plugins_dir: "/my/old/plugins"\n');
@@ -450,6 +472,17 @@ describe('the app password is held by the config, not in process.env (provider c
     expect(process.env.APP_PASSWORD).toBeUndefined();
     expect(m.reloadConfig().auth.password).toBe('from-the-env'); // a reload keeps it
   });
+  it('the environment value beats auth.password in sanctum.yaml (default < yaml < env)', async () => {
+    const { m, file } = await load('from-the-env');
+    const { writeFileSync } = await import('node:fs');
+    writeFileSync(file, 'auth:\n  password: from-the-yaml\n');
+    expect(m.loadConfig(file).auth.password).toBe('from-the-env');
+    expect(m.getAppPasswordSource()).toBe('parent_env');
+    const again = await load(undefined);
+    writeFileSync(again.file, 'auth:\n  password: from-the-yaml\n');
+    expect(again.m.loadConfig(again.file).auth.password).toBe('from-the-yaml');
+    expect(again.m.getAppPasswordSource()).toBe('yaml');
+  });
   it('setAppPassword changes what a reload signs in with, and still puts nothing in process.env', async () => {
     const { m, file } = await load('old-one');
     m.loadConfig(file);
@@ -562,5 +595,38 @@ describe('single-tenant config golden', () => {
     } finally {
       for (const k of ENV_KEYS) { if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]; }
     }
+  });
+});
+
+describe('yaml switch words are coerced to booleans at load', () => {
+  const load = async (yamlText: string) => {
+    vi.resetModules();
+    const { mkdtempSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const file = join(mkdtempSync(join(tmpdir(), 'sanctum-cfg-')), 'sanctum.yaml');
+    writeFileSync(file, yamlText);
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const m = await import('./config.js');
+    return { cfg: m.loadConfig(file) as any, warn };
+  };
+  it('no / off / "false" are false and yes is true, whatever the key (every boolean default is a switch)', async () => {
+    const { cfg, warn } = await load('agent:\n  app_write: no\n  codex:\n    network_access: "off"\norchestrator:\n  enabled: off\nvoice:\n  enabled: "false"\nimagegen:\n  safety_checker: yes\ncommand_center:\n  enabled: On\n');
+    expect(cfg.agent.app_write).toBe(false);
+    expect(cfg.agent.codex.network_access).toBe(false);
+    expect(cfg.orchestrator.enabled).toBe(false);
+    expect(cfg.voice.enabled).toBe(false);
+    expect(cfg.imagegen.safety_checker).toBe(true);
+    expect(cfg.command_center.enabled).toBe(true);
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes('switch'))).toHaveLength(0);
+  });
+  it('a word that is not one is false with one warning; an empty value leaves the default', async () => {
+    const { cfg, warn } = await load('agent:\n  app_write: maybe\norchestrator:\n  enabled: ~\n');
+    expect(cfg.agent.app_write).toBe(false);
+    expect(cfg.orchestrator.enabled).toBe(true); // the shipped default
+    const lines = warn.mock.calls.map((c) => String(c[0])).filter((t) => t.includes('not true/false/yes/no/on/off/1/0'));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain('agent.app_write: "maybe"');
   });
 });

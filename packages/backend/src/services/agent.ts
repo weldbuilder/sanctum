@@ -25,7 +25,7 @@ import { listTenantSessions } from '../tenancy/sessions.js';
 import { harnessHomes } from '../tenancy/child.js';
 import { companionPath } from '../tenancy/house.js';
 import { updateBlocking, UpdateBlockedError } from './update-block.js';
-import { backgroundRunsOff, currentTenant, envFor, tenancyEnabled, tenantLocal } from '../tenancy/context.js';
+import { backgroundRunsOff, currentTenant, tenancyEnabled, tenantLocal } from '../tenancy/context.js';
 import crypto from 'crypto';
 import { existsSync } from 'fs';
 import { readOwnOrApp, readOwnText, writeThreadFile } from '../tenancy/own-files.js';
@@ -771,12 +771,12 @@ export class AgentService {
     // Build query options — V1 API (full config support)
     // Two-tier model: autonomous wakes use cheaper model (configurable)
     // Interactive queries use primary model (configurable)
-    // User overrides from auth_preferences win over YAML defaults.
-    const yamlInteractive = cfg.agent.model || envFor('the agent model').AGENT_MODEL || 'claude-sonnet-5-5';
+    // The settings service's one rule decides the config part: default < sanctum.yaml < .env < SQLite (auth_preferences, the /model row).
+    const yamlInteractive = cfg.agent.model || 'claude-sonnet-5-5'; // (the fallback only: effectiveModel asks the settings service, which has the whole chain)
     // Model precedence (interactive path):
     //   1. explicit per-call modelOverride (scheduled-wake model) — wins verbatim
     //   2. thread.model — per-thread picker, applies to the next message
-    //   3. effectiveModel('interactive', yaml) — config/YAML default
+    //   3. effectiveModel('interactive', ...) — the settings service: default < sanctum.yaml < .env < SQLite
     // Autonomous wakes keep their own two-tier path (override → model_autonomous)
     // untouched; the per-thread model only steers the interactive surface.
     const threadModel = (!isAutonomous && thread.model && thread.model.trim())

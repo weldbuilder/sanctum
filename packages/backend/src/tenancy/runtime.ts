@@ -4,7 +4,8 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { SanctumConfig } from '../config.js';
 import { openDb } from '../services/db.js';
-import { bootedTenants, getProcessConfig, type TenantRuntime } from './context.js';
+import { bootedTenants, getProcessConfig, runInTenant, type TenantRuntime } from './context.js';
+import { retireLegacyModelRow } from '../services/settings/index.js';
 import { loadTenantConfig } from './config.js';
 import { TenantEditRefused, ownMkdirIn, ownWriteFileIn, readOwnTextIn } from './own-files.js';
 import { layoutClash } from './layout.js';
@@ -38,7 +39,7 @@ export function createTenantRuntime(
   // One INTERNAL_TOKEN for the process would be every tenant's token: the per-tenant gate would be one shared gate.
   if (processEnv.INTERNAL_TOKEN) throw new Error('INTERNAL_TOKEN is set in the process environment; in tenant mode each tenant has its own token in <tenant>/data/.internal-token, so unset it');
   const tenantDir = resolve(dir);
-  const { config, env, hosts } = loadTenantConfig(processCfg, tenantDir, id);
+  const { config, env, hosts, file } = loadTenantConfig(processCfg, tenantDir, id);
 
   const dataDir = join(tenantDir, 'data');
   if (process.platform === 'win32') ownMkdirIn(tenantDir, dataDir, { recursive: true });
@@ -50,7 +51,7 @@ export function createTenantRuntime(
 
   const rt: TenantRuntime = {
     id, dir: tenantDir, dataDir, homeDir: config.agent.cwd, privateDir: config.discord.private_dir,
-    hosts, config, env, db, token: loadOrCreateToken(tenantDir, dataDir), locals: new Map(), services: {}, revienConfigured: configuredRevien(config),
+    hosts, config, env, file, db, token: loadOrCreateToken(tenantDir, dataDir), locals: new Map(), services: {}, revienConfigured: configuredRevien(config),
     reload() {
       // Everything the tenant would have to pass at boot, on the files as they are now: the config and its folder confinement (loadTenantConfig),
       // then where its writable roots sit against the other tenants and the process. Any failure leaves the config it has; no other tenant is touched.
@@ -68,6 +69,7 @@ export function createTenantRuntime(
       rt.config = loaded.config;
       if (householdMode()) rt.config.auth.password = housePassword(); // (a tenant .env APP_PASSWORD is not a login here)
       rt.env = loaded.env;
+      rt.file = loaded.file;
       rt.homeDir = loaded.config.agent.cwd;
       rt.privateDir = loaded.config.discord.private_dir;
       syncBackgroundRuns(rt, process_);
@@ -78,6 +80,7 @@ export function createTenantRuntime(
       rt.config.auth.password = password;
     },
   };
+  runInTenant(rt, () => retireLegacyModelRow()); // the row /model used to write: named once, deleted
   return rt;
 }
 

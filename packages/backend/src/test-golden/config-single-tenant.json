@@ -67,7 +67,15 @@
         "segment_cap": 2000,
         "history_max_chars": 24000,
         "history_max_turns": 30,
-        "summarizer_instructions_file": "<ROOT>/prompts/codex-summarizer-prompt.md"
+        "summarizer_instructions_file": "<ROOT>/prompts/summarizer-own-voice.md"
+      },
+      "summarizer": {
+        "provider": "",
+        "model": "",
+        "base_url": "",
+        "api_key_env": "SUMMARIZER_API_KEY",
+        "max_output_tokens": 2000,
+        "headers": {}
       }
     },
     "orchestrator": {
@@ -86,7 +94,6 @@
       "enabled": false
     },
     "hooks": {
-      "context_injection": true,
       "safe_write_prefixes": [],
       "workspace_root": "",
       "vault_path": "",
@@ -145,37 +152,13 @@
       }
     },
     "google": {
-      "enabled": false,
       "client_id": "",
       "client_secret": ""
     },
     "command_center": {
       "enabled": false,
       "default_person": "user",
-      "currency_symbol": "$",
-      "care_categories": {
-        "toggles": [
-          "breakfast",
-          "lunch",
-          "dinner",
-          "snacks",
-          "medication",
-          "movement",
-          "shower"
-        ],
-        "ratings": [
-          "sleep",
-          "energy",
-          "wellbeing",
-          "mood"
-        ],
-        "counters": [
-          {
-            "name": "water",
-            "max": 10
-          }
-        ]
-      }
+      "currency_symbol": "$"
     },
     "cors": {
       "origins": []
@@ -263,7 +246,15 @@
         "segment_cap": 2000,
         "history_max_chars": 24000,
         "history_max_turns": 30,
-        "summarizer_instructions_file": "<ROOT>/prompts/codex-summarizer-prompt.md"
+        "summarizer_instructions_file": "<ROOT>/prompts/summarizer-own-voice.md"
+      },
+      "summarizer": {
+        "provider": "",
+        "model": "",
+        "base_url": "",
+        "api_key_env": "SUMMARIZER_API_KEY",
+        "max_output_tokens": 2000,
+        "headers": {}
       }
     },
     "orchestrator": {
@@ -282,7 +273,6 @@
       "enabled": false
     },
     "hooks": {
-      "context_injection": true,
       "safe_write_prefixes": [],
       "workspace_root": "",
       "vault_path": "",
@@ -341,37 +331,13 @@
       }
     },
     "google": {
-      "enabled": false,
       "client_id": "",
       "client_secret": ""
     },
     "command_center": {
       "enabled": false,
       "default_person": "user",
-      "currency_symbol": "$",
-      "care_categories": {
-        "toggles": [
-          "breakfast",
-          "lunch",
-          "dinner",
-          "snacks",
-          "medication",
-          "movement",
-          "shower"
-        ],
-        "ratings": [
-          "sleep",
-          "energy",
-          "wellbeing",
-          "mood"
-        ],
-        "counters": [
-          {
-            "name": "water",
-            "max": 10
-          }
-        ]
-      }
+      "currency_symbol": "$"
     },
     "cors": {
       "origins": []

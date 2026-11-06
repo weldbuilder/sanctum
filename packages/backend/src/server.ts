@@ -26,6 +26,7 @@ import { fileURLToPath } from 'url';
 import { existsSync, mkdirSync, readFileSync } from 'fs';
 import { loadConfig, getSanctumConfig, browserFrameOrigin, checkBrowserUrl } from './config.js';
 import { warnIfBrowserUnfiltered } from './services/browser-gate.js';
+import { warnIfSmallSummarizer, checkSummarizerConfig } from './services/summarizer/config.js';
 import { initDb, deleteExpiredSessions } from './services/db.js';
 import { loadVectorCache } from './services/vector-cache.js';
 import { createWebSocketServer, setVoiceService, setGatewayServices, registry } from './services/ws.js';
@@ -72,6 +73,8 @@ import type { TenantRuntime } from './tenancy/context.js';
 // Load config FIRST — before any other initialization
 const config = loadConfig();
 warnIfBrowserUnfiltered(config);
+checkSummarizerConfig(config, config.agent.provider);
+warnIfSmallSummarizer(config, config.agent.provider); // (also names the deprecated agent.rolling.model aliases, once)
 
 // A `tenants:` block in sanctum.yaml turns on tenant mode (docs/MULTI-TENANT.md, option (b)): one process, one database and one login per
 // tenant. Stage 1 serves the browser API per tenant; channels, the scheduler and the websocket stay off. Without the block nothing below
@@ -103,6 +106,7 @@ if (!TENANT_MODE) {
   console.log('Initializing database...');
   db = initDb(DB_PATH);
   deleteExpiredSessions();
+  retireLegacyModelRow(); // the row /model used to write (nothing read it): named once, deleted
   loadVectorCache();
   console.log('Database initialized');
 }
@@ -241,14 +245,13 @@ if (TENANT_MODE || config.command_center.enabled) {
 }
 
 // Workspace (Google) MCP endpoint — ALWAYS mounted (like /api/google/*). With
-// UI-driven creds the user never edits yaml, so a static config.google.enabled
+// UI-driven creds the user never edits yaml, so a static yaml switch
 // gate is the wrong lever. The MCP's tools/list is itself toggle-aware: it only
 // exposes `gcal` when Google is connected AND the Calendar toggle is on, and
 // returns an empty tool list otherwise. So mounting while not-yet-configured /
 // disconnected is harmless — the agent simply sees no workspace tools until the
 // user pastes creds, connects, and flips Calendar (no yaml edit, no restart).
-// (The static config.google.enabled flag is now unused for mounting; it remains
-// in config only as a legacy/override hint and can be removed in a later pass.)
+// (There is no google.enabled setting: it was removed because nothing read it.)
 // LOOPBACK-ONLY (same posture as /mcp/cc): the `google` / `google_health` tools
 // are called only by the in-app agent's SDK over loopback. Gated by the internal
 // shared token (the agent passes it via the `headers` block in .mcp.json,
@@ -330,13 +333,13 @@ const pushService = TENANT_MODE ? (null as never) : new PushService(
 if (!TENANT_MODE) agentService.setPushService(pushService);
 
 // Initialize Discord gateway (config-gated with env fallback)
-import { getConfigBool } from './services/db.js';
+import { resolveSetting, retireLegacyModelRow } from './services/settings/index.js';
 import { hasBotToken } from './services/bot-token.js';
 
 let discordService: DiscordService | null = null;
 
-// Check config DB first, fall back to config file / env var for first boot
-const discordEnabled = !TENANT_MODE && getConfigBool('discord.enabled', config.discord.enabled);
+// The settings service's one rule: default < sanctum.yaml < .env < the database (a Settings toggle lives there).
+const discordEnabled = !TENANT_MODE && resolveSetting('discord.enabled').value === true;
 if (discordEnabled && hasBotToken('discord')) {
   discordService = new DiscordService(agentService, registry);
   discordService.start();
@@ -345,7 +348,7 @@ if (discordEnabled && hasBotToken('discord')) {
 // Initialize Telegram gateway (config-gated with env fallback)
 let telegramService: TelegramService | null = null;
 
-const telegramEnabled = !TENANT_MODE && getConfigBool('telegram.enabled', config.telegram.enabled);
+const telegramEnabled = !TENANT_MODE && resolveSetting('telegram.enabled').value === true;
 if (telegramEnabled && hasBotToken('telegram')) {
   telegramService = new TelegramService(agentService, registry, voiceService);
   telegramService.start();

@@ -49,23 +49,70 @@ chmod 600 .env
 Then open each in any text editor and fill in what you want. Both templates are
 heavily commented, so you can often just read down the file and edit in place.
 
-### How the two files fit together (and who wins)
+### How the layers fit together (and who wins)
 
-Every setting has a **built-in default** baked into the code. On top of that,
-`sanctum.yaml` overrides the defaults, and `.env` overrides `sanctum.yaml`.
-The rule, in order of who wins:
+Every setting has a **built-in default** baked into the code. Four layers can say something about it, and **one rule** decides, for every setting, in one
+place (the settings service, `packages/backend/src/services/settings`):
 
 ```
-built-in default   ←   sanctum.yaml   ←   .env
-(weakest)                                   (strongest — env always wins)
+built-in default   <   sanctum.yaml   <   .env   <   SQLite
+(weakest)                                           (strongest)
 ```
 
-So if `sanctum.yaml` says `port: 3099` but your `.env` says `PORT=4000`, the app
-runs on `4000`. The environment variable wins. This is handy when you want to
-change one thing temporarily without editing your main config.
+"SQLite" is the app's own database: the `config` table, plus the tables that already acted as overrides (`auth_preferences` for the model and the
+Anthropic credential, the stored bot tokens, `google_auth` for the Google client). So the **.env does not always win**: where a setting has a
+database home, a value saved there beats both `.env` and `sanctum.yaml`. If `sanctum.yaml` says `port: 3099` and `.env` says `PORT=4000`, the app runs
+on `4000` (port has no database home); if `sanctum.yaml` says `discord.enabled: true` and `.env` says `DISCORD_ENABLED=true`, but you switched Discord
+off in Settings, it stays off.
+
+**Where a save lands depends on the panel.** The Preferences panel saves to `sanctum.yaml`, and only the keys you changed: a field that still shows a
+value from `.env` or the database is not written into the file. The channel toggles, the Mind fields, the orchestrator panel (failsafe, pulse, wakes)
+and the token fields save to the database, and **database values win over `sanctum.yaml` and `.env`**. The Settings UI has no control that clears a
+database row yet (a toggle writes `false`, it does not remove the row); the exception is the model: `/model <id>` sets it, and `/model reset` clears it so
+`sanctum.yaml` and `AGENT_MODEL` win again. For any other row, delete it from the `config` table with `sqlite3`.
+
+Settings that have a database home today:
+
+| Setting | Database home |
+|---|---|
+| `discord.enabled`, `telegram.enabled`, `handoff.enabled` | `config` rows of the same names |
+| `orchestrator.failsafe.*`, `pulse.enabled`, `pulse.frequency` | `config` rows `failsafe.*`, `pulse.*` |
+| a wake's schedule, switch, model and target | `config` rows `cron.<type>.schedule / enabled / model / target` |
+| `integrations.mind_cloud.enabled / mcp_url / mind_id` and the Mind key | `config` rows `mind.*` (the key beats `MIND_API_KEY`, which beats the companion's `.mcp.json` bearer) |
+| the chat and autonomous model (`agent.model`, `agent.model_autonomous`) | `auth_preferences.preferred_model(_autonomous)`; the `/model` command writes `preferred_model` (`/model reset` clears it). An old `config` row `agent.model` is ignored and deleted at startup |
+| Discord and Telegram bot tokens | encrypted `config` rows (beat `DISCORD_BOT_TOKEN`, `TELEGRAM_BOT_TOKEN`) |
+| `telegram.owner_chat_id` | `config` row `telegram.ownerChatId` |
+| Google client id and secret | `google_auth` (beats `GOOGLE_CLIENT_ID/SECRET`, which beat `google.*`) |
+| the Anthropic API key and auth mode | `auth_preferences` |
+
+Every other setting is `default < sanctum.yaml < .env` (the `.env` layer only where a variable exists, see section 4). Two things sit above the rule and are
+not settings: the per-thread model picker and a scheduled wake's own model. The login password has no database home: `APP_PASSWORD` (from the environment
+the program was started with, else `.env`) beats `auth.password`.
+
+Two quirks kept as they were: `DISCORD_ENABLED` and `TELEGRAM_ENABLED` count only when they say `true` (a `false` there is ignored), and
+`GET /api/preferences` and `GET /api/settings` answer with the effective value and a `sources` map saying which layer each came from (`default`,
+`yaml`, `env`, `db`; the Mind URL can also be `mcp_json`). Secrets are only ever reported as `{ set, source }`.
+
+This is handy when you want to change one thing temporarily without editing your main config.
 
 Because every key has a default, **a nearly-empty `sanctum.yaml` is completely
 valid.** You only need to write down the things you want to change.
+
+### Yes/no switches: the words you can write
+
+Every on/off key (`enabled`, `app_write`, `network_access`, `safety_checker`,
+and so on) reads the same words, in any case, at load time. The app turns them
+into a real true or false before anything uses them, so Settings and the running
+app always agree.
+
+| You write | It means |
+| --- | --- |
+| `true`, `yes`, `on`, `1` | on |
+| `false`, `no`, `off`, `0` | off |
+| anything else (`maybe`, `2`, `""`) | **off**, with one warning in the log |
+
+A key left empty (`enabled: ~`) counts as not set, so its default applies.
+Quoting makes no difference: `"false"` is off.
 
 ### A gotcha worth knowing up front
 
@@ -403,9 +450,48 @@ The server never makes a password up for the setup screen (it could not hand one
 | `system_prompt_file` | `./prompts/companion-claude.md` | The operating frame on Claude (§2): frame + identity + a `[Runtime]` line replace the coding preset. Same rule as Codex and dsh: `<agent.cwd>/config/companion-claude.md` wins if it exists, else this file. The file is read fresh every turn; the path is read at the first use of the agent (restart after changing it). In tenant mode it defaults to `home/config/companion-claude.md`. `""` = the standard `claude_code` preset with the identity appended (when the home has no copy). With neither file present, a set key logs a warning and falls back to the preset. |
 | `mcp_json_path` | `./.mcp.json` | File listing external tool servers the agent may use (§8). |
 | `model` | `claude-sonnet-5-5` | Model for live, interactive replies. Env: `AGENT_MODEL`. |
-| `model_autonomous` | `""` | Model for background/scheduled activity and the built-in helper subagents (Scribe aside, which runs on Haiku). Empty = the same as `model`. |
+| `model_autonomous` | `""` | Model for background/scheduled activity and the built-in helper subagents (the Scribe included: it runs on this model too, not on Haiku). Empty = the same as `model`. |
 | `codex.base_instructions_file` | `./prompts/codex-base-prompt.md` | The harness prompt on Codex. Used only when the home has no `config/codex-base-prompt.md`. `""` gives stock Codex back. See `FORK_NOTES.md`. |
 | `dsh.base_instructions_file` | `./prompts/dsh-base-prompt.md` | The harness prompt on DeepSeek Harness. Used only when the home has no `config/dsh-base-prompt.md`; if neither exists dsh's stock persona is used. See `docs/DSH.md`. |
+
+### `summarizer` — who writes the companion's memory of itself
+
+`agent.summarizer` is the model that condenses a thread into the short accounts the companion later reads back as its own memory. Today that is the rolling fold, merge and rebuild (long-conversation memory, `agent.rolling`); the Scribe digest, the daily handoff and the house outlook author join it in a later release. One block, whichever harness runs your turns.
+
+**What it writes, and why it must be capable.** The rolling summary leads every reply: the companion reads it as "Earlier in this thread, in your own words". It is written in the first person, by the companion, with a short version of its identity in front of it (name, who you are to each other, a voice anchor; at most 1,200 characters, cached under `data/identity-short/` and rebuilt when the ratified identity changes). A small or fast-tier model will flatten that voice and make the companion's memory of itself read like a stranger's notes. Use a capable mid-tier model or better. A startup warning is logged when the model name looks small-tier (haiku, mini, small, lite, nano, or 8b and under). It is a warning, not a block.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `provider` | `""` | `""` = the chat harness (`claude`, `codex` or `dsh`). Or name one of those to run the summarizer on a different harness, or `openai-compat` for a plain chat-completions endpoint. |
+| `model` | `""` | `""` = the chat model of that harness (`model_autonomous`, then `model`). For `openai-compat` it is required. |
+| `base_url` | `""` | `openai-compat` only, for example `https://openrouter.ai/api/v1`. |
+| `api_key_env` | `SUMMARIZER_API_KEY` | `openai-compat` only: the **name** of the `.env` variable that holds the key. Never put the key in the yaml. |
+| `max_output_tokens` | `2000` | `openai-compat` only: sent as `max_tokens`. |
+| `headers` | `{}` | `openai-compat` only: extra request headers, for example OpenRouter's `HTTP-Referer` and `X-Title`. Optional. |
+
+`agent.rolling.model` and `agent.rolling.model_provider` still work for one release: they are read only while `summarizer.model` / `summarizer.provider` are empty, and log one "deprecated, use agent.summarizer" warning. A `model_provider` that is a Codex or dsh route name (not a harness name) stays a route of the chat harness. The old rule that a Claude summarizer ignores any model not starting with `claude` is gone: the provider decides the client.
+
+What the summarizer keeps from the neutral summarizer it replaces: the transcript is fenced and treated as untrusted data, the budget rules sit before it, the retry-and-shorten chain and the section-wise fit to `segment_cap` are unchanged, and the run has no tools, no memory and no project files (on Claude: the isolated folder `data/rolling`, no tools, one turn, no settings, no auto-compact). What changed: the system slot now carries the short identity, and the account is the companion's own, first person.
+
+**Example: DeepSeek V3-class through OpenRouter** (a capable, inexpensive reference setup):
+
+```yaml
+agent:
+  summarizer:
+    provider: "openai-compat"
+    base_url: "https://openrouter.ai/api/v1"
+    model: "deepseek/deepseek-chat"      # check the current id on openrouter.ai/models
+    api_key_env: "SUMMARIZER_API_KEY"
+    max_output_tokens: 2000
+    headers: { HTTP-Referer: "https://example.com", X-Title: "Sanctum" }   # optional
+```
+
+```
+# .env
+SUMMARIZER_API_KEY=sk-or-...
+```
+
+Model ids change. Confirm the current DeepSeek V3-class id on openrouter.ai/models before you rely on the one above; it is an example, not a pinned recommendation. The instructions the summarizer follows are `prompts/summarizer-own-voice.md` (`agent.rolling.summarizer_instructions_file`). The older `codex-summarizer-prompt.md` is deprecated: it is third person, and a file set there still works but logs a notice.
 
 ### `orchestrator` — scheduled check-ins & proactive reach
 
@@ -430,7 +516,6 @@ The server never makes a password up for the setup screen (it could not hand one
 
 | Key | Default | Meaning |
 |---|---|---|
-| `context_injection` | `true` | Feed your AI its identity, your context cards, and memory each turn. Leave on. |
 | `safe_write_prefixes` | `[]` | Legacy extra write-allowed path prefixes. |
 | `workspace_root` | `""` | A folder the agent is allowed to write within. Env: `WORKSPACE_ROOT`. |
 | `vault_path` | `""` | A notes/vault folder the agent may write within. Env: `VAULT_PATH`. |
@@ -524,7 +609,6 @@ Saving a `mind.*` setting while a check is running queues exactly one more check
 
 | Key | Default | Meaning |
 |---|---|---|
-| `enabled` | `false` | Legacy master gate. (The Workspace tools mount is always present now and self-gates per app; you normally connect Google from the Settings UI, not here.) |
 | `client_id` | `""` | Desktop OAuth client id from your Google Cloud project. Env: `GOOGLE_CLIENT_ID`. |
 | `client_secret` | `""` | Desktop OAuth client secret. Env: `GOOGLE_CLIENT_SECRET`. |
 
@@ -535,9 +619,8 @@ Saving a `mind.*` setting while a check is running queues exactly one more check
 | `enabled` | `false` | Turn on the relational dashboard (calendar, care, cycle, finances, lists, pets, planner, stats) and its tool mount. |
 | `default_person` | `"user"` | Whose care rows the page reads and writes. |
 | `currency_symbol` | `"$"` | Symbol shown on the finances view. |
-| `care_categories.toggles` | `[breakfast, lunch, dinner, snacks, medication, movement, shower]` | Yes/no things to track each day. |
-| `care_categories.ratings` | `[sleep, energy, wellbeing, mood]` | Things rated on a scale. |
-| `care_categories.counters` | `[{name: water, max: 10}]` | Countable things, with a daily max. |
+
+(`care_categories`, `hooks.context_injection` and `google.enabled` were removed: nothing read them. A yaml that still carries one is told so at startup and the value is ignored. Care categories are kept in the database, edited in the Command Center.)
 
 ### `plugins` — who manages plugins, and which are on
 
@@ -754,7 +837,7 @@ DISCORD_BOT_TOKEN=
 TELEGRAM_BOT_TOKEN=
 GIPHY_API_KEY=           # Optional, for Telegram's /gif command
 
-# ── Google Workspace (also needs google.enabled: true) ─
+# ── Google Workspace (the client; or connect it from Settings) ─
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_TOKEN_SECRET=     # Auto-generated if unset (data/.google-key)

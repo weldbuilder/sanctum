@@ -4,6 +4,8 @@ import { join, resolve, dirname, sep } from 'path';
 import { fileURLToPath } from 'url';
 import yaml from 'js-yaml';
 import { tenantOrNull, registerProcessConfig, registerProcessFile } from './tenancy/context.js';
+import { pickWinner } from './services/settings/rule.js';
+import { REGISTRY, parseBoolWord } from './services/settings/registry.js';
 
 // Derive project root from this module's location (packages/backend/src/config.ts → ../../..)
 // This is stable regardless of process.cwd(), which npm workspaces can change.
@@ -111,6 +113,9 @@ export interface SanctumConfig {
     // short summary segments, and those segments are the only summary the model
     // ever sees. Switchable per provider; the budgets and summarizer are shared.
     rolling: RollingConfig;
+    // The model that writes the companion's own condensed memory of itself (rolling fold/merge today; digest, handoff and
+    // outlook author later). One block for every harness. See docs/CONFIGURATION.md "Summarizer".
+    summarizer: SummarizerConfig;
   };
   orchestrator: {
     enabled: boolean;
@@ -131,7 +136,6 @@ export interface SanctumConfig {
     enabled: boolean;
   };
   hooks: {
-    context_injection: boolean;
     safe_write_prefixes: string[];
     // Write-gate roots. workspace_root + vault_path are added as directory
     // prefixes; extra_write_paths entries are directories (prefix match) unless
@@ -173,13 +177,9 @@ export interface SanctumConfig {
     };
   };
   google: {
-    // Master gate for the Workspace MCP mount. Per-app toggles live in the DB
-    // (google_integrations); this flag only controls whether /mcp/workspace is
-    // mounted at all.
-    enabled: boolean;
     // Desktop OAuth client creds — the user supplies from their Google Cloud project.
-    // Env (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET) overrides these. Empty =
-    // "not configured".
+    // The settings service's one rule applies (default < this < GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET in .env < the pair saved in Settings).
+    // Empty = "not configured". (The old `google.enabled` master gate is gone: /mcp/workspace is always mounted.)
     client_id: string;
     client_secret: string;
   };
@@ -187,11 +187,6 @@ export interface SanctumConfig {
     enabled: boolean;
     default_person: string;
     currency_symbol: string;
-    care_categories: {
-      toggles: string[];
-      ratings: string[];
-      counters: { name: string; max: number }[];
-    };
   };
   cors: {
     origins: string[];
@@ -212,12 +207,21 @@ export interface SanctumConfig {
   };
 }
 
+export interface SummarizerConfig {
+  provider: string;           // '' = the chat harness (claude | codex | dsh); or 'openai-compat' (a plain chat-completions endpoint)
+  model: string;              // '' = the chat model of that harness. Never a small model: it writes the companion's memory of itself
+  base_url: string;           // openai-compat only, e.g. https://openrouter.ai/api/v1
+  api_key_env: string;        // openai-compat only: the NAME of the env var that holds the key (never the key)
+  max_output_tokens: number;  // openai-compat only: the reply cap sent as max_tokens
+  headers?: Record<string, string>; // openai-compat only: extra request headers, e.g. OpenRouter's HTTP-Referer and X-Title
+}
+
 export interface RollingConfig {
   claude: boolean;            // rolling on the Claude path (the SDK's own compaction stays off)
   codex: boolean;             // rolling on the Codex path (Codex keeps no history of its own)
   dsh?: boolean;              // rolling on the dsh path (default true)
-  model?: string;             // the summarizer: '' → model_autonomous → model → the harness default
-  model_provider?: string;    // Codex only: '' → codex.model_provider
+  model?: string;             // DEPRECATED alias of agent.summarizer.model (read while that is empty, with a warning)
+  model_provider?: string;    // DEPRECATED alias of agent.summarizer.provider; a value that is not a harness name is still a Codex/dsh route
   tail_chars: number;         // fold once the unsummarized tail exceeds this
   fold_chars: number;         // how much of the oldest tail one fold summarizes
   keep_chars: number;         // newest history a fold never eats into
@@ -477,7 +481,15 @@ const DEFAULTS: SanctumConfig = {
       segment_cap: 2000,
       history_max_chars: 24000,
       history_max_turns: 30,
-      summarizer_instructions_file: './prompts/codex-summarizer-prompt.md',
+      summarizer_instructions_file: './prompts/summarizer-own-voice.md',
+    },
+    summarizer: {
+      provider: '',
+      model: '',
+      base_url: '',
+      api_key_env: 'SUMMARIZER_API_KEY',
+      max_output_tokens: 2000,
+      headers: {},
     },
   },
   orchestrator: {
@@ -496,7 +508,6 @@ const DEFAULTS: SanctumConfig = {
     enabled: false,
   },
   hooks: {
-    context_injection: true,
     safe_write_prefixes: [],
     workspace_root: '',
     vault_path: '',
@@ -538,7 +549,6 @@ const DEFAULTS: SanctumConfig = {
     },
   },
   google: {
-    enabled: false,
     client_id: '',
     client_secret: '',
   },
@@ -546,11 +556,6 @@ const DEFAULTS: SanctumConfig = {
     enabled: false,
     default_person: 'user',
     currency_symbol: '$',
-    care_categories: {
-      toggles: ['breakfast', 'lunch', 'dinner', 'snacks', 'medication', 'movement', 'shower'],
-      ratings: ['sleep', 'energy', 'wellbeing', 'mood'],
-      counters: [{ name: 'water', max: 10 }],
-    },
   },
   cors: {
     origins: [],
@@ -788,7 +793,27 @@ const PRISTINE_DEFAULTS: SanctumConfig = structuredClone(DEFAULTS);
  *  override, and loadConfig then writes into the result: the process may do that to the one config it has, but two tenants must not
  *  write into one shared DEFAULTS, so a tenant merges over a copy. (loadConfig keeps calling deepMerge on DEFAULTS as it always did.) */
 export function mergeConfigDefaults(fileConfig: Record<string, unknown>): SanctumConfig {
-  return deepMerge(structuredClone(PRISTINE_DEFAULTS) as unknown as Record<string, unknown>, fileConfig) as unknown as SanctumConfig;
+  const merged = deepMerge(structuredClone(PRISTINE_DEFAULTS) as unknown as Record<string, unknown>, fileConfig) as unknown as SanctumConfig;
+  coerceSwitches(merged);
+  return merged;
+}
+
+/** Make every switch in a merged config a real boolean. A key is a switch when its shipped default is a boolean, so a new switch inherits this
+ *  with no list to update. yaml words (yes/on/1, no/off/0, "true", "false", any case) go through the settings service's parseBoolWord; anything
+ *  else is false (badSwitchWarning says so once at load); an empty value (`~`) is "not set", so the default stands. Readers of cfg then agree
+ *  with GET /api/preferences, which has always read the same words. */
+export function coerceSwitches(merged: SanctumConfig, defaults: SanctumConfig = PRISTINE_DEFAULTS): void {
+  const walk = (cur: Record<string, unknown>, def: Record<string, unknown>): void => {
+    for (const [k, d] of Object.entries(def)) {
+      if (typeof d === 'boolean') {
+        const v = cur[k];
+        cur[k] = v === undefined || v === null ? d : parseBoolWord(v) ?? false;
+      } else if (d && typeof d === 'object' && !Array.isArray(d) && cur[k] && typeof cur[k] === 'object' && !Array.isArray(cur[k])) {
+        walk(cur[k] as Record<string, unknown>, d as Record<string, unknown>);
+      }
+    }
+  };
+  walk(merged as unknown as Record<string, unknown>, defaults as unknown as Record<string, unknown>);
 }
 
 /** The environment-variable overrides on a merged config (env wins over yaml). A pure function of `merged` and the `env` it is given:
@@ -806,7 +831,6 @@ export function applyEnvOverrides(merged: SanctumConfig, env: Record<string, str
   if (env.TZ) merged.identity.timezone = env.TZ;
   if (env.DISCORD_ENABLED === 'true') merged.discord.enabled = true;
   if (env.TELEGRAM_ENABLED === 'true') merged.telegram.enabled = true;
-  if (env.GOOGLE_ENABLED === 'true') merged.google.enabled = true;
   if (env.GOOGLE_CLIENT_ID) merged.google.client_id = env.GOOGLE_CLIENT_ID;
   if (env.GOOGLE_CLIENT_SECRET) merged.google.client_secret = env.GOOGLE_CLIENT_SECRET;
   // Write-gate roots (env wins over yaml). EXTRA_WRITE_PATHS is comma-separated.
@@ -821,9 +845,48 @@ export function applyEnvOverrides(merged: SanctumConfig, env: Record<string, str
   merged.agent.model_autonomous = resolveAutonomousModel(merged.agent.model, merged.agent.model_autonomous);
 }
 
+/** Settings that had no reader and were removed. A yaml that still carries one is told so once at startup, and the value never reaches the config. */
+export const REMOVED_KEYS = ['hooks.context_injection', 'google.enabled', 'command_center.care_categories'] as const;
+
+function hasPath(obj: unknown, path: string): boolean {
+  let cur: unknown = obj;
+  for (const k of path.split('.')) {
+    if (!cur || typeof cur !== 'object' || Array.isArray(cur) || !(k in (cur as Record<string, unknown>))) return false;
+    cur = (cur as Record<string, unknown>)[k];
+  }
+  return true;
+}
+
+/** The one startup line for a yaml (or tenant.yaml) that still carries a removed key; null when it carries none. */
+export function removedKeysWarning(fileCfg: unknown, label = 'sanctum.yaml'): string | null {
+  const present = REMOVED_KEYS.filter((k) => hasPath(fileCfg, k));
+  return present.length ? `[config] ${label} sets ${present.join(', ')}: ignored, removed in this version (nothing read it). Delete the line${present.length > 1 ? 's' : ''}.` : null;
+}
+
+/** The one startup line for a yaml switch that is not a yes/no word (true/false/yes/no/on/off/1/0, any case). The settings service reads it as false. */
+export function badSwitchWarning(fileCfg: unknown, label = 'sanctum.yaml'): string | null {
+  const bad: string[] = [];
+  for (const def of REGISTRY) {
+    if (def.type !== 'bool' || !def.yaml || def.yaml.includes('{')) continue;
+    if (!hasPath(fileCfg, def.yaml)) continue;
+    let cur: unknown = fileCfg;
+    for (const k of def.yaml.split('.')) cur = (cur as Record<string, unknown>)[k];
+    if (cur === null || cur === undefined) continue;
+    if (parseBoolWord(cur) === undefined) bad.push(`${def.yaml}: ${JSON.stringify(cur)}`);
+  }
+  return bad.length ? `[config] ${label} has a switch that is not true/false/yes/no/on/off/1/0, read as false: ${bad.join(', ')}.` : null;
+}
+
+function stripRemovedKeys(merged: SanctumConfig): void {
+  delete (merged.hooks as unknown as Record<string, unknown>)?.context_injection;
+  delete (merged.google as unknown as Record<string, unknown>)?.enabled;
+  delete (merged.command_center as unknown as Record<string, unknown>)?.care_categories;
+}
+
 /** Resolve every path in a merged config against `base` (the project root for the process, the tenant folder for a tenant).
  *  `fileCfg` is the raw yaml, for what only the file can say (was db_path given, the legacy keys); `env` is the environment in force. */
 export function resolveConfigPaths(merged: SanctumConfig, base: string, fileCfg: Record<string, unknown>, env: Record<string, string | undefined>): void {
+  stripRemovedKeys(merged);
   // Resolve relative paths against the project root (not cwd)
   // A leading `~` is the home directory (a shell would have expanded it; yaml does not).
   const resolveFromRoot = (p: string) => resolve(base, p === '~' ? homedir() : p.startsWith('~/') ? join(homedir(), p.slice(2)) : p);
@@ -886,16 +949,27 @@ export function loadConfig(configPath?: string): SanctumConfig {
     }
   }
 
+  const removedWarning = removedKeysWarning(fileConfig);
+  if (removedWarning) console.warn(removedWarning);
+  const switchWarning = badSwitchWarning(fileConfig);
+  if (switchWarning) console.warn(switchWarning);
+
   // A copy of the file as read, before the merge shares its values and the environment overrides touch them: what a tenant inherits.
   const pristineFile = structuredClone(fileConfig);
 
   // Merge: defaults <- yaml <- env overrides
   const merged = deepMerge(DEFAULTS as unknown as Record<string, unknown>, fileConfig) as unknown as SanctumConfig;
+  coerceSwitches(merged); // before the env overrides: they set real booleans
 
   // Environment variable overrides
   applyEnvOverrides(merged, process.env);
   takeAppPasswordFromEnv();
-  if (appPassword) merged.auth.password = appPassword;
+  // The login password through the one rule: sanctum.yaml's is the yaml layer, the one held from the environment (parent env or .env) is the env layer and wins.
+  merged.auth.password = pickWinner<string>([
+    { source: 'default', value: '' },
+    ...(merged.auth.password ? [{ source: 'yaml' as const, value: merged.auth.password }] : []),
+    ...(appPassword ? [{ source: 'env' as const, value: appPassword }] : []),
+  ])!.value;
 
   // The project's GitHub address lives in package.json unless yaml overrides it.
   if (!merged.updates.repo) merged.updates.repo = repoFromPackageJson();

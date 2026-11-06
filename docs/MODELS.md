@@ -270,7 +270,7 @@ summary is the SDK's digest, not the companion's words, and identity drifts
 across it. What replaces it, on Claude and Codex alike, is rolling context
 (`agent.rolling.claude` / `agent.rolling.codex`, on by default): every turn is a
 fresh run, the thread is the memory, and older turns are folded into short
-summaries the companion keeps reading. See FORK_NOTES.md, "Rolling context".
+summaries the companion keeps reading. Those summaries are written by the companion in its own voice, on the model `agent.summarizer` names; see docs/CONFIGURATION.md, "summarizer" (use a capable model, not a small one). See FORK_NOTES.md, "Rolling context".
 
 ### Verify
 

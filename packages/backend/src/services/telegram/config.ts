@@ -1,7 +1,7 @@
 // Telegram configuration — DB-backed with config.yaml fallback defaults
 
-import { getConfig, getConfigNumber } from '../db.js';
-import { getSanctumConfig } from '../../config.js';
+import { getConfigNumber } from '../db.js';
+import { resolveSetting } from '../settings/index.js';
 import type { TelegramConfigValues } from './types.js';
 
 const DEFAULTS = {
@@ -9,9 +9,9 @@ const DEFAULTS = {
 };
 
 export function getTelegramConfig(): TelegramConfigValues {
-  const appConfig = getSanctumConfig();
   return {
-    ownerChatId: getConfig('telegram.ownerChatId') || appConfig.telegram.owner_chat_id || '',
+    // default < sanctum.yaml (telegram.owner_chat_id) < the KV row the bot saved: the settings service's one rule
+    ownerChatId: String(resolveSetting('telegram.owner_chat_id').value ?? ''),
     maxMessageLength: getConfigNumber('telegram.maxMessageLength', DEFAULTS.maxMessageLength),
   };
 }

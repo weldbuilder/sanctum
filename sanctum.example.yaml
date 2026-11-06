@@ -5,7 +5,9 @@
 # Every key below has a built-in default, so a minimal file works — this template
 # just shows the whole surface with generic values. Relative paths resolve
 # against the project root (not your shell's cwd). A matching env var (see
-# .env.example) overrides the value here where the two overlap.
+# .env.example) overrides the value here where the two overlap, and a value saved in
+# the app's Settings (its database) beats both. One rule: default < this file < .env < database
+# (docs/CONFIGURATION.md section 1).
 
 # ── Who lives here ────────────────────────────────────────────────────────────
 identity:
@@ -86,7 +88,7 @@ agent:
   # local_recall: true            # Sanctum's own memory: before each message, the most relevant lines from earlier
                                   # conversations, found by meaning on this computer (nothing to install; every harness).
                                   # Unset: used only while a chosen Revien cannot be reached. false: never.
-  provider: "codex"               # "claude" | "codex" | "dsh"  (env: AGENT_PROVIDER)
+  provider: "codex"               # "claude" | "codex" | "dsh"  (env: AGENT_PROVIDER). This template sets "codex"; with no value the built-in default is "claude".
   # DeepSeek Harness, the third harness (alpha; see docs/DSH.md). Used only when provider is "dsh".
   # Install it yourself and pin the version: npm i -g @deepseek-ai/dsh@0.2.1-alpha.2
   dsh:
@@ -128,8 +130,8 @@ agent:
     claude: true                # on the Claude path
     codex: true                 # on the Codex path (false = Codex keeps the history itself)
     dsh: true                   # on the dsh path (dsh has no ephemeral switch; the overlay sends its session log to a temp dir)
-    model: ""                   # the summarizer. A small, cheap model is fine. "" = model_autonomous, then model
-    model_provider: ""          # Codex only. "" = same provider as chat; a different one is fine
+    model: ""                   # DEPRECATED, use agent.summarizer.model (read only while that is empty)
+    model_provider: ""          # DEPRECATED, use agent.summarizer.provider
     tail_chars: 14000           # start summarizing once un-summarized turns pass this many characters
     fold_chars: 6000            # how much of the oldest turns one summary step covers
     keep_chars: 6000            # the newest turns are never summarized
@@ -138,7 +140,21 @@ agent:
     segment_cap: 2000           # max characters per summary
     history_max_chars: 24000    # most recent-turn text sent with each message
     history_max_turns: 30       # most recent turns sent with each message
-    summarizer_instructions_file: "./prompts/codex-summarizer-prompt.md"
+    summarizer_instructions_file: "./prompts/summarizer-own-voice.md"   # the older codex-summarizer-prompt.md is deprecated (third person)
+
+  # ── Summarizer: who writes the companion's memory of itself ──────────────────
+  # The rolling summaries above are read back into every reply as the companion's
+  # OWN account, written in its first person with a short version of its identity
+  # in front. Use a capable mid-tier model or better: a small or fast-tier one
+  # (haiku, mini, small, lite, nano, 8b and under) flattens the voice, and a
+  # warning is logged at startup if the model name looks like one.
+  summarizer:
+    provider: ""                # "" = the chat harness (claude | codex | dsh); or "openai-compat"
+    model: ""                   # "" = the chat model of that harness
+    base_url: ""                # openai-compat only, e.g. https://openrouter.ai/api/v1
+    api_key_env: "SUMMARIZER_API_KEY"   # the NAME of the .env variable that holds the key
+    max_output_tokens: 2000     # openai-compat only
+    # headers: { HTTP-Referer: "https://example.com", X-Title: "Sanctum" }   # openai-compat only, optional (OpenRouter)
 
 # ── Revien memory (optional local daemon) ─────────────────────────────────────
 # Recalls relevant memories into each Codex turn and saves each finished turn.
@@ -177,7 +193,7 @@ handoff:
 
 # ── Agent write-gate (PreToolUse allowlist) ───────────────────────────────────
 hooks:
-  context_injection: true         # inject context (identity, cards, memory) each turn
+  # (context_injection was removed: nothing read it. A yaml that still has it is told so at startup.)
   safe_write_prefixes: []         # extra path prefixes the agent may write to
   workspace_root: ""              # a root dir the agent may write within (env: WORKSPACE_ROOT)
   vault_path: ""                  # a notes/vault dir the agent may write within (env: VAULT_PATH)
@@ -261,12 +277,7 @@ command_center:
   enabled: false
   default_person: "user"          # whose care rows the page reads/writes
   currency_symbol: "$"
-  care_categories:
-    toggles: ["breakfast", "lunch", "dinner", "snacks", "medication", "movement", "shower"]
-    ratings: ["sleep", "energy", "wellbeing", "mood"]
-    counters:
-      - name: "water"
-        max: 10
+  # (care_categories was removed from this file: nothing read it. Categories live in the database, edited in the Command Center.)
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
 cors:

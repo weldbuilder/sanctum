@@ -64,16 +64,22 @@ from Theora; summary rules adapted from claude-rolling-context, MIT). The wiring
 `services/rolling-context.ts`, ported from Sanctum. Budgets are Sanctum's live ones.
 
 Rules it holds to:
-- The summary is derived context. Its header says it is never authority over the
-  identity files, `AGENTS.md`, or the person's live words.
+- The summary is derived context. Its header ("Earlier in this thread, in your own
+  words") says it is the companion's own earlier memory aid and never authority over
+  the identity files, `AGENTS.md`, or the person's live words.
 - Context loss is never silent. Every fold, merge and rebuild appends a `system`
   message to the thread, and when recent turns are left out of a prompt for space the
   prompt says how many.
 - If the history source fails, the turn still runs, with a line in the prompt saying
   the earlier conversation could not be loaded. It never fails or blocks the turn.
-- The summarizer is one read-only Codex run in a neutral folder with its own short
-  base prompt (`prompts/codex-summarizer-prompt.md`), so no `AGENTS.md` or identity
-  leaks into it. The budget rules are placed before the transcript and labelled as
+- The summarizer is `services/summarizer/` (`runSummary`), one runner for every
+  harness (`agent.summarizer`: claude, codex, dsh, or a plain openai-compat chat
+  endpoint). The summary is the companion's own, first person: the system slot is a
+  short identity (`Who you are (short)`: names, who you are to each other, a voice
+  anchor; at most 1,200 characters, cached by identity digest) plus
+  `prompts/summarizer-own-voice.md`. The guards are kept: an isolated folder, no tools,
+  one turn, no harness memory, no project docs (so no `AGENTS.md` and no full identity
+  or memory files reach it), and the transcript is fenced untrusted data. The budget rules are placed before the transcript and labelled as
   housekeeping (appended after it, the model read them as the person's words; the
   earliest of the vendor markers is used so a marker quoted inside the conversation
   cannot pull them in).
@@ -139,7 +145,7 @@ readable until they have updated once, or tell them to download the new ZIP.
 | Key | Default | Meaning |
 |---|---|---|
 | `claude` / `codex` | `true` / `true` | Rolling context on that harness. Off keeps the summaries on disk; nothing is deleted. A legacy `agent.codex.rolling.enabled` is read once and folded in. |
-| `model` / `model_provider` | `""` / `""` | The summarizer. Empty follows `model_autonomous`, then `model`. On Claude the summarizer is an isolated Claude run (`rolling.model` if it names a Claude model, else the autonomous model); on Codex an isolated Codex run. One summarizer, whichever harness runs turns. |
+| `model` / `model_provider` | `""` / `""` | Deprecated aliases of `agent.summarizer.model` / `.provider` (read while those are empty, with a warning). The summarizer is configured under `agent.summarizer` (docs/CONFIGURATION.md): any harness, or an openai-compat endpoint. |
 | budgets | as before | `tail_chars`, `fold_chars`, `keep_chars`, `tail_turns`, `max_segments`, `segment_cap`, `history_max_chars`, `history_max_turns`, `summarizer_instructions_file`. |
 
 On the Claude path with rolling on: no session is ever resumed, the prompt is context → recalled memory → derived summary → dropped-turns notice → `[Conversation so far]` → `[Current message]` (identity rides in the system prompt; history lines name their speakers), the SDK's compaction and auto-memory stay off, `settingSources: []` is pinned, and the fold runs after the reply. `services/rolling-history.ts` builds that history for both adapters.
@@ -156,7 +162,7 @@ On the Claude path with rolling on: no session is ever resumed, the prompt is co
 | `rolling.tail_turns` | `24` | Fold once this many turns are un-summarized, whatever their size. |
 | `rolling.max_segments` / `segment_cap` | `5` / `2000` | Merge the two oldest past this many segments; max characters per summary. |
 | `rolling.history_max_chars` / `history_max_turns` | `24000` / `30` | How much recent verbatim history goes with each message. The newest turn is always sent. |
-| `rolling.summarizer_instructions_file` | `./prompts/codex-summarizer-prompt.md` | Base prompt for the summarizer run. |
+| `rolling.summarizer_instructions_file` | `./prompts/summarizer-own-voice.md` | Instruction for the summarizer run (names filled from identity). `codex-summarizer-prompt.md` is deprecated. |
 
 `agent.dsh.base_instructions_file` (default `./prompts/dsh-base-prompt.md`) follows the same rule for dsh: used only when the home has no `config/dsh-base-prompt.md`, and now ships. `""` or a missing file gives dsh's stock persona back. See [docs/DSH.md](docs/DSH.md).
 
@@ -171,7 +177,7 @@ On the Claude path with rolling on: no session is ever resumed, the prompt is co
 ## Optional features (all off by default)
 - Discord → `discord.enabled: true` + bot token in `.env`
 - Command Center → `command_center.enabled: true`
-- Google → `google.enabled: true` + `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`
+- Google → `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` (or paste them in Settings); there is no `google.enabled` switch
 - Browser tools → one `.mcp.json` entry named `browser` (`examples/browser-seat-neko/mcp.example.json`, or `npm run setup`): `@playwright/mcp@0.0.83 --cdp-endpoint http://127.0.0.1:9232` run behind `examples/browser-seat-neko/mcp-filter.mjs`, which removes `browser_run_code_unsafe` (RCE in the server process, outside dsh's sandbox) and `browser_evaluate` (page JS, reads logged-in cookies/DOM) because 0.0.83 has no exclude flag, so all three harnesses drive the seat's browser through the existing MCP path, with no backend service. `browser` is a legal name on dsh and Codex. The skill is shipped twice, in `companion-home/.claude/skills/` (Claude) and `.agents/skills/` (dsh); `res help browser` appears when `integrations.browser_url` is set or `.mcp.json` has a `browser` server. **Codex has no skill root**, so the SKILL.md body never reaches the companion there; only the `AGENTS.md` pointer does, and it (and the skill's first line) tells the companion to `cat` the file. Without `integrations.browser_url` there is no viewer tab: the person cannot watch or take over. The filter also requires `--workdir` (the server's cwd, `data/browser-out`, mode 0700, same path as `--output-dir`), hard-codes the two required blocks (exit 2 otherwise), strips `webmcp_*` tools (the entry also passes `--no-webmcp`), survives malformed lines and non-string tool names, and answers a blocked call that reuses an in-flight id with -32600; `npm run setup` offers to replace a `browser` entry that has no filter, and the backend logs one startup warning for it.
 
 ## Known gaps on Codex

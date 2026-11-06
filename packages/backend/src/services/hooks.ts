@@ -1417,7 +1417,7 @@ export async function buildOrientationContext(
   try {
     if (ctx.threadId === dailyThreadIdFor()) {
       const carry = getTodayCarry();
-      if (carry) parts.push(`**Carried from yesterday:** ${carry}`);
+      if (carry) parts.push(`**You carried from yesterday:** ${carry}`);
     }
   } catch {}
 

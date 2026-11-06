@@ -171,7 +171,7 @@ skipped — a dead source never blanks the whole warm-up.
    Outlook section below.
 
 4. **Yesterday's carry.** *Only* when you're in today's daily thread and you've
-   enabled the midnight handoff: a tight "**Carried from yesterday:** …" note
+   enabled the midnight handoff: a tight "**You carried from yesterday:** …" note
    written by a background agent that read yesterday's conversation and distilled
    what should carry forward. Off by default (`handoff.enabled`).
 
@@ -351,7 +351,7 @@ day's warm-up. Off by default; a lovely thing to turn on once you're settled in.
 Turn on `command_center.enabled: true` to activate the care/day dashboard, which
 becomes the local source for the "life status," "mood history," cycle phase, and
 care entries that feed both the House digest and the you-sense whisper. You can
-tune what it tracks under `command_center.care_categories`.
+edit what it tracks in the Command Center (the care categories are kept in the database).
 
 ### 6. Your AI's live presence — the `res` tools
 

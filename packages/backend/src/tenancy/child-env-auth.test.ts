@@ -22,7 +22,7 @@ import { applyAuthToEnv, updateAuthPreferences } from '../services/auth-preferen
 import { childEnv } from '../services/providers/child-env.js';
 import { codexChildEnv } from '../services/providers/codex-exec.js';
 import { buildExecEnv } from '../services/providers/dsh-exec.js';
-import { runClaudeSummarizer } from '../services/rolling-context.js';
+import { runClaudeSummary } from '../services/summarizer/claude.js';
 import { childRunBase, withRunEnv } from './child.js';
 import { bootTenants } from './boot.js';
 import { enableTenancy, runInTenant, type TenantRuntime } from './context.js';
@@ -43,7 +43,7 @@ const restoreProcessEnv = () => { for (const [k, v] of saved) { if (v === undefi
 
 async function summarizerEnv(): Promise<Record<string, string | undefined>> {
   captured.length = 0;
-  await runClaudeSummarizer('x', '', tmpdir(), new AbortController().signal);
+  await runClaudeSummary({ system: '', user: 'x', cwd: tmpdir(), model: 'm', signal: new AbortController().signal });
   return captured[0].env!;
 }
 

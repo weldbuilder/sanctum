@@ -8,7 +8,7 @@
 import { createHash } from 'node:crypto';
 import { bindCurrentTenant, currentTenant, runInTenant, type TenantRuntime } from './context.js';
 import { getBotToken, hasBotToken, type BotPlatform } from '../services/bot-token.js';
-import { getConfigBool } from '../services/db.js';
+import { resolveSetting } from '../services/settings/index.js';
 import { DiscordService } from '../services/discord/index.js';
 import { TelegramService } from '../services/telegram/index.js';
 import type { AgentService } from '../services/agent.js';
@@ -66,7 +66,7 @@ function startOne(rt: TenantRuntime, platform: BotPlatform, agent: AgentService,
     const dup = duplicateTokenOwners(rt, platform);
     if (dup.length) { log(`[tenancy] tenant ${rt.id}: ${label(platform)} parked, its bot token is also held by tenant ${dup.join(', ')} (a token in two tenants runs in neither)`); return; }
     let on = false;
-    try { on = getConfigBool(`${platform}.enabled`, rt.config[platform].enabled) && hasBotToken(platform); } catch { on = false; }
+    try { on = resolveSetting(`${platform}.enabled`).value === true && hasBotToken(platform); } catch { on = false; }
     if (!on) return;
     try {
       const svc = platform === 'discord' ? new DiscordService(agent, registry) : new TelegramService(agent, registry, voice);

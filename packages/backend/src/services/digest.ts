@@ -200,7 +200,7 @@ Write the digest block for this conversation. Remember: output ONLY the markdown
 
   const content = await runScribeQuery(prompt);
   if (!content) {
-    dlog(`Skipped ${label} — Haiku returned empty content`);
+    dlog(`Skipped ${label} — the model returned empty content`);
     return false;
   }
 

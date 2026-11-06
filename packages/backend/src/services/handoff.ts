@@ -5,7 +5,8 @@
 // timezone) is born COLD: a fresh thread with no memory of yesterday. That seam
 // is where continuity drops. The handoff fixes it.
 //
-// At 12:10am (configured timezone) a one-off Agent SDK query() — Sonnet-4.6 on
+// At 12:10am (configured timezone) a one-off Agent SDK query() — on the autonomous
+// model (agent.model_autonomous, which follows agent.model), on
 // the user's SUBSCRIPTION, the EXACT same credential/MCP-guarded path the outlook
 // AUTHOR (services/outlook-author.ts) uses — reads YESTERDAY's daily (the one
 // that just closed) plus the Scribe's digest for that day, and authors a warm
@@ -13,7 +14,7 @@
 //   opener → posted as the FIRST companion message in TODAY's daily (live over
 //            WS, looks like a normal companion message), so the companion never starts cold.
 //   carry  → stored in `config` KV + folded into hooks.ts orientation context
-//            (a short "Carried from yesterday:" block) when the active thread is
+//            (a short "You carried from yesterday:" block) when the active thread is
 //            today's daily, so he KNOWS yesterday without it being re-said.
 //
 // SUBAGENT, not orchestrator: like the outlook author, this is a single cheap
@@ -25,7 +26,7 @@
 //
 // CREDENTIAL PATH — NON-NEGOTIABLE (mirrors outlook-author.ts):
 //   In-process @anthropic-ai/claude-agent-sdk query(), model pinned to
-//   claude-sonnet-4-6, applyAuthToEnv() selecting subscription vs api_key from
+//   the autonomous model, applyAuthToEnv() selecting subscription vs api_key from
 //   auth_preferences (default install = the user's subscription creds at
 //   ~/.claude/.credentials.json). NO direct Anthropic key, NO OpenRouter, NO
 //   HTTP LLM call, NO per-token-billed path. strictMcpConfig:true + mcpServers:{}
@@ -56,6 +57,7 @@ import { runEnvOption } from '../tenancy/child.js';
 import { backgroundRunsOff, bindCurrentTenant, tenantLocal } from '../tenancy/context.js';
 import { isInteractiveAgentBusy } from './agent.js';
 import { registry } from './ws.js';
+import { resolveSetting } from './settings/index.js';
 
 // --- Tuning constants -------------------------------------------------------
 
@@ -291,7 +293,7 @@ function normalizeHandoff(parsed: unknown): HandoffOutput {
 
 // --- The Sonnet author call (mirrors outlook-author authorOutlook) ----------
 
-/** Run the one-off Sonnet-4.6 query() and return the normalized output, or null
+/** Run the one-off query() and return the normalized output, or null
  *  on any failure / empty response. Never throws. */
 async function authorHandoff(facts: HandoffFacts): Promise<HandoffOutput | null> {
   const systemPrompt = buildHandoffSystemPrompt();
@@ -523,9 +525,7 @@ function recordResult(result: HandoffRunResult): void {
  *  Settings toggle persists without a yaml write — same pattern the orchestrator
  *  uses for `cron.*.schedule`). */
 export function isHandoffEnabled(): boolean {
-  const override = getConfig('handoff.enabled');
-  if (override !== null) return override === 'true' || override === '1';
-  return getSanctumConfig().handoff.enabled;
+  return resolveSetting('handoff.enabled').value === true; // default < sanctum.yaml < the KV row (no env twin)
 }
 
 /** Flip the enabled flag (persists in KV). Returns the new value. */

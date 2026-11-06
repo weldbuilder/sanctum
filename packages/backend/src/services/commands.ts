@@ -15,13 +15,14 @@ import {
   getMessages,
   listThreads,
   getConfig,
-  setConfig,
   getActiveTriggers,
   listTriggers,
 } from './db.js';
 import { AgentService } from './agent.js';
 import { Orchestrator } from './orchestrator.js';
 import { getSanctumConfig } from '../config.js';
+import { resolveSetting } from './settings/index.js';
+import { updateAuthPreferences } from './auth-preferences.js';
 import { tenantLocal } from '../tenancy/context.js';
 import type { ConnectionRegistry } from '../types.js';
 
@@ -32,7 +33,7 @@ import type { ConnectionRegistry } from '../types.js';
 const UI_COMMANDS: CommandRegistryEntry[] = [
   { name: 'new', description: 'Create a new named thread', category: 'builtin', args: '[name]' },
   { name: 'rename', description: 'Rename the current thread', category: 'builtin', args: '[name]' },
-  { name: 'model', description: 'Switch the active model', category: 'builtin', args: '[model]' },
+  { name: 'model', description: 'Switch the active model', category: 'builtin', args: '[model|reset]' },
   { name: 'status', description: 'System status — uptime, MCP, queue', category: 'builtin' },
   { name: 'cost', description: 'Token usage for the current session', category: 'builtin' },
   { name: 'mcp', description: 'MCP server connection status', category: 'builtin' },
@@ -229,27 +230,29 @@ function handleRename(threadId: string | undefined, args: string | undefined): S
 }
 
 function handleModel(args: string | undefined): ServerMessage {
-  const modelId = args?.trim();
-  if (!modelId) {
-    const current = getConfig('agent.model') || getSanctumConfig().agent.model;
-    return {
-      type: 'command_result',
-      name: 'model',
-      success: true,
-      data: { message: `Current model: ${current}` },
-      display: 'toast',
-    };
+  const arg = args?.trim();
+  const reply = (message: string): ServerMessage => ({ type: 'command_result', name: 'model', success: true, data: { message }, display: 'toast' });
+  const inEffect = () => {
+    const r = resolveSetting('agent.model'); // what the next message runs on (a thread's own model, if set, is above this)
+    return { model: String(r.value), source: r.source };
+  };
+  if (!arg) {
+    const c = inEffect();
+    return reply(`Current model: ${c.model} (from ${c.source})`);
   }
 
-  setConfig('agent.model', modelId);
-
-  return {
-    type: 'command_result',
-    name: 'model',
-    success: true,
-    data: { message: `Model switched to ${modelId}` },
-    display: 'toast',
-  };
+  // The command writes auth_preferences.preferred_model, the database layer of the rule (above sanctum.yaml and AGENT_MODEL), the one the settings
+  // service reads. /model reset clears it so the file and the environment win again. The reply says what is now in effect and where from.
+  if (arg.toLowerCase() === 'reset') {
+    updateAuthPreferences({ preferred_model: null });
+    const c = inEffect();
+    return reply(`Model reset: ${c.model} is in effect (from ${c.source})`);
+  }
+  updateAuthPreferences({ preferred_model: arg });
+  const c = inEffect();
+  return reply(c.model === arg
+    ? `Model switched to ${arg} (from ${c.source}); /model reset returns to sanctum.yaml or AGENT_MODEL`
+    : `Saved ${arg}, but ${c.model} is in effect (from ${c.source})`);
 }
 
 async function handleStatus(services: CommandServices): Promise<ServerMessage> {

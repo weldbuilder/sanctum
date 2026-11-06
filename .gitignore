@@ -61,6 +61,7 @@ prompts/*
 !prompts/README.md
 !prompts/codex-summarizer-prompt.md
 !prompts/discord-public-base.md
+!prompts/summarizer-own-voice.md
 
 .DS_Store
 Thumbs.db

@@ -23,7 +23,10 @@ describe('tenant mode builds no process-level agent', () => {
   it('nothing on a turn path reads the process AGENT_MODEL (envFor answers the tenant\'s own .env)', () => {
     for (const f of ['services/agent.ts', 'services/discord/public-runtime.ts']) {
       expect(text(f), f).not.toMatch(/process\.env\.AGENT_MODEL/);
-      expect(text(f), f).toMatch(/envFor\('[^']+'\)\.AGENT_MODEL/);
     }
+    // The model chain asks the settings service, whose env layer is envFor() (the tenant's own .env), never process.env.
+    expect(text('services/settings/index.ts')).toMatch(/envFor\('the settings service'\)/);
+    expect(text('services/settings/index.ts')).not.toMatch(/process\.env/);
+    expect(text('services/settings/registry.ts')).toMatch(/env: 'AGENT_MODEL'/);
   });
 });
