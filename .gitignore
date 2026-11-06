@@ -62,6 +62,7 @@ prompts/*
 !prompts/codex-summarizer-prompt.md
 !prompts/discord-public-base.md
 !prompts/summarizer-own-voice.md
+!prompts/fallback-base-prompt.md
 
 .DS_Store
 Thumbs.db

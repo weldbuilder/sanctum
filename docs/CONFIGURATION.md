@@ -502,6 +502,47 @@ SUMMARIZER_API_KEY=sk-or-...
 
 Model ids change. Confirm the current DeepSeek V3-class id on openrouter.ai/models before you rely on the one above; it is an example, not a pinned recommendation. The instructions the summarizer follows are `prompts/summarizer-own-voice.md` (`agent.rolling.summarizer_instructions_file`). The older `codex-summarizer-prompt.md` is deprecated: it is third person, and a file set there still works but logs a notice.
 
+### `fallback` — the brain that takes over
+
+`agent.fallback` is a second brain: a plain OpenAI-compatible chat-completions model (OpenRouter, DeepSeek, a local server) that answers a turn when the main harness (`agent.provider`: Claude, Codex or dsh) cannot. It is off until you set `provider` and a `mode`.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `provider` | `""` | `""` = no fallback brain; `openai-compat`. |
+| `mode` | `off` | `off`: the main brain only. `auto`: the main brain first; the fallback takes the turn when the main one fails before it begins, and stays first while the main one is marked unhealthy. `always`: the fallback first, the main brain as the safety net. |
+| `model` | `""` | A capable mid-tier model; DeepSeek V3-class via OpenRouter is the reference. It needs function calling to act. |
+| `base_url` | `""` | e.g. `https://openrouter.ai/api/v1`. |
+| `api_key_env` | `FALLBACK_API_KEY` | The NAME of the `.env` variable that holds the key (never the key). |
+| `max_tool_turns` | `8` | Most model round trips in one turn; each may call tools. After the last, the model is asked once more, without tools, to answer. |
+| `unhealthy_minutes` | `10` | `auto`: how long AUTH, CREDIT or RATE_LIMIT keeps the main brain out of the front of the order. |
+| `max_output_tokens` | `4096` | Sent as `max_tokens`. |
+| `headers` | `{}` | Extra request headers, e.g. OpenRouter's `HTTP-Referer` and `X-Title`. |
+
+```yaml
+agent:
+  fallback:
+    provider: "openai-compat"
+    mode: "auto"
+    base_url: "https://openrouter.ai/api/v1"
+    model: "deepseek/deepseek-chat"      # check the current id on openrouter.ai/models
+    api_key_env: "FALLBACK_API_KEY"
+```
+
+```
+# .env
+FALLBACK_API_KEY=sk-or-...
+```
+
+A half-set block (a provider and mode but no model, endpoint or key) logs one warning and the main brain runs alone.
+
+**What moves a turn.** A failure is read into a class: `AUTH` (signed out, bad key), `CREDIT` (out of credit), `RATE_LIMIT` (including a usage limit), `TIMEOUT`, `NETWORK`, `SERVER` (5xx, overloaded), `HARNESS_MISSING` (the `claude`, `codex` or `dsh` program is not there: spawn ENOENT, command not found, exit 127) and `HARNESS_HUNG` (the run produced nothing for three minutes, or the harness's own run limit fired). Those eight move the turn to the other brain. A stop pressed by the person, and anything else (a bad request, a bug), never does. The turn moves only if the failing brain had not yet said or done anything; once a brain has produced a word or a tool call the turn is its own, and a later failure is shown as an error as before. The failure appears in the thread as `[Agent error: ... (class: AUTH)]`.
+
+**Health (auto).** AUTH, CREDIT and RATE_LIMIT keep the main brain behind the fallback for `unhealthy_minutes`; after that it is tried first again. HARNESS_MISSING keeps it out until a main-brain run succeeds, or until `agent.provider` changes. The other classes move one turn only. The thread gets one line when the brain changes ("running on the fallback brain (AUTH)", later "primary brain back"), every open app is sent a `brain_changed` message, and `GET /api/system/status` reports `brain: { active, lastError, lastErrorAt, fallbackMode }`.
+
+**What the fallback can do.** It is offered sixteen functions, each the same request the `res` command makes to the app's internal routes (so the write gate, tenant checks and audit log apply as ever, and tool pills and the audit log show them as `Sanctum: Timer` and so on): `ask`, `meal`, `cc` (only with the Command Center on), `share`, `canvas`, `timer`, `touch`, `impulse`, `watch`, `search`, `context`, `note`, `voice` (only with voice on), `image` (only with pictures set up), `schedule` and `pulse`. It has no shell and no file access. Its system prompt states, every turn, that it is on the fallback brain and which tools it has; on a run without tools it says it has none.
+
+**Limits (v1).** It cannot see images: an attachment reaches it only as the note that a file exists (no `image_url` parts are sent). Replies arrive one round trip at a time, not token by token. If the endpoint or model rejects the `tools` parameter (OpenRouter's model list is checked first), the turn runs without tools, with one warning in the log; on a run with no tools, or where no tool actually ran, an autonomous turn (a wake, a timer, a trigger, the pulse) is **skipped**: nothing is stored, sent or logged as done, and the thread gets a line saying so. A conversation held on the fallback is not in the main brain's own resumed session; the app's thread history is, and the fallback is given it.
+
 ### `orchestrator` — scheduled check-ins & proactive reach
 
 | Key | Default | Meaning |

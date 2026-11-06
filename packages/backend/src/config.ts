@@ -116,6 +116,9 @@ export interface SanctumConfig {
     // The model that writes the companion's own condensed memory of itself (rolling fold/merge today; digest, handoff and
     // outlook author later). One block for every harness. See docs/CONFIGURATION.md "Summarizer".
     summarizer: SummarizerConfig;
+    // The fallback brain: a plain chat-completions model that takes a turn when the primary harness cannot (signed out,
+    // out of credit, rate limited, offline, binary missing, hung). See docs/CONFIGURATION.md "Fallback brain".
+    fallback?: FallbackConfig;
   };
   orchestrator: {
     enabled: boolean;
@@ -214,6 +217,18 @@ export interface SummarizerConfig {
   api_key_env: string;        // openai-compat only: the NAME of the env var that holds the key (never the key)
   max_output_tokens: number;  // openai-compat only: the reply cap sent as max_tokens
   headers?: Record<string, string>; // openai-compat only: extra request headers, e.g. OpenRouter's HTTP-Referer and X-Title
+}
+
+export interface FallbackConfig {
+  provider: '' | 'openai-compat'; // '' = no fallback brain
+  mode: 'off' | 'auto' | 'always'; // off: primary only. auto: primary, then the fallback when it fails or is marked unhealthy. always: fallback first, primary as the safety net
+  model: string;              // a capable mid-tier model; DeepSeek V3-class via OpenRouter is the reference
+  base_url: string;           // e.g. https://openrouter.ai/api/v1
+  api_key_env: string;        // the NAME of the env var that holds the key (never the key)
+  max_tool_turns: number;     // most model round trips in one turn (each may call tools)
+  unhealthy_minutes: number;  // how long an AUTH, CREDIT or RATE_LIMIT failure keeps the primary out of the order
+  max_output_tokens?: number; // the reply cap sent as max_tokens (default 4096)
+  headers?: Record<string, string>; // extra request headers, e.g. OpenRouter's HTTP-Referer and X-Title
 }
 
 export interface RollingConfig {
@@ -489,6 +504,17 @@ const DEFAULTS: SanctumConfig = {
       base_url: '',
       api_key_env: 'SUMMARIZER_API_KEY',
       max_output_tokens: 2000,
+      headers: {},
+    },
+    fallback: {
+      provider: '',
+      mode: 'off',
+      model: '',
+      base_url: '',
+      api_key_env: 'FALLBACK_API_KEY',
+      max_tool_turns: 8,
+      unhealthy_minutes: 10,
+      max_output_tokens: 4096,
       headers: {},
     },
   },
