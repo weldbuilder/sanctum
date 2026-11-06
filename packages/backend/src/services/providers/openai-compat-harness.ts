@@ -139,7 +139,7 @@ function systemText(sp: Options['systemPrompt']): string {
  *  and says tool activity shows in a sidebar. None of that is true on the fallback (the [Harness] line is the only tool statement
  *  there), and the path is the install's own. Drops every stanza of the [Context] block that mentions the res CLI (the short list
  *  and the full reference), the sidebar sentence and the "not set up" notes; keeps the rest (env, presence, EXPRESSION tags).
- *  Finally no absolute path of the install goes to a third-party endpoint. */
+ *  The install path is rewritten to <app> inside that block only. */
 export function scrubFallbackContext(text: string): string {
   if (!text) return text;
   const stripCtx = (ctx: string): string => {
@@ -149,11 +149,12 @@ export function scrubFallbackContext(text: string): string {
       else stanzas.push([line]);
     }
     const kept = stanzas.filter((st) => !(/^TOOLS \(run via Bash/.test(st[0]) || st.some((l) => /res\.mjs/.test(l)) || /^(Pictures|Voice): not set up/.test(st[0])));
-    return kept.map((st) => st.join('\n')).join('\n').replace(/Tool activity \(tool_use\/tool_result\) shows live in the UI sidebar\.\s?/g, '');
+    let res = kept.map((st) => st.join('\n')).join('\n').replace(/Tool activity \(tool_use\/tool_result\) shows live in the UI sidebar\.\s?/g, '');
+    // no absolute path of the install goes to a third-party endpoint: only in the generated block, never in the person's words
+    for (const root of new Set([INSTALL_ROOT, INSTALL_ROOT.replace(/\\/g, '/')])) if (root.length > 1) res = res.split(root).join('<app>');
+    return res;
   };
-  let out = text.replace(/\[Context\][\s\S]*?\n\[\/Context\]/g, (m) => stripCtx(m));
-  for (const root of new Set([INSTALL_ROOT, INSTALL_ROOT.replace(/\\/g, '/')])) if (root.length > 1) out = out.split(root).join('<app>');
-  return out;
+  return text.replace(/\[Context\][\s\S]*?\n\[\/Context\]/g, (m) => stripCtx(m));
 }
 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
@@ -176,7 +177,7 @@ export function openaiCompatQuery({ prompt, options }: { prompt: string | AsyncI
     if (!model) throw new Error('agent.fallback.model is required for the fallback brain');
     if (!apiKey) throw Object.assign(new Error(`the fallback key is not set: put ${keyVar} in .env`), { kind: 'api_key_missing' });
 
-    const sanctum = (opts as any).sanctum as { threadId: string; userContent: string; autonomous?: boolean; noIngest?: boolean; /** agent.ts already put memory, history and [Current message] in the prompt (and ingests/compacts itself): use it as is. */ assembled?: boolean; memory?: 'none'; contextBlock?: string; disabledTools?: string[]; disabledServers?: string[] } | undefined;
+    const sanctum = (opts as any).sanctum as { threadId: string; userContent: string; autonomous?: boolean; noIngest?: boolean; /** agent.ts already put memory, history and [Current message] in the prompt (and ingests/compacts itself): use it as is. */ assembled?: boolean; /** agent.ts also ingests the turn and compacts the rolling history (rolling on, Claude path). */ ingested?: boolean; memory?: 'none'; contextBlock?: string; disabledTools?: string[]; disabledServers?: string[] } | undefined;
     const threadId = sanctum?.threadId ?? '';
     const noMemory = sanctum?.memory === 'none';
     const readOnly = opts.permissionMode === 'plan' || (Array.isArray(opts.tools) && opts.tools.length === 0);
@@ -222,6 +223,7 @@ export function openaiCompatQuery({ prompt, options }: { prompt: string | AsyncI
     let rolling: Awaited<ReturnType<typeof assembleRollingHistory>>['rolling'] | undefined;
     if (assembled) {
       // the prompt is the whole conversation already (context, memory, summary, history, one [Current message]): nothing to add
+      if (!sanctum?.ingested && !readOnly && !noMemory && sanctum?.threadId) { try { rolling = (await import('../rolling-context.js')).getRolling(); } catch { /* ignore */ } }
     } else if (!readOnly && !noMemory && sanctum?.threadId) {
       const history = await assembleRollingHistory(threadId, sanctum.userContent, !!sanctum.autonomous, { force: true, named: true });
       rolling = history.rolling;
@@ -331,7 +333,7 @@ export function openaiCompatQuery({ prompt, options }: { prompt: string | AsyncI
       spend: { input_tokens: usage.in, output_tokens: usage.out, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
     };
     if (ended || sealedText) {
-      if (useMemory && !assembled && !sanctum?.noIngest && sealedText) void ingestTurn({ threadId: threadId, user: sanctum?.userContent ?? prompt, assistant: sealedText });
+      if (useMemory && !sanctum?.ingested && !sanctum?.noIngest && sealedText) void ingestTurn({ threadId: threadId, user: sanctum?.userContent ?? prompt, assistant: sealedText });
       if (rolling) { try { void Promise.resolve(rolling.maybeCompact(threadId)).catch(() => {}); } catch { /* ignore */ } }
     }
   }

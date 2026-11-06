@@ -969,7 +969,10 @@ export class AgentService {
         }
       } else if (bridge && !noMemory) {
         rollingHistory = await assembleRollingHistory(threadId, content, isAutonomous, { force: true, named: true });
-        if (rollingHistory.turns > 0) {
+        // The fallback never holds a session id, so every turn on it is a bridge turn: the history rides each time, the note only once per thread.
+        const noted = getConfig(`rolling_bridge.${threadId}`) === '1';
+        if (rollingHistory.turns > 0 && !noted) {
+          try { setConfig(`rolling_bridge.${threadId}`, '1'); } catch { /* ignore */ }
           const n = rollingHistory.turns;
           const s = rollingHistory.segments;
           const at = new Date().toLocaleTimeString('en-GB', { timeZone: cfg.identity.timezone, hour: '2-digit', minute: '2-digit' });
@@ -1019,7 +1022,7 @@ export class AgentService {
       // is needed, which keeps resume/session handling simple and uniform.
       // Codex / dsh: the adapter owns thread history and needs the raw user message.
       // The fallback brain reads the same option, so it is set whenever a fallback may run, on Claude too.
-      if (activeProvider() !== 'claude' || fallbackReady()) (options as any).sanctum = { threadId, userContent: content, contextBlock, autonomous: isAutonomous, senderIsOwner: isAutonomous ? undefined : senderIsOwnerFor(platformOpts?.platform, platformOpts?.senderIsOwner), ...(hold ? { noIngest: true } : {}), ...(noMemory ? { memory: 'none' } : {}), ...(claudeRolling ? { assembled: true } : {}) };
+      if (activeProvider() !== 'claude' || fallbackReady()) (options as any).sanctum = { threadId, userContent: content, contextBlock, autonomous: isAutonomous, senderIsOwner: isAutonomous ? undefined : senderIsOwnerFor(platformOpts?.platform, platformOpts?.senderIsOwner), ...(hold ? { noIngest: true } : {}), ...(noMemory ? { memory: 'none' } : {}), ...(rollingHistory ? { assembled: true } : {}), ...(claudeRolling ? { ingested: true } : {}) };
       // One call site for every brain: the router picks the primary harness or the fallback and moves a turn that failed before
       // it began (signed out, out of credit, rate limited, offline, binary missing, hung) to the other. See providers/router.ts.
       const result = routedQuery({ prompt: enrichedPrompt, options }, { onEvent: (e) => this.announceBrain(threadId, e) });

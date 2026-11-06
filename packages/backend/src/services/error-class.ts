@@ -48,14 +48,14 @@ const KIND_CLASS: Record<string, FailClass> = { api_key_missing: 'AUTH', timeout
 const RULES: Array<[FailClass, RegExp]> = [
   ['HARNESS_MISSING', /spawn\s+\S*\s*ENOENT|ENOENT[^\n]{0,80}\bspawn\b|command not found|not found in (your )?PATH|executable not found|unable to locate (the )?\S* ?(cli|codex|dsh|claude)\b|native binary not found|exited with code 127\b|is not recognized as an internal or external command/i],
   ['HARNESS_HUNG', /went silent|no output (for|in|after|within)|produced no output|stopped responding|watchdog|\b(dsh|codex|claude)\b[^\n]{0,40}timed out after \d+\s*ms|\bhung\b/i],
-  ['CREDIT', /billing_error|credit balance|insufficient[ _-]?(credit|quota|fund|balance)|payment[ _-]?required|out of credits|add (more )?credits|purchase (more )?credits|exceeded your current quota|(?:\b(?:http|status|code|error)\W{0,3}|^\W{0,3})402\b(?!:\d)/im],
+  ['CREDIT', /billing_error|credit balance|insufficient[ _-]?(credit|quota|fund|balance)|payment[ _-]?required|out of credits|add (more )?credits|purchase (more )?credits|exceeded your current quota|(?:\b(?:http|status|code|error)\W{0,3}|\bHTTP\/\d(?:\.\d)?\s+|^\W{0,3})402\b(?!:\d)/im],
   ['AUTH', /authentication_failed|oauth_org_not_allowed|invalid[ _-]?(x-)?api[ _-]?key|api key (is )?(missing|not set|invalid)|missing[ _-]?api[ _-]?key|unauthori[sz]ed|\bforbidden\b|not (logged|signed) in|please run \/login|run `?codex login|login required|authentication (failed|error|required)|invalid[ _-]?(token|credentials)|token (has )?expired|permission[ _-]?denied \(api|(?:http|status|code)\D{0,3}40[13]\b|\b40[13]\s+(unauthori[sz]ed|forbidden)/i],
   // A bare "Connection error. Please try again in a few seconds." is the network, not a limit: it must beat the "try again" wording below.
-  ['NETWORK', /^\W*connection error\b/i],
-  ['RATE_LIMIT', /rate[ _-]?limit|too many requests|usage limit|hit your (usage )?limit|throttl|quota (will )?reset|try again (in|later at)|(?:http|status|code)\D{0,3}429\b|(?:\b(?:http|status|code|error)\W{0,3}|^\W{0,3})429\b(?!:\d)/im],
+  ['NETWORK', /\bconnection error\b/i],
+  ['RATE_LIMIT', /rate[ _-]?limit|too many requests|usage limit|hit your (usage )?limit|throttl|quota (will )?reset|try again (in|later at)|(?:http|status|code)\D{0,3}429\b|(?:\b(?:http|status|code|error)\W{0,3}|\bHTTP\/\d(?:\.\d)?\s+|^\W{0,3})429\b(?!:\d)/im],
   ['TIMEOUT', /timed? ?out|timeout|ETIMEDOUT|deadline exceeded|\b(408|504)\b/i],
   ['NETWORK', /ECONNREFUSED|ECONNRESET|ECONNABORTED|ENOTFOUND|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|EPIPE|socket hang up|fetch failed|network (error|is unreachable)|getaddrinfo|connection (was )?(reset|refused|closed|lost)|stream (disconnected|closed)|\bTLS\b|certificate|econnection|und_err/i],
-  ['SERVER', /server_error|api_error|internal server error|overloaded|bad gateway|service unavailable|gateway time|upstream|(?:http|status|code)\D{0,3}5\d\d\b|(?:\b(?:http|status|code|error)\W{0,3}|^\W{0,3})(?:500|502|503|529)\b(?!:\d)/im],
+  ['SERVER', /server_error|api_error|internal server error|overloaded|bad gateway|service unavailable|gateway time|upstream|(?:http|status|code)\D{0,3}5\d\d\b|(?:\b(?:http|status|code|error)\W{0,3}|\bHTTP\/\d(?:\.\d)?\s+|^\W{0,3})(?:500|502|503|529)\b(?!:\d)/im],
 ];
 
 /** Everything about a failure worth reading, as one lowercase-insensitive string. Bounded: a stderr tail is long. */

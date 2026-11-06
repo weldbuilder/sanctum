@@ -158,3 +158,14 @@ describe('classifyFailure: status numbers need a status context (verifier)', () 
     expect(classifyFailure({ status: 429 })).toBe('RATE_LIMIT');
   });
 });
+
+describe('classifyFailure: connection error anywhere, HTTP status lines', () => {
+  it.each([
+    ['API Error: Connection error. Please try again in a few seconds.', 'NETWORK'],
+    ['Claude Code process exited with code 1\nConnection error. Please try again in a few seconds.', 'NETWORK'],
+    ['HTTP/1.1 429', 'RATE_LIMIT'],
+    ['HTTP/2 503', 'SERVER'],
+    ['Request failed: HTTP/1.1 529', 'SERVER'],
+    ['HTTP/1.1 402', 'CREDIT'],
+  ])('%s -> %s', (m, cls) => { expect(classifyFailure(E(m))).toBe(cls); });
+});
