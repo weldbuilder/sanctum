@@ -456,7 +456,16 @@ The server never makes a password up for the setup screen (it could not hand one
 
 ### `summarizer` — who writes the companion's memory of itself
 
-`agent.summarizer` is the model that condenses a thread into the short accounts the companion later reads back as its own memory. Today that is the rolling fold, merge and rebuild (long-conversation memory, `agent.rolling`); the Scribe digest, the daily handoff and the house outlook author join it in a later release. One block, whichever harness runs your turns.
+`agent.summarizer` is the model that condenses a thread into the short accounts the companion later reads back as its own memory. It writes four kinds, all through the one runner and all in the companion's own first person, "this is what happened today, this is where we left off, this is what I've been doing":
+
+| Kind | What it writes | Where it lands |
+|---|---|---|
+| `rolling` | the fold, merge and rebuild of long-conversation memory (`agent.rolling`) | the thread's rolling segments, read back as "Earlier in this thread, in your own words" |
+| `digest` | the daily digest, every 30 minutes: the companion telling the person about the day | `data/digests/YYYY-MM-DD.md`; the next day's handoff quotes it as "your digest for yesterday" |
+| `handoff` | the 12:10am daily handoff: an opener and a carry (JSON) | the opener is the first message in today's daily; the carry is read back as "You carried from yesterday (DATE):" |
+| `outlook` | the house outlook author, every 3 hours: the companion's own hearth, topics and asks (JSON) | the `outlook_*` rows, shown on the house page and in the "House Outlook" block of orientation |
+
+One block, whichever harness runs your turns. The digest, handoff and outlook no longer have a model of their own: they used to follow `agent.model_autonomous`; now they follow `agent.summarizer` (which, left empty, is that same chat model). Each is the shared voice plus its own section of `prompts/summarizer-own-voice.md` ("Daily digest", "Daily handoff", "House outlook") and a short format block in code that keeps the output (markdown, or JSON) as it was.
 
 **What it writes, and why it must be capable.** The rolling summary leads every reply: the companion reads it as "Earlier in this thread, in your own words". It is written in the first person, by the companion, with a short version of its identity in front of it (name, who you are to each other, a voice anchor; at most 1,200 characters, cached under `data/identity-short/` and rebuilt when the ratified identity changes). A small or fast-tier model will flatten that voice and make the companion's memory of itself read like a stranger's notes. Use a capable mid-tier model or better. A startup warning is logged when the model name looks small-tier (haiku, mini, small, lite, nano, or 8b and under). It is a warning, not a block.
 

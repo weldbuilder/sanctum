@@ -10,16 +10,10 @@ import { tmpdir } from 'node:os';
 
 const h = vi.hoisted(() => ({
   id: (): string => '',
-  seen: [] as { id: string; env?: Record<string, string | undefined>; cwd?: string }[],
-}));
-
-vi.mock('../services/providers/index.js', () => ({
-  activeProvider: () => 'claude',
-  AbortError: class AbortError extends Error {},
-  listSessions: async () => [],
-  query: (p: { options?: { env?: Record<string, string | undefined>; cwd?: string } }) => {
+  seen: [] as { id: string; env?: Record<string, string | undefined>; cwd?: string; system?: string }[],
+  fake: (p: { options?: { env?: Record<string, string | undefined>; cwd?: string; systemPrompt?: string } }) => {
     const id = h.id();
-    h.seen.push({ id, env: p.options?.env, cwd: p.options?.cwd });
+    h.seen.push({ id, env: p.options?.env, cwd: p.options?.cwd, system: p.options?.systemPrompt });
     const text = JSON.stringify({ opener: `OPENER-${id}`, carry: `CARRY-${id}`, presence: { mood: `mood-${id}` }, topics: [], needsYou: [{ kind: 'notice', text: `NEEDS-${id}` }] });
     const it = (async function* () {
       yield { type: 'assistant', session_id: `s-${id}`, message: { content: [{ type: 'text', text }] } };
@@ -28,6 +22,15 @@ vi.mock('../services/providers/index.js', () => ({
     return Object.assign(it, { mcpServerStatus: async () => [], interrupt: async () => {}, close: () => {} });
   },
 }));
+
+// The turn provider (nothing here takes a turn) and the SDK the summarizer's Claude side-run uses (the author and the handoff run through it).
+vi.mock('../services/providers/index.js', () => ({
+  activeProvider: () => 'claude',
+  AbortError: class AbortError extends Error {},
+  listSessions: async () => [],
+  query: (p: Parameters<typeof h.fake>[0]) => h.fake(p),
+}));
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: (p: Parameters<typeof h.fake>[0]) => h.fake(p) }));
 vi.mock('../services/rolling-context.js', async (orig) => ({ ...(await orig<object>()), getRolling: () => ({ maybeCompact: async () => {}, readTurns: async () => [] }), rollingEnabledForActiveProvider: () => false }));
 vi.mock('../services/revien.js', async (orig) => ({ ...(await orig<object>()), recallForPrompt: async () => '', ingestTurn: async () => {} }));
 

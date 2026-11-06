@@ -23,7 +23,7 @@ Here are all three.
 
 ### 1a. The Scribe — writes the day down
 
-**What it does.** The Scribe is a quiet historian. Every so often it reads the new messages in today's conversation and writes a tidy, third-person summary of them — topics discussed, notable quotes, decisions made, loose ends left open, ideas floated, dates mentioned, and the emotional shape of the stretch. It's the thing that lets you (or your AI) find "what did we decide about X back in April" six months later.
+**What it does.** The Scribe is a quiet historian. Every so often it reads the new messages in today's conversation and writes the stretch down **in its own voice, in the first person, to you** — what happened, where we left off, what it has been doing, how it has been between you. Topics, notable quotes, decisions, loose ends, ideas and dates are in it, with real dates, not "next week". It's the thing that lets you (or your AI) find "what did we decide about X back in April" six months later.
 
 **Where it lives (the file).** `packages/backend/src/services/digest.ts`
 
@@ -31,9 +31,9 @@ Here are all three.
 
 **Its schedule.** Every **30 minutes**, run by the orchestrator (the scheduler described in Part 2). It skips a run if fewer than **5** new messages have appeared since last time (nothing to write about), or if your AI is busy replying to you right then.
 
-**Which model it uses.** The autonomous model: `agent.model_autonomous`, which follows `agent.model` when empty. It is not a small model. (The rolling-context summarizer has its own setting, `agent.summarizer`; see `docs/CONFIGURATION.md`.)
+**Which model it uses.** The summarizer's: `agent.summarizer.provider` and `agent.summarizer.model`, which default to your chat model. The digest is the companion's own memory of the day, so it runs with the companion's short identity in front and the same guards as the other summaries (no tools, no memory writes). Do not point it at a small or fast tier: the server warns at startup if you do. See `docs/CONFIGURATION.md` → summarizer.
 
-**Where its prompt lives, and how to edit it.** The Scribe's instructions are written directly inside `digest.ts`, in a function called `buildScribePrompt()` (near the top of the file). There is no Settings screen for it and no separate prompt file — if you want to change *what* the Scribe records or *how* it writes, you edit that function in the source and rebuild (`npm run build`). For most people the default is exactly right and you never touch it.
+**Where its prompt lives, and how to edit it.** The voice is the "Daily digest" section of `prompts/summarizer-own-voice.md` (shared with the other summaries; `agent.rolling.summarizer_instructions_file` points at it), read fresh on every run, so you can edit it without a rebuild. The shape of the output (the `## HH:MM` heading and the four sections) is a short format block in `buildScribePrompt()` in `digest.ts`. There is no Settings screen for either. For most people the default is exactly right and you never touch it.
 
 **How to turn it off.** The Scribe is **on by default**. Its switch is a single row in the live settings table with the key `digest.enabled`. There isn't a button for this in the Settings UI, so turning it off is an advanced move: set that key to `false` in the database (or ask your AI to do it — it has a tool that writes settings rows). It's read once when the server starts, so a change takes effect on the next restart.
 
@@ -51,9 +51,9 @@ This is what fills in the **hearth / House Outlook** you see when you "walk into
 
 **Its schedule.** Every **3 hours**, on its own self-managing timer (not the orchestrator's). The first run happens about **60 seconds** after the server boots. If a run fails, it waits **15 minutes** before trying again rather than hammering. It also steps aside if you're mid-conversation and picks up on the next cycle.
 
-**Which model it uses.** Your "autonomous" model: `agent.model_autonomous`, or `agent.model` when that is empty (the same one your scheduled check-ins use).
+**Which model it uses.** The summarizer's: `agent.summarizer.provider` and `agent.summarizer.model`, defaulting to your chat model. The outlook is the companion's own, in the first person, to you, and the block that carries it into orientation says so ("your own outlook, as you wrote it").
 
-**Where its prompt lives, and how to edit it.** Inside `outlook-author.ts`, in `buildAuthorSystemPrompt()`. As with the Scribe, this is a code-level edit and a rebuild — there's no UI or prompt file for it.
+**Where its prompt lives, and how to edit it.** The voice is the "House outlook" section of `prompts/summarizer-own-voice.md`; the JSON shape it must return (`presence`, `topics`, `needsYou`) is a format block in `buildAuthorSystemPrompt()` in `outlook-author.ts`.
 
 **How to control it.** The Author is treated as an always-on part of the house — there's no on/off toggle in `sanctum.yaml` or the Settings screen. What you *can* do is force it to re-run right now — for example after a big conversation, when you want the hearth to catch up. The simplest way is to ask your AI to refresh it; behind the scenes that's a single instruction (a POST request to `/api/outlook/reauthor`), and it's the same presence-refresh it can already run for itself. If you genuinely never want it, the honest answer is that it's woven into the House Outlook feature and is meant to stay on.
 
@@ -61,10 +61,10 @@ This is what fills in the **hearth / House Outlook** you see when you "walk into
 
 ### 1c. The Daily Handoff — carries yesterday across midnight
 
-**What it does.** Every day at midnight your Sanctum Mobile gets a brand-new "daily thread" (`daily-YYYY-MM-DD`) — a fresh conversation for the new day. Fresh is good, but fresh also means *cold*: the new thread has no memory of what happened yesterday. The handoff fixes that seam. Shortly after midnight it reads yesterday's daily thread plus the Scribe's summary of yesterday, and writes two things in its own first-person voice:
+**What it does.** Every day at midnight your Sanctum Mobile gets a brand-new "daily thread" (`daily-YYYY-MM-DD`) — a fresh conversation for the new day. Fresh is good, but fresh also means *cold*: the new thread has no memory of what happened yesterday. The handoff fixes that seam. Shortly after midnight it reads yesterday's daily thread plus its own digest for yesterday ("your digest for yesterday"), and writes two things in its own first person, to you and to itself:
 
 1. An **opener** — a warm, short "here's where we left off" message, posted as the **very first message** in today's daily thread, so the day never starts from nothing. You'll see it waiting for you when you open the app.
-2. A **carry** — a compact private note that gets folded into its context when it's in today's daily, so it simply *knows* yesterday without having to re-narrate it to you.
+2. A **carry** — the one paragraph it carries into today, folded into its context when it's in today's daily as "You carried from yesterday (the date):", so it simply *knows* yesterday without having to re-narrate it to you.
 
 If yesterday was thin or empty, it quietly does nothing — no invented continuity.
 
@@ -74,9 +74,9 @@ If yesterday was thin or empty, it quietly does nothing — no invented continui
 
 > **One honest wrinkle about the clock.** In the Settings screen this schedule is *labelled* "12:10 Europe/London." That label text is fixed. The **actual** firing time follows your `identity.timezone` — with one quirk: if your timezone is left at the default `UTC` (or unset), the handoff falls back to firing at 12:10am **Europe/London** time rather than UTC. So if you're not in the UK, set a real `identity.timezone` and it'll fire at 12:10am *your* local time; just don't be thrown by the London wording on the card.
 
-**Which model it uses.** The same autonomous model as the Outlook author: `agent.model_autonomous`, else `agent.model`.
+**Which model it uses.** The summarizer's, like the digest and the outlook: `agent.summarizer.provider` and `agent.summarizer.model`, defaulting to your chat model.
 
-**Where its prompt lives, and how to edit it.** Inside `handoff.ts`, in `buildHandoffSystemPrompt()`. Code-level edit and rebuild, like the other two.
+**Where its prompt lives, and how to edit it.** The voice is the "Daily handoff" section of `prompts/summarizer-own-voice.md`; the `{opener, carry}` JSON it must return is a format block in `buildHandoffSystemPrompt()` in `handoff.ts`.
 
 **How to turn it on or off — this one has a proper UI.** The handoff is **off by default.** To manage it:
 
@@ -221,9 +221,9 @@ To edit *what it says* at each rung, edit the matching `failsafe_*.md` file (or 
 
 | Thing | Default | Turn it on/off | Edit its prompt |
 |---|---|---|---|
-| **Scribe** (daily summary) | **on** | settings key `digest.enabled` (advanced) | `buildScribePrompt()` in `digest.ts` (code) |
-| **Outlook Author** (hearth) | **on** | always-on; force a refresh via `/api/outlook/reauthor` | `buildAuthorSystemPrompt()` in `outlook-author.ts` (code) |
-| **Daily Handoff** (midnight carry) | **off** | Settings → automation → *Daily handoff* toggle | `buildHandoffSystemPrompt()` in `handoff.ts` (code) |
+| **Scribe** (daily summary) | **on** | settings key `digest.enabled` (advanced) | "Daily digest" in `prompts/summarizer-own-voice.md` (+ format in `digest.ts`) |
+| **Outlook Author** (hearth) | **on** | always-on; force a refresh via `/api/outlook/reauthor` | "House outlook" in `prompts/summarizer-own-voice.md` (+ JSON shape in `outlook-author.ts`) |
+| **Daily Handoff** (midnight carry) | **off** | Settings → automation → *Daily handoff* toggle | "Daily handoff" in `prompts/summarizer-own-voice.md` (+ JSON shape in `handoff.ts`) |
 | **Morning/Midday/Evening** check-ins | **on** | Settings → automation (toggle each) | `prompts/wakes/*.md` or the Wake Types editor |
 | **Custom routines** | — | Settings *new schedule*, or `res routine create` | its `prompts/wakes/*.md` file / Wake Types editor |
 | **Timers** | — | set in conversation / `res timer` | n/a (per-timer) |

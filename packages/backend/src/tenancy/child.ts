@@ -8,7 +8,7 @@
 import { join } from 'node:path';
 import { applyAuthToEnv } from '../services/auth-preferences.js';
 import { ownMkdirIn } from './own-files.js';
-import { tenantHomePaths, tenantOrNull, type TenantRuntime } from './context.js';
+import { tenancyEnabled, tenantHomePaths, tenantOrNull, type TenantRuntime } from './context.js';
 
 export const ENV_ALLOW = new Set([
   'PATH', 'HOME', 'LANG', 'LANGUAGE', 'TERM', 'TZ', 'SHELL', 'USER', 'LOGNAME',
@@ -80,6 +80,14 @@ export function withRunEnv(overrides: Record<string, string | undefined> | undef
 export function childRunBase(): NodeJS.ProcessEnv {
   const base = childBaseEnv();
   return base === process.env ? base : withRunEnv(applyAuthToEnv())!;
+}
+
+/** Tenancy off: write the person's auth choice (subscription or api key) into process.env before a background run that inherits it (the
+ *  summarizer: digest, handoff, outlook), as those runs did for themselves. Tenant mode: nothing; childRunBase() merges it into the run's own copy.
+ *  Best effort: a missing database or preference never stops a run. */
+export function applyAuthForBackgroundRun(): void {
+  if (tenancyEnabled()) return;
+  try { applyAuthToEnv(); } catch { /* the run goes on with the environment as it is */ }
 }
 
 /** `{ env }` for a provider call's options, or nothing when there are no overrides (the provider switch then picks childBaseEnv()). */

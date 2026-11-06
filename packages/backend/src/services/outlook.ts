@@ -795,11 +795,13 @@ export function stopOutlookPoller(): void {
 // orientation by hooks.ts buildOrientationContext — once per session, never
 // per turn (context-rot lesson). The companion starts every session carrying the
 // house instead of just displaying it. Kept next to the snapshot it digests.
+/** The head of the house block in orientation. The hearth in it is the companion's own outlook, written by it (outlook-author.ts); the rest is the house as it stands. */
+export const HOUSE_OUTLOOK_HEADER = '[House Outlook: your own outlook, as you wrote it, with the house as it stands]';
 export function snapshotToContextDigest(snapshot: HouseSnapshot): string {
   // Age honesty: once the snapshot stops being "now" (>30 min), the digest
   // says so — a KV-restored or stalled house view can't pass itself off as
   // the live house.
-  let header = '[House Outlook]';
+  let header = HOUSE_OUTLOOK_HEADER;
   const ageMs = Date.now() - Date.parse(snapshot.generatedAt);
   if (Number.isFinite(ageMs) && ageMs > DIGEST_STALE_NOTE_MS) {
     const mins = Math.round(ageMs / 60000);
