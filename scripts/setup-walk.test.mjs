@@ -42,6 +42,10 @@ const digestOf = (p) => createHash('sha256').update(fs.readFileSync(p)).digest('
 // The same bytes the recording's preload hands crypto.randomBytes.
 const fixedBytes = Buffer.from(Array.from({ length: 16 }, (_v, i) => (i * 7 + 3) % 256));
 
+const OPTIONAL_PROMPTS = ['Make pictures with', "Write your companion's own summaries with"];
+/** The optional group's block (heading to the blank line the group ends with), which the recordings predate. */
+const withoutOptionalGroup = (t) => t.replace(/^— Optional: pictures and summaries —\n[\s\S]*?\n\n/gm, '');
+
 /** Run `npm run setup` for one list of answers, in-process: the transcript is every line said, and every prompt followed by its answer. */
 async function walk(sbx, answers, codex, sc = {}) {
   let out = '';
@@ -49,6 +53,9 @@ async function walk(sbx, answers, codex, sc = {}) {
   const io = {
     say: (s = '') => { out += `${s}\n`; },
     prompt: async (text) => {
+      // The optional group added after the recording ("Optional: pictures and summaries"): answered with its defaults and stripped from the
+      // transcript below, so the recordings of the original stay as they were. setup-optional.test.mjs covers the group itself.
+      if (OPTIONAL_PROMPTS.some((q) => text.startsWith(q))) { out += `${text}\n`; return ''; }
       const next = queue.shift();
       if (!next) throw new Error(`no answer left for the prompt ${JSON.stringify(text)}`);
       if (!text.includes(next[0])) throw new Error(`the script expected a prompt containing ${JSON.stringify(next[0])} but the wizard asked ${JSON.stringify(text)}`);
@@ -119,7 +126,7 @@ describe.skipIf(!posix || inTemp)('the terminal wizard prints and writes what th
       // The one thing added since the recording: a home made from the starter template gets its identity baseline (the first journal line and
       // the ratified copy, by `setup`) and the wizard says so in one line. The ledger holds timestamps, so it is checked below, not byte for byte.
       const baselineSaid = /^Identity: the starter files in .* are recorded as ratified \([0-9a-f]{12}\)\./m.test(transcript);
-      expect(normalize(transcript.replace(/^Identity: .*\n/gm, ''), sbx)).toBe(want);
+      expect(normalize(withoutOptionalGroup(transcript).replace(/^Identity: .*\n/gm, ''), sbx)).toBe(want);
       // The Identity line itself is checked, not stripped: only the digest (and the sandbox path, through normalize) may vary; the rest is verbatim.
       const identityLines = normalize(transcript, sbx).split('\n').filter((l) => l.startsWith('Identity: '));
       for (const line of identityLines) {

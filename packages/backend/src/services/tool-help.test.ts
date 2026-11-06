@@ -81,3 +81,33 @@ describe('tool help', () => {
     expect(short.find((l) => l.includes('help hello'))!.indexOf('hello: example')).toBe(short.find((l) => l.includes('permission, waits'))!.indexOf('permission, waits'));
   });
 });
+
+describe('what is not set up (the companion can say so, and is never offered it)', () => {
+  const PICTURES = 'Pictures: not set up on this install (the person can enable it; see UPGRADE.md → image generation)';
+  const VOICE = 'Voice: not set up on this install (the person can enable it; see UPGRADE.md → voice notes)';
+
+  it('adds one Pictures line only when image generation is explicitly not offered', () => {
+    const off = shortToolList({ ...o, image: false });
+    expect(off.split('\n').filter((l) => l.includes('Pictures:'))).toEqual([`  ${PICTURES}`]);
+    expect(shortToolList({ ...o, image: true })).not.toContain('Pictures:');
+    expect(shortToolList(o)).not.toContain('Pictures:'); // unset: the caller did not say
+    expect(shortToolList({ ...o, image: true })).toContain('res image "prompt"'); // offered: the verb, not the line
+    expect(off).not.toContain('res image'); // not offered: no verb, no topic
+    expect(topicHelp({ ...o, image: false }, 'image')).toMatch(/^Topics: /);
+  });
+
+  it('adds one Voice line only when voice is explicitly off', () => {
+    expect(shortToolList({ ...o, voice: false }).split('\n').filter((l) => l.includes('Voice:'))).toEqual([`  ${VOICE}`]);
+    expect(shortToolList({ ...o, voice: true })).not.toContain('Voice:');
+    expect(shortToolList(o)).not.toContain('Voice:');
+  });
+
+  it('both lines together stay inside the short-list budget; the full help carries them once', () => {
+    const both = { ...o, image: false, voice: false };
+    expect(shortToolList(both).length).toBeLessThan(1100);
+    const f = fullToolHelp(both);
+    expect(f.split(PICTURES)).toHaveLength(2);
+    expect(f.split(VOICE)).toHaveLength(2);
+    expect(fullToolHelp({ ...o, image: true, voice: true })).not.toMatch(/not set up on this install/);
+  });
+});

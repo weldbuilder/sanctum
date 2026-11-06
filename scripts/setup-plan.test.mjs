@@ -46,6 +46,7 @@ describe('setupPlan: the steps', () => {
       'companionName', 'userName', 'timezone', 'home', 'homeCreate',
       'provider', 'addProvider', 'providerId', 'providerName', 'providerBaseUrl', 'providerKey', 'providerModel', 'providerDefault', 'codexModel', 'codexProvider', 'claudeModel', 'anthropicKey', 'dshModel', 'dshKey',
       'sandbox', 'extraDirs', 'appWrite', 'rolling', 'summarizerModel', 'summarizerProvider', 'pluginsTrust', 'plugins',
+      'imageProvider', 'imageKey', 'summaryWho', 'summaryEndpoint', 'summaryKey',
       'discordEnable', 'discordOwnerUserId', 'discordOwnerChannelId', 'discordPrivateDir', 'password',
       'memory', 'codexMemoriesOff', 'codexMemoriesOn', 'browserSeat', 'browserEntry', 'phoneOrigin',
       'ledgerDir', 'ratify_0', 'ratify_1', 'ratify_2',

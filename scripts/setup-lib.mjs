@@ -137,6 +137,14 @@ export function applyAnswers(cfg, a) {
   if (typeof a.rolling === 'boolean') c.agent.rolling[a.provider] = a.rolling;
   if (a.summarizerModel !== undefined) c.agent.rolling.model = a.summarizerModel || '';
   if (a.summarizerProvider !== undefined) c.agent.rolling.model_provider = a.summarizerProvider || '';
+  // Optional group (pictures and summaries): written only when the person chose something; "nothing" and "the chat model" leave the file as it was.
+  if (a.imageProvider === 'runware' || a.imageProvider === 'replicate') c.imagegen = { ...(c.imagegen || {}), provider: a.imageProvider };
+  if (a.summaryOwn?.baseUrl && a.summaryOwn?.model) {
+    c.agent.summarizer = {
+      ...(c.agent.summarizer || {}), provider: 'openai-compat', base_url: a.summaryOwn.baseUrl, model: a.summaryOwn.model,
+      api_key_env: c.agent.summarizer?.api_key_env || 'SUMMARIZER_API_KEY',
+    };
+  }
   if (typeof a.appWrite === 'boolean') {
     c.agent.app_write = a.appWrite;
     if (a.appWrite) c.command_center = { ...(c.command_center || {}), enabled: true };

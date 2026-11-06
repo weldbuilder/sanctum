@@ -243,3 +243,89 @@ If you keep a Codex home with no `config/codex-base-prompt.md` and no
 unchanged, with its tool and `apply_patch` guidance: the identity is added through Codex's
 `developer_instructions`, which prepends it to the developer message. Keep a base file if you want
 the harness there instead.
+
+---
+
+# Pictures and companion-voiced summaries
+
+This release adds image generation and a companion-voiced summarizer, and settles which setting wins when two places
+disagree. Nothing here is on by default, and `npm run setup` now offers the two optional blocks (a re-run on an install
+that already has them asks nothing new). Run `npm run doctor` afterwards: it says what is on, what is half set up, and what is off.
+
+## What's new
+
+- **Image generation.** Your companion can make pictures (FLUX, through Runware or Replicate). The Files page has a prompt panel,
+  and a generated picture is saved as a file and posted into the chat as your companion's own image message.
+- **Expression tags.** In a reply, on any harness, `[image: a short visual description]` makes a picture and `[voice]` (or
+  `[voice:playful|warm|calm]`, only at the very start) sends the reply as a voice note too. Your companion is told about a tag only
+  while its capability is on.
+- **One rule for which setting wins:** default, then `sanctum.yaml`, then `.env`, then the app's database (what you save in Settings).
+  `GET /api/preferences` and `GET /api/settings` now answer with the value that is really in effect and a `sources` map saying which layer
+  it came from, and the `/model` command sets the one chat model (`/model reset` clears it).
+- **A summarizer in your companion's own voice.** The rolling summaries your companion reads back as its memory of the thread are
+  now written in the first person, with a short version of its identity in front, and you can pick the model that writes them (a
+  capable mid-tier model or better; a small or fast one flattens the voice).
+
+## What to add
+
+Both blocks are optional. Image generation, in `sanctum.yaml` (use `runware` or `replicate`):
+
+```yaml
+imagegen:
+  provider: "runware"
+```
+
+The summarizer, on another model through any OpenAI-compatible endpoint (OpenRouter is the example; confirm the current model id on the
+provider's list before you rely on this one). Leave the block out and the chat model writes the summaries, as before:
+
+```yaml
+agent:
+  summarizer:
+    provider: "openai-compat"
+    base_url: "https://openrouter.ai/api/v1"
+    model: "deepseek/deepseek-chat"
+    api_key_env: "SUMMARIZER_API_KEY"
+```
+
+The keys go in `.env`, never in the yaml (use the one for your picture provider):
+
+```
+RUNWARE_API_KEY=...
+REPLICATE_API_TOKEN=...
+SUMMARIZER_API_KEY=...
+```
+
+**Image generation** is offered to your companion only when the provider is set, its key is in `.env`, and `agent.app_write` is on.
+**Voice notes** need `voice.enabled: true`, `ELEVENLABS_API_KEY` in `.env` and a voice id (`voice.elevenlabs_voice_id`). Until then your
+companion is told, in one line, that pictures or voice are not set up here, so it can answer "can you make pictures?" truthfully. Every
+key is in [docs/CONFIGURATION.md](docs/CONFIGURATION.md): `imagegen`, "Inline expression tags" and `summarizer`.
+
+`agent.rolling.model` and `agent.rolling.model_provider` still work for this release (read only while `agent.summarizer.model` and
+`agent.summarizer.provider` are empty, with one "deprecated" line in the log). Move them to `agent.summarizer` when you can.
+
+## What changes when you restart
+
+- **A channel's status may read on where it read off.** Discord and Telegram status now show the setting that actually runs (for
+  example `DISCORD_ENABLED=true` in `.env` while Settings had it off). Nothing starts that was not already running; the page just no
+  longer disagrees with the app.
+- **`app_write: no` is now off.** A yaml `no`, `off` or `0` was read as true before; it is read as false now, so an install that wrote
+  `agent.app_write: no` and was in fact writing will stop writing (and is not offered pictures). Write `true` if you want it on. Any other
+  switch word that is not yes/on/true/1 or no/off/false/0 is logged at load and read as false.
+- **An old `/model` row is dropped.** If the database holds the old `agent.model` row, the app ignores it, deletes it and logs one line
+  saying so. Your chosen model is the one the `/model` command or the Models editor set (`preferred_model`); `sanctum.yaml` and
+  `AGENT_MODEL` win again after `/model reset`.
+- **Three dead keys are removed,** each with one line in the log: `hooks.context_injection`, `google.enabled` (and `GOOGLE_ENABLED`) and
+  `command_center.care_categories`. Delete them from your files.
+- **The first fold writes in the new voice.** Summaries already stored are kept as they are. The next time a thread folds, the new
+  summary is written by your companion in the first person, so a thread's memory may read differently from that point on.
+
+## What to check
+
+```bash
+npm run doctor
+```
+
+Its `imagegen` line is OK with a provider and its key, a WARN naming the variable when the provider is set and the key is missing, and an
+INFO line when pictures are off. Its `summarizer` lines warn when `openai-compat` lacks its model, base URL or key, and when the model
+looks small-tier (haiku, mini, small, lite, nano, or 8b and under). It reads `sanctum.yaml` and `.env`; a value saved in Settings is not
+read, so check the Files page too.

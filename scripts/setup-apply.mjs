@@ -312,6 +312,9 @@ function applySetupIn(answers, plan, io, opts) {
   if (a.password) envValues.APP_PASSWORD = a.password;
   if (a.provider === 'claude' && a.anthropicKey) envValues.ANTHROPIC_API_KEY = a.anthropicKey;
   if (a.provider === 'dsh' && a.dshKey) envValues[ex?.agent?.dsh?.api_key_env || 'DEEPSEEK_API_KEY'] = a.dshKey;
+  // The optional group's keys: the picture provider's key under its own name, the summarizer's under the variable the yaml names.
+  if (a.imageKey && (a.imageProvider === 'runware' || a.imageProvider === 'replicate')) envValues[a.imageProvider === 'runware' ? 'RUNWARE_API_KEY' : 'REPLICATE_API_TOKEN'] = a.imageKey;
+  if (a.summaryOwn?.key) envValues[cfg.agent?.summarizer?.api_key_env || 'SUMMARIZER_API_KEY'] = a.summaryOwn.key;
   if (Object.keys(envValues).length) {
     if (opts.backupConfig) {
       const bak = backupFile(env.envPath, now, 0o600, tenantDir); // a copy of secrets: owner-only

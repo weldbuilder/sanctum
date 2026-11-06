@@ -1513,7 +1513,7 @@ export async function buildOrientationContext(
   const cliPath = join(PROJECT_ROOT, 'tools', 'res.mjs').replace(/\\/g, '/');
   if (existsSync(cliPath)) {
     const SC = `node ${cliPath.replace(/\\/g, '/')}`;
-    const helpOpts = { SC, userName, ccEnabled: !!config.command_center.enabled, browser: browserToolsConfigured(config), image: imagegenOffered(), telegram: ctx.platform === 'telegram', pluginHelp: pluginHelp() };
+    const helpOpts = { SC, userName, ccEnabled: !!config.command_center.enabled, browser: browserToolsConfigured(config), image: imagegenOffered(), voice: !!config.voice?.enabled, telegram: ctx.platform === 'telegram', pluginHelp: pluginHelp() };
     parts.push(rollingEnabledForActiveProvider() ? shortToolList(helpOpts) : fullToolHelp(helpOpts));
   }
 

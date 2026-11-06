@@ -262,6 +262,9 @@ router.post('/apply', setupGate, (req, res) => {
       if (answers.provider === 'claude' && answers.anthropicKey) process.env.ANTHROPIC_API_KEY = answers.anthropicKey;
       // DeepSeek Harness reads its route's key from the environment it hands the child (docs/DSH.md): the variable the config names.
       if (answers.provider === 'dsh' && answers.dshKey) process.env[(getSanctumConfig().agent?.dsh?.api_key_env) || 'DEEPSEEK_API_KEY'] = answers.dshKey;
+      // The optional pictures and summaries keys, the same way: the variable each block names, so they work without a restart.
+      if (answers.imageKey && (answers.imageProvider === 'runware' || answers.imageProvider === 'replicate')) process.env[answers.imageProvider === 'runware' ? 'RUNWARE_API_KEY' : 'REPLICATE_API_TOKEN'] = answers.imageKey;
+      if (answers.summaryOwn?.key) process.env[(getSanctumConfig().agent?.summarizer?.api_key_env) || 'SUMMARIZER_API_KEY'] = answers.summaryOwn.key;
       try { reloadConfig(); } catch (err) { notes.push(`The new settings were saved but could not be loaded until a restart: ${(err as Error).message}`); }
     }
     // A changed password signs every other browser out: whoever held the old one (or a session minted with it) no longer has a way in.

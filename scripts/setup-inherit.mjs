@@ -124,7 +124,7 @@ export const WIZARD_DEFAULTS = Object.freeze({
   'agent.codex.model': '', 'agent.codex.model_provider': '', 'agent.codex.sandbox_mode': 'workspace-write', 'agent.codex.additional_directories': [],
   'agent.rolling.claude': true, 'agent.rolling.codex': true, 'agent.rolling.dsh': true, 'agent.rolling.model': '', 'agent.rolling.model_provider': '',
   'agent.summarizer.provider': '', 'agent.summarizer.model': '', 'agent.summarizer.base_url': '', 'agent.summarizer.max_output_tokens': 2000,
-  'command_center.enabled': false, 'plugins.trust': 'companion', 'plugins.enabled': [], 'revien.enabled': true,
+  'imagegen.provider': 'none', 'command_center.enabled': false, 'plugins.trust': 'companion', 'plugins.enabled': [], 'revien.enabled': true,
 });
 
 const isMap = (v) => v && typeof v === 'object' && !Array.isArray(v);

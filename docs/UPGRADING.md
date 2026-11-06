@@ -209,6 +209,42 @@ This creates the search index and its live-sync triggers, then fills it in from 
 
 ---
 
+## Optional since v3: pictures and companion-voiced summaries
+
+A later v3 release adds two optional blocks, both off until you turn them on. You can add them after the upgrade above has settled; nothing
+in the steps above needs them. `npm run setup` now offers them (a re-run on an install that has them asks nothing new), and the full note,
+with what changes on restart, is [UPGRADE.md](../UPGRADE.md), "Pictures and companion-voiced summaries".
+
+**What's new:** image generation (a prompt panel on the Files page, and `[image: ...]` / `[voice]` tags in a reply), one rule for which setting
+wins (`sanctum.yaml`, then `.env`, then Settings) with a truthful settings page and a `/model` command, and the rolling summaries written in
+your companion's own voice on a model you choose.
+
+**What to add** to `sanctum.yaml` (both blocks optional), and the keys to `.env`:
+
+```yaml
+imagegen:
+  provider: "runware"          # or "replicate"
+
+agent:
+  summarizer:
+    provider: "openai-compat"
+    base_url: "https://openrouter.ai/api/v1"
+    model: "deepseek/deepseek-chat"   # confirm the current id on the provider's list
+    api_key_env: "SUMMARIZER_API_KEY"
+```
+
+```
+RUNWARE_API_KEY=...            # or REPLICATE_API_TOKEN=...
+SUMMARIZER_API_KEY=...
+```
+
+**What changes on restart:** a channel's status may read on where it read off; `agent.app_write: no` is now honestly off; an old `/model` row is
+dropped with one log line; the first summary fold after the restart is written in the new voice.
+
+**What to check:** `npm run doctor`.
+
+---
+
 ## Troubleshooting
 
 **The server says it needs Node 20–24 and quits.**

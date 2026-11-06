@@ -341,6 +341,67 @@ export function setupPlan(existingConfig, env = {}) {
     outro: () => [''],
   });
 
+  // ── optional: pictures and summaries ────────────────────────────────────────
+  // Two blocks that shipped after the first wizard: image generation (imagegen.*) and the companion-voiced summarizer (agent.summarizer.*).
+  // Asked only while the block is absent or off (provider none / empty), so re-running setup on a configured install says nothing about them.
+  // Five prompts at most: provider, key, who writes summaries, endpoint + model, key. UPGRADE.md ("Pictures and companion-voiced summaries") has the same text.
+  const imageOff = !['runware', 'replicate'].includes(ex.imagegen?.provider);
+  const imageChosen = (v) => imageOff && (v.imageProvider === 'runware' || v.imageProvider === 'replicate');
+  const IMAGE_KEY = { runware: 'RUNWARE_API_KEY', replicate: 'REPLICATE_API_TOKEN' };
+  const summaryOff = !ex.agent?.summarizer?.provider;
+  const summaryOwn = (v) => summaryOff && v.summaryWho === 'other';
+  const summaryKeyVar = ex.agent?.summarizer?.api_key_env || 'SUMMARIZER_API_KEY';
+  add({
+    id: 'imageProvider', kind: 'choice', section: 'Optional: pictures and summaries', when: () => imageOff,
+    intro: () => (imageOff || summaryOff ? { heading: 'Optional: pictures and summaries' } : null),
+    help: [
+      'Your companion can make pictures (FLUX, through Runware or Replicate) and post them in the chat. It is off',
+      'until you pick a provider and give its key. Skip it now and add it later: UPGRADE.md, "Pictures and',
+      'companion-voiced summaries".',
+    ],
+    question: 'Make pictures with', default: 'none',
+    options: [
+      { value: 'none', label: 'Nothing', detail: 'No pictures (you can turn this on later).' },
+      { value: 'runware', label: 'Runware', detail: 'Key in .env as RUNWARE_API_KEY.' },
+      { value: 'replicate', label: 'Replicate', detail: 'Key in .env as REPLICATE_API_TOKEN.' },
+    ],
+    cli: ['1) nothing', '2) Runware (RUNWARE_API_KEY)', '3) Replicate (REPLICATE_API_TOKEN)'],
+    after: (value) => (value === 'none' || !value ? [] : [`Pictures: ${value}. The key goes in .env; pictures stay off until it is there.`]),
+  });
+  add({
+    id: 'imageKey', kind: 'secret', section: 'Optional: pictures and summaries', when: imageChosen,
+    question: (v) => `${v.imageProvider === 'runware' ? 'Runware API key' : 'Replicate API token'} (${IMAGE_KEY[v.imageProvider]}; empty = add it to .env yourself)`,
+    default: (v) => envVal(IMAGE_KEY[v.imageProvider] || ''),
+    validate: (value) => (value ? envProblem(value) : ''),
+  });
+  add({
+    id: 'summaryWho', kind: 'choice', section: 'Optional: pictures and summaries', when: () => summaryOff,
+    help: [
+      "The summaries your companion keeps of long conversations are its own memory of itself, written in its own voice.",
+      'A capable mid-tier model or better keeps that voice; a small or fast one flattens it.',
+    ],
+    question: "Write your companion's own summaries with", default: 'chat',
+    options: [
+      { value: 'chat', label: 'The chat model (default)' },
+      { value: 'other', label: 'Another model through an OpenAI-compatible endpoint', detail: 'For example OpenRouter. The key goes in .env as SUMMARIZER_API_KEY.' },
+    ],
+    cli: ['1) the chat model (default)', '2) another model through an OpenAI-compatible endpoint'],
+    after: (value) => (value === 'other' ? [] : ['The chat model writes them.']),
+  });
+  add({
+    id: 'summaryEndpoint', kind: 'text', section: 'Optional: pictures and summaries', when: summaryOwn,
+    question: 'Endpoint and model, as: <base URL> <model id>   (e.g. https://openrouter.ai/api/v1 and the id from the provider\'s model list)', default: '',
+    coerce: (raw) => raw.trim().replace(/\s+/g, ' '),
+    validate: (value) => (/^https?:\/\/\S+ \S+$/.test(String(value).trim().replace(/\s+/g, ' ')) ? '' : 'Write the base URL (https://...), a space, then the model id.'),
+    retry: true,
+  });
+  add({
+    id: 'summaryKey', kind: 'secret', section: 'Optional: pictures and summaries', when: summaryOwn,
+    question: `API key for that endpoint (${summaryKeyVar}; empty = add it to .env yourself)`, default: envVal(summaryKeyVar),
+    validate: (value) => (value ? envProblem(value) : ''),
+    outro: () => [''],
+  });
+
   // ── Discord (docs/DISCORD-PLAN.md) ──────────────────────────────────────────
   const discordOn = (v) => discordOnAlready || v.discordEnable === true;
   const discordRoots = (v) => [v.home, ...(v.extraDirs || []), ex.agent?.dsh?.home, ex.hooks?.workspace_root, ex.hooks?.vault_path, ...(ex.hooks?.extra_write_paths || [])]
@@ -634,6 +695,10 @@ export function settle(step, raw, v) {
 
 // ── answers, in the shape applyAnswers and applySetup take ────────────────────
 
+// The optional group is asked only while the block is absent or off: the same test the steps use, from the config the plan was built on.
+const imageChosenOf = (v, plan) => !['runware', 'replicate'].includes(plan.existing?.imagegen?.provider) && (v.imageProvider === 'runware' || v.imageProvider === 'replicate');
+const summaryOwnOf = (v, plan) => !plan.existing?.agent?.summarizer?.provider && v.summaryWho === 'other';
+
 /** The plan's answers by step id, as the flat object the apply helpers read. Safe on a partial set of answers. */
 export function buildAnswers(v, plan, opts = {}) {
   const shipped = plan.shipped || [];
@@ -658,6 +723,11 @@ export function buildAnswers(v, plan, opts = {}) {
   if (v.rolling) {
     a.summarizerModel = v.summarizerModel;
     if (v.provider === 'codex') a.summarizerProvider = v.summarizerProvider;
+  }
+  if (imageChosenOf(v, plan)) { a.imageProvider = v.imageProvider; if (v.imageKey) a.imageKey = v.imageKey; }
+  if (summaryOwnOf(v, plan) && /^https?:\/\/\S+ \S+$/.test(String(v.summaryEndpoint || ''))) {
+    const [baseUrl, model] = v.summaryEndpoint.split(' ');
+    a.summaryOwn = { baseUrl, model, ...(v.summaryKey ? { key: v.summaryKey } : {}) };
   }
   a.pluginsTrust = v.pluginsTrust;
   if (shipped.length) {

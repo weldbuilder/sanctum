@@ -352,7 +352,7 @@ router.post('/internal/meal', internalOnly, appWriteGate, (req, res) => {
 router.get('/internal/help', internalOnly, (req, res) => {
   const cfg = getSanctumConfig();
   const SC = `node ${join(PROJECT_ROOT, 'tools', 'res.mjs').replace(/\\/g, '/')}`;
-  const o = { SC, userName: cfg.identity.user_name, ccEnabled: !!cfg.command_center.enabled, browser: browserToolsConfigured(cfg), image: imagegenOffered(), telegram: req.query.platform === 'telegram', pluginHelp: pluginHelp() };
+  const o = { SC, userName: cfg.identity.user_name, ccEnabled: !!cfg.command_center.enabled, browser: browserToolsConfigured(cfg), image: imagegenOffered(), voice: !!cfg.voice?.enabled, telegram: req.query.platform === 'telegram', pluginHelp: pluginHelp() };
   const topic = typeof req.query.topic === 'string' ? req.query.topic : '';
   res.type('text/plain').send(topic ? topicHelp(o, topic) : fullToolHelp(o));
 });

@@ -15,8 +15,11 @@ export interface ToolHelpOptions {
   telegram?: boolean;
   /** The shared browser seat is configured (integrations.browser_url set, or a `browser` server in .mcp.json): lists the `browser` topic. */
   browser?: boolean;
-  /** Image generation is configured (imagegen.provider set and its key present): lists the `image` topic. Never set it otherwise. */
+  /** Image generation is configured (imagegen.provider set and its key present): lists the `image` topic. Never set it otherwise.
+   *  An explicit `false` (not just unset) adds the one "Pictures: not set up" line to the orientation, so the companion can answer "can you make pictures?" truthfully. */
   image?: boolean;
+  /** Voice is on (`voice.enabled`). Only an explicit `false` adds the one "Voice: not set up" line; the voice verbs are not gated by it. */
+  voice?: boolean;
   /** Plugin help topics, id -> help.md text (see services/plugins.ts pluginHelp). */
   pluginHelp?: Record<string, string>;
 }
@@ -25,6 +28,15 @@ export interface ToolHelpOptions {
 function pluginLine(text: string): string {
   const first = text.split('\n').find((l) => l.trim()) ?? '';
   return first.length > 90 ? `${first.slice(0, 89)}…` : first;
+}
+
+/** What is not set up on this install, one line each, only for a capability the caller says is off (`image`/`voice` explicitly false). The companion is
+ *  never OFFERED these (no topic, no verb, no tool); the line only lets it say so truthfully when asked. */
+export function notSetUpLines(o: ToolHelpOptions): string[] {
+  const lines: string[] = [];
+  if (o.image === false) lines.push('Pictures: not set up on this install (the person can enable it; see UPGRADE.md → image generation)');
+  if (o.voice === false) lines.push('Voice: not set up on this install (the person can enable it; see UPGRADE.md → voice notes)');
+  return lines;
 }
 
 /** Width of the command column in the short list, measured after the SC prefix. */
@@ -160,6 +172,8 @@ export function fullToolHelp(o: ToolHelpOptions): string {
   const s = toolHelpSections(o);
   const blocks = TOOL_TOPICS.map((t) => s[t]).filter((lines) => lines.length).map((lines) => lines.join('\n'));
   for (const [id, text] of Object.entries(o.pluginHelp ?? {})) blocks.push(`PLUGIN ${id}:\n${text}`);
+  const off = notSetUpLines(o);
+  if (off.length) blocks.push(off.join('\n'));
   return blocks.join('\n\n');
 }
 
@@ -191,6 +205,7 @@ export function shortToolList(o: ToolHelpOptions): string {
   if (o.browser) lines.push(`  ${SC} help browser                             browser tools (navigate, snapshot, click, type) in the shared tab`);
   if (o.image) lines.push(`  ${SC} image "prompt" [--size WxH]            generate a picture and post it in the chat`);
   if (o.telegram) lines.push(`  ${SC} tg photo|doc|gif|react|voice|text        Telegram extras`);
+  for (const l of notSetUpLines(o)) lines.push(`  ${l}`);
   // The built-in rows pad what follows SC to VERB_COL, so the descriptions line up whatever SC is
   // (a bare `res`, or `node /abs/path/tools/res.mjs`). Plugin rows pad the same way.
   for (const [id, text] of Object.entries(o.pluginHelp ?? {})) {

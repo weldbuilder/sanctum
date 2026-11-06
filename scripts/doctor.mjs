@@ -53,14 +53,14 @@ const lstatOrNull = (p) => { try { return lstatSync(p); } catch { return null; }
 /** `text` as a sentence: one final period, never two. */
 const sentence = (text) => (/[.!?]$/.test(String(text)) ? String(text) : `${text}.`);
 
-/** A report: sections of { status: 'OK' | 'WARN' | 'FAIL', check, message } lines. */
+/** A report: sections of { status: 'OK' | 'INFO' | 'WARN' | 'FAIL', check, message } lines. INFO is neither good nor bad: a feature that is off, and where to read about it. */
 function newReport() {
   const sections = [];
   const section = (name) => {
     const s = { name, checks: [] };
     sections.push(s);
     const add = (status) => (check, message) => { s.checks.push({ status, check, message }); };
-    return { ok: add('OK'), warn: add('WARN'), fail: add('FAIL') };
+    return { ok: add('OK'), info: add('INFO'), warn: add('WARN'), fail: add('FAIL') };
   };
   return { sections, section };
 }
@@ -195,7 +195,44 @@ function checkConfig(r, root, env) {
     else r.warn(`home config/${name}`, `${p} does not exist: the shipped copy under prompts/ is used.`);
   }
   frameCheck(r, '', cwd, dig(file, 'agent.system_prompt_file') === '' ? '' : at('agent.system_prompt_file'), out.provider);
+  checkOptionalFeatures(r, file, out.env);
   return out;
+}
+
+/** The summarizer's small-tier test, copied from packages/backend/src/services/summarizer/config.ts (SMALL_TIER), which a script cannot import (it is
+ *  TypeScript). A test keeps the two regexes equal. */
+export const SMALL_TIER = /haiku|(?<![a-z])mini(?!max)|small|lite|nano|\b[1-8]b\b/i;
+/** Which .env variable each image provider's key is read from (packages/backend/src/services/imagegen/index.ts KEY_ENV). */
+export const IMAGEGEN_KEY_ENV = Object.freeze({ runware: 'RUNWARE_API_KEY', replicate: 'REPLICATE_API_TOKEN' });
+const UPGRADE_PICTURES = 'UPGRADE.md, "Pictures and companion-voiced summaries"';
+
+/** Image generation (imagegen.*) and the companion-voiced summarizer (agent.summarizer.*): configured, half configured, or off. The yaml and the
+ *  environment (with the root .env) are read; a value saved in Settings (the database) is not, so a "off" here can be on in the app. */
+function checkOptionalFeatures(r, file, env) {
+  const clean = (v) => (typeof v === 'string' ? v.trim() : '');
+  const provider = clean(dig(file, 'imagegen.provider')).toLowerCase();
+  if (!provider || provider === 'none') r.info('imagegen', `image generation off; see ${UPGRADE_PICTURES}.`);
+  else if (!Object.hasOwn(IMAGEGEN_KEY_ENV, provider)) r.warn('imagegen', `imagegen.provider is ${JSON.stringify(provider)}; use "none", "runware" or "replicate". Pictures are off.`);
+  else {
+    const keyVar = IMAGEGEN_KEY_ENV[provider];
+    if (clean(env[keyVar])) r.ok('imagegen', `image generation is on (${provider}) and ${keyVar} is set.`);
+    else r.warn('imagegen', `imagegen.provider is "${provider}" but ${keyVar} is not set in .env or the environment: pictures stay off, and the companion is not told it can make them (${UPGRADE_PICTURES}).`);
+  }
+
+  const sum = dig(file, 'agent.summarizer');
+  const sp = clean(dig(sum, 'provider')) || clean(dig(file, 'agent.rolling.model_provider'));
+  const model = clean(dig(sum, 'model')) || clean(dig(file, 'agent.rolling.model'));
+  if (sp === 'openai-compat') {
+    const keyVar = clean(dig(sum, 'api_key_env')) || 'SUMMARIZER_API_KEY';
+    const missing = [];
+    if (!model) missing.push('agent.summarizer.model');
+    if (!clean(dig(sum, 'base_url'))) missing.push('agent.summarizer.base_url');
+    if (!clean(env[keyVar])) missing.push(`${keyVar} (in .env or the environment)`);
+    if (missing.length) r.warn('summarizer', `agent.summarizer.provider is "openai-compat" but ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} missing: every summary falls back to the chat model (${UPGRADE_PICTURES}).`);
+    else r.ok('summarizer', `the companion's summaries are written through ${clean(dig(sum, 'base_url'))} on ${model}; ${keyVar} is set.`);
+  } else if (!sp) r.ok('summarizer', 'the chat model writes the companion\'s summaries (agent.summarizer.provider is ""); another model: see ' + UPGRADE_PICTURES + '.');
+  else r.ok('summarizer', `the companion's summaries run on ${sp}${model ? ` (${model})` : ''}.`);
+  if (model && SMALL_TIER.test(model)) r.warn('summarizer model', `${model} looks small-tier; the summarizer writes the companion's own memory and a small or fast model flattens its voice. Use a capable mid-tier model or better (docs/CONFIGURATION.md, summarizer).`);
 }
 
 // ── section 2: Tenants ───────────────────────────────────────────────────────
@@ -406,7 +443,7 @@ export function runDoctor(opts = {}) {
   const tenantSection = report.sections.at(-1);
   if (tenantSection.checks.length === 0) tenants.ok('tenants', 'no tenants: block in sanctum.yaml: a single-tenant install.');
   checkProcess(report.section('Process'), root, ctx, opts.nodeVersion ?? process.versions.node);
-  const counts = { OK: 0, WARN: 0, FAIL: 0 };
+  const counts = { OK: 0, INFO: 0, WARN: 0, FAIL: 0 };
   for (const s of report.sections) for (const c of s.checks) counts[c.status]++;
   return { ok: counts.FAIL === 0, exitCode: counts.FAIL === 0 ? 0 : 1, counts, root, sections: report.sections };
 }
@@ -419,7 +456,7 @@ export function formatReport(report) {
     for (const c of s.checks) lines.push(`  ${c.status.padEnd(4)}  ${c.check}: ${c.message}`);
     lines.push('');
   }
-  lines.push(`${report.counts.OK} OK, ${report.counts.WARN} WARN, ${report.counts.FAIL} FAIL`);
+  lines.push(`${report.counts.OK} OK, ${report.counts.WARN} WARN, ${report.counts.FAIL} FAIL${report.counts.INFO ? `, ${report.counts.INFO} INFO` : ''}`);
   return lines.join('\n');
 }
 
