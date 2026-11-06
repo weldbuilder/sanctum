@@ -48,7 +48,7 @@ export const STEP_KINDS: readonly StepKind[];
 /** The step ids asked on a first run (phase one), in order. */
 export const PHASE_ONE: readonly string[];
 export function setupPlan(existingConfig: Record<string, any>, env?: Record<string, any>): Plan;
-export function walkValues(plan: Plan, sent?: Record<string, unknown>): { values: Record<string, any>; rows: Row[]; problems: Problem[] };
+export function walkValues(plan: Plan, sent?: Record<string, unknown>): { values: Record<string, any>; rows: Row[]; problems: Problem[]; skippedSent: string[] };
 export function describePlan(plan: Plan, sent?: Record<string, unknown>): { steps: PublicStep[]; notes: string[]; problems: Problem[] };
 export function buildAnswers(values: Record<string, any>, plan: Plan, opts?: { skipLedger?: boolean }): SetupAnswers;
 export function checkKind(step: PlanStep, resolved: Record<string, any>, raw: unknown): { value?: unknown; error?: string };

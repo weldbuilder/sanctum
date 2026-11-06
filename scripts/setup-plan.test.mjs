@@ -340,7 +340,7 @@ const BASE_IDS = [
   'ledgerDir', 'ratify_0', 'ratify_1', 'ratify_2',
 ];
 const CONFIGURED = {
-  identity: { companion_name: 'Ada', user_name: 'Sam', timezone: 'Europe/Berlin' },
+  identity: { companion_name: 'Echo', user_name: 'Sam', timezone: 'Europe/Berlin' },
   agent: { cwd: '<HOME>', provider: 'claude', model: 'claude-sonnet-5-5', app_write: true, rolling: { claude: true } },
   orchestrator: { enabled: true },
   revien: { enabled: false },
@@ -408,11 +408,34 @@ describe('setupPlan: phases', () => {
     expect(ids).toEqual([]);
     const d = describePlan(plan, {});
     expect(d.steps).toEqual([]);
-    expect(d.notes).toEqual(expect.arrayContaining(["Kept: Your companion's name = Ada", 'Kept: Provider = Claude', 'Kept: App password = (saved)']));
+    expect(d.notes).toEqual(expect.arrayContaining(["Kept: Your companion's name = Echo", 'Kept: Provider = Claude', 'Kept: App password = (saved)']));
     expect(d.notes.join('\n')).not.toContain('hunter2-pass');
     // and what it would write is what is there
     const a = buildAnswers(walkValues(plan, {}).values, plan);
-    expect(a).toMatchObject({ companionName: 'Ada', userName: 'Sam', timezone: 'Europe/Berlin', provider: 'claude', claudeModel: 'claude-sonnet-5-5', appWrite: true, orchestrator: true, password: '' });
+    expect(a).toMatchObject({ companionName: 'Echo', userName: 'Sam', timezone: 'Europe/Berlin', provider: 'claude', claudeModel: 'claude-sonnet-5-5', appWrite: true, orchestrator: true, password: '' });
+  });
+
+  it('a key counts as answered only when one is saved: a DeepSeek Harness install with no key is asked in phase one', () => {
+    const { yaml } = configured();
+    const dsh = { ...yaml, agent: { ...yaml.agent, provider: 'dsh', dsh: { model: 'deepseek-chat' } } };
+    const without = askedIn({ phase: 'one', yaml: dsh, files: { 'app/.env': 'APP_PASSWORD=hunter2-pass\n' } });
+    expect(without.ids).toEqual(['dshKey']);
+    const d = describePlan(without.plan, {});
+    expect(d.notes.join('\n')).not.toContain('(none)');
+    const withKey = askedIn({ phase: 'one', yaml: dsh, files: { 'app/.env': 'APP_PASSWORD=hunter2-pass\nDEEPSEEK_API_KEY=sk-ds-fake-key\n' } });
+    expect(withKey.ids).toEqual([]);
+    expect(describePlan(withKey.plan, {}).notes.join('\n')).toContain('Kept: DeepSeek API key = (saved)');
+  });
+
+  it('walkValues names the answers sent for steps the phase skips (and only those)', () => {
+    const { yaml } = configured();
+    const files = { 'app/.env': 'APP_PASSWORD=hunter2-pass\n' };
+    const one = sandbox({ phase: 'one', yaml, plugins: ['alpha'], files }).plan;
+    expect(walkValues(one, { phoneOrigin: 'https://p.example.ts.net', companionName: 'Renamed' }).skippedSent.sort()).toEqual(['companionName', 'phoneOrigin']);
+    const more = sandbox({ phase: 'more', yaml, plugins: ['alpha'], files }).plan;
+    expect(walkValues(more, { companionName: 'Renamed', phoneOrigin: 'https://p.example.ts.net' }).skippedSent).toEqual(['companionName']);
+    const all = sandbox({ phase: 'all', yaml, plugins: ['alpha'], files }).plan;
+    expect(walkValues(all, { companionName: 'Renamed', phoneOrigin: 'https://p.example.ts.net' }).skippedSent).toEqual([]);
   });
 
   it('a phase-one question that is not answered yet is still asked on a configured install (no user name here)', () => {

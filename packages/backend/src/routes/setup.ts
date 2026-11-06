@@ -4,14 +4,14 @@
 // wizard; the writes are one function (scripts/setup-apply.mjs applySetup). So the two cannot drift.
 //
 //   GET  /status    open: is a password set (does the page need the setup code, or a sign-in)
-//   GET  /plan      the steps for the current config. No secret is ever in it: a saved one is only marked `saved`. Phase one by default (the
-//                   tier-zero questions a first run needs; one already answered is kept, not asked); `?more=1` (or `?phase=more`) is the rest,
-//                   `?phase=all` every question. The response says which: { phase: 'one' | 'more' | 'all', more }, and each step has its `phase` (1 | 2).
+//   GET  /plan      the steps for the current config. No secret is ever in it: a saved one is only marked `saved`. Every question by default
+//                   (`?phase=all`, what the in-app wizard asks); `?phase=one` is the tier-zero questions a first run needs (one already answered is
+//                   kept, not asked), `?more=1` (or `?phase=more`) is the rest. The response says which: { phase: 'one' | 'more' | 'all', more }, and each step has its `phase` (1 | 2).
 //   POST /plan      the same, for the answers given so far ({ answers, more? }): later steps appear, disappear and change their words
 //   POST /validate  one step's value, as the app checks it: { id, value, answers?, more? } -> { ok, message }
 //   POST /test      a probe a step can run: { probe, value?, answers? } -> { ok, state, message, ... }; probe 'connection' is the
 //                   onboarding's "Connect your AI" check ({ harness, method, key?, baseUrl?, providerName? })
-//   POST /apply     { answers, more? } (the same phase as the plan the answers came from) -> writes sanctum.yaml, .env, Codex's config.toml and .mcp.json (backed up first), makes the home
+//   POST /apply     { answers, phase? | more? } (the same phase as the plan the answers came from; answers for a step that phase skips are a 400, `answers_for_skipped_steps`) -> writes sanctum.yaml, .env, Codex's config.toml and .mcp.json (backed up first), makes the home
 //                   folder, ratifies plugins in person mode, makes the Discord lists, reloads the config -> { restartNeeded, changed[] }
 //
 // The gate: once a password exists, the normal session (authMiddleware). Before one exists the server is fail-closed, so every route
@@ -95,17 +95,18 @@ function readDbToggle(): string | null {
 /** Everything the plan reads, from the same places the terminal reads it; the app's own database answers the Discord toggle. */
 export type SetupPhase = 'one' | 'more' | 'all';
 
-/** The phase a request asks for: `phase` ('one' | 'more' | 'all'), else `more` (true / 1 / "true" / "1"), in the query or the body; phase one by default. */
+/** The phase a request asks for: `phase` ('one' | 'more' | 'all'), else `more` (true / 1 / "true" / "1"), in the query or the body; every question by default (the in-app wizard sends neither); a request that names one gets that phase. */
 export function phaseOf(req: Request): SetupPhase {
   const body = (req.body ?? {}) as { phase?: unknown; more?: unknown };
   const pick = (k: 'phase' | 'more'): unknown => (body[k] !== undefined ? body[k] : (req.query ?? {})[k]);
   const phase = pick('phase');
   if (phase === 'one' || phase === 'more' || phase === 'all') return phase;
   const more = pick('more');
+  if (more === undefined) return 'all'; // neither sent: the wizard as it was before it had phases (the terminal's own default is phase one)
   return more === true || more === 1 || more === 'true' || more === '1' ? 'more' : 'one';
 }
 
-export function buildPlan(phase: SetupPhase = 'one') {
+export function buildPlan(phase: SetupPhase = 'all') {
   const rt = currentTenant();
   const env = gatherSetupEnv(PROJECT_ROOT, {
     processEnv: process.env,
@@ -249,6 +250,8 @@ router.post('/apply', setupGate, (req, res) => {
     const sent = answersOf(req.body);
     const plan = buildPlan(phaseOf(req));
     const w = walkValues(plan, sent);
+    // Answers for steps this phase does not ask would be dropped without a word: refuse them, and say which.
+    if (w.skippedSent.length) { res.status(400).json({ error: 'answers_for_skipped_steps', steps: w.skippedSent, message: 'These answers are for steps this phase does not ask. Send the phase of the plan they came from.' }); return; }
     if (w.problems.length) { res.status(400).json({ error: 'Some answers need another look.', problems: w.problems }); return; }
     const answers = buildAnswers(w.values, plan);
     const notes: string[] = [];

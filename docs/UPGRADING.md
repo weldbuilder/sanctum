@@ -212,7 +212,7 @@ This creates the search index and its live-sync triggers, then fills it in from 
 ## Optional since v3: pictures and companion-voiced summaries
 
 A later v3 release adds two optional blocks, both off until you turn them on. You can add them after the upgrade above has settled; nothing
-in the steps above needs them. `npm run setup -- --more` now offers them (a re-run on an install that has them asks nothing new), and the full note,
+in the steps above needs them. `npm run setup -- --more` now offers them (a re-run on an install that has them asks nothing new; `npm run setup` alone asks only the first-run questions, `--all` asks everything, and the in-app wizard asks everything, with a "more options" switch for it planned), and the full note,
 with what changes on restart, is [UPGRADE.md](../UPGRADE.md), "Pictures and companion-voiced summaries".
 
 **What's new:** image generation (a prompt panel on the Files page, and `[image: ...]` / `[voice]` tags in a reply), one rule for which setting

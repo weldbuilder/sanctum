@@ -596,10 +596,28 @@ describe('POST /apply', () => {
 
 describe('phases: GET /plan and POST /plan, /validate and /apply take `phase` or `more`', () => {
   const idsOf = (plan: { steps: { id: string }[] }) => plan.steps.map((s) => s.id);
-  const CONFIGURED = (tail = '') => `identity:\n  companion_name: "Ada"\n  user_name: "Sam"\n  timezone: "UTC"\nagent:\n  cwd: ${JSON.stringify(companionHome)}\n  provider: "claude"\n  model: "claude-sonnet-5-5"\n  app_write: true\n  rolling:\n    claude: true\nrevien:\n  enabled: false\n${tail}`;
+  const CONFIGURED = (tail = '') => `identity:\n  companion_name: "Echo"\n  user_name: "Sam"\n  timezone: "UTC"\nagent:\n  cwd: ${JSON.stringify(companionHome)}\n  provider: "claude"\n  model: "claude-sonnet-5-5"\n  app_write: true\n  rolling:\n    claude: true\nrevien:\n  enabled: false\n${tail}`;
 
-  it('a first run is phase one by default: only the tier-zero questions, each marked phase 1', async () => {
+  it('a request that sends neither `phase` nor `more` gets every question, as the in-app wizard always did', async () => {
     const plan = await (await rawGet('/plan', asCode())).json();
+    expect(plan.phase).toBe('all');
+    expect(plan.more).toBe(true);
+    expect(idsOf(plan)).toEqual(expect.arrayContaining(['companionName', 'rolling', 'pluginsTrust', 'discordEnable', 'phoneOrigin']));
+    expect((await (await rawPost('/plan', { answers: {} }, asCode())).json()).phase).toBe('all');
+    // and /apply with no phase takes the same full step set: an answer for a phase-two step is written
+    h.password = SECRET_PW;
+    writeFileSync(join(h.root, 'sanctum.yaml'), CONFIGURED());
+    writeFileSync(join(h.root, '.env'), `APP_PASSWORD=${SECRET_PW}\n`);
+    const configured = await (await rawPost('/plan', { answers: {} }, asSession())).json();
+    expect(configured.phase).toBe('all');
+    expect(idsOf(configured)).toEqual(expect.arrayContaining(['companionName', 'password', 'rolling', 'discordEnable']));
+    const r = await rawPost('/apply', { answers: { phoneOrigin: 'https://phone.example.ts.net' } }, asSession());
+    expect(r.status).toBe(200);
+    expect(readFileSync(join(h.root, 'sanctum.yaml'), 'utf-8')).toContain('phone.example.ts.net');
+  });
+
+  it('a first run is phase one when asked for: only the tier-zero questions, each marked phase 1', async () => {
+    const plan = await (await rawGet('/plan?phase=one', asCode())).json();
     expect(plan.phase).toBe('one');
     expect(plan.more).toBe(false);
     expect(idsOf(plan)).toEqual(['companionName', 'userName', 'timezone', 'home', 'homeCreate', 'provider', 'codexModel', 'appWrite', 'orchestrator', 'password', 'memory']);
@@ -607,7 +625,7 @@ describe('phases: GET /plan and POST /plan, /validate and /apply take `phase` or
   });
 
   it('the provider answer picks the model and key questions of phase one', async () => {
-    const plan = await (await rawPost('/plan', { answers: { provider: 'claude' } }, asCode())).json();
+    const plan = await (await rawPost('/plan', { phase: 'one', answers: { provider: 'claude' } }, asCode())).json();
     expect(idsOf(plan)).toEqual(['companionName', 'userName', 'timezone', 'home', 'homeCreate', 'provider', 'claudeModel', 'anthropicKey', 'appWrite', 'orchestrator', 'password', 'memory']);
   });
 
@@ -629,7 +647,7 @@ describe('phases: GET /plan and POST /plan, /validate and /apply take `phase` or
     h.password = SECRET_PW;
     writeFileSync(join(h.root, 'sanctum.yaml'), CONFIGURED());
     writeFileSync(join(h.root, '.env'), `APP_PASSWORD=${SECRET_PW}\n`);
-    const one = await (await rawGet('/plan', asSession())).json();
+    const one = await (await rawGet('/plan?phase=one', asSession())).json();
     expect(one.phase).toBe('one');
     expect(one.steps).toEqual([]);
     expect(one.notes).toEqual(expect.arrayContaining(['Kept: Your name = Sam', 'Kept: Provider = Claude']));
@@ -642,7 +660,7 @@ describe('phases: GET /plan and POST /plan, /validate and /apply take `phase` or
   });
 
   it('phase one applies on its own: a first run writes the tier-zero answers, and nothing the other phase owns is left to chance', async () => {
-    const r = await rawPost('/apply', { answers: fresh({ orchestrator: false }) }, asCode());
+    const r = await rawPost('/apply', { phase: 'one', answers: fresh({ orchestrator: false }) }, asCode());
     expect(r.status).toBe(200);
     const yaml = readFileSync(join(h.root, 'sanctum.yaml'), 'utf-8');
     expect(yaml).toMatch(/orchestrator:\n  enabled: false/);
@@ -653,20 +671,32 @@ describe('phases: GET /plan and POST /plan, /validate and /apply take `phase` or
     expect(readFileSync(join(h.root, '.env'), 'utf-8')).toContain(`APP_PASSWORD=${SECRET_PW}`);
   });
 
-  it('`more` on apply: a phase-two answer is written, and one sent in phase one is ignored', async () => {
+  it('`more` on apply: a phase-two answer is written; one sent in phase one is refused, not dropped', async () => {
     h.password = SECRET_PW;
     writeFileSync(join(h.root, 'sanctum.yaml'), CONFIGURED());
     writeFileSync(join(h.root, '.env'), `APP_PASSWORD=${SECRET_PW}\n`);
-    const ignored = await rawPost('/apply', { answers: { phoneOrigin: 'https://phone.example.ts.net' } }, asSession());
-    expect(ignored.status).toBe(200);
+    const refused = await rawPost('/apply', { phase: 'one', answers: { phoneOrigin: 'https://phone.example.ts.net' } }, asSession());
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toMatchObject({ error: 'answers_for_skipped_steps', steps: ['phoneOrigin'] });
     expect(readFileSync(join(h.root, 'sanctum.yaml'), 'utf-8')).not.toContain('phone.example.ts.net');
     const r = await rawPost('/apply', { more: true, answers: { phoneOrigin: 'https://phone.example.ts.net' } }, asSession());
     expect(r.status).toBe(200);
     expect(readFileSync(join(h.root, 'sanctum.yaml'), 'utf-8')).toContain('phone.example.ts.net');
   });
 
+  it('the other direction: a phase-one answer already kept, sent to `more`, is refused too', async () => {
+    h.password = SECRET_PW;
+    writeFileSync(join(h.root, 'sanctum.yaml'), CONFIGURED());
+    writeFileSync(join(h.root, '.env'), `APP_PASSWORD=${SECRET_PW}\n`);
+    const before = readFileSync(join(h.root, 'sanctum.yaml'), 'utf-8');
+    const r = await rawPost('/apply', { more: true, answers: { companionName: 'Renamed', phoneOrigin: 'https://phone.example.ts.net' } }, asSession());
+    expect(r.status).toBe(400);
+    expect(await r.json()).toMatchObject({ error: 'answers_for_skipped_steps', steps: ['companionName'] });
+    expect(readFileSync(join(h.root, 'sanctum.yaml'), 'utf-8')).toBe(before);
+  });
+
   it('/validate follows the phase: a phase-two step is not asked in phase one', async () => {
-    const one = await (await rawPost('/validate', { id: 'phoneOrigin', value: 'nope' }, asCode())).json();
+    const one = await (await rawPost('/validate', { id: 'phoneOrigin', value: 'nope', phase: 'one' }, asCode())).json();
     expect(one).toMatchObject({ ok: true, active: false });
     const more = await (await rawPost('/validate', { id: 'phoneOrigin', value: 'nope', more: true }, asCode())).json();
     expect(more).toMatchObject({ ok: false, active: true });

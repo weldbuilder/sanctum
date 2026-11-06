@@ -130,7 +130,9 @@ export function setupPlan(existingConfig, env = {}) {
   const SET = {
     companionName: () => !!ex.identity?.companion_name, userName: () => !!ex.identity?.user_name, timezone: () => !!ex.identity?.timezone,
     home: () => !!ex.agent?.cwd && ex.agent.cwd !== '.',
-    provider: providerSet, codexModel: providerSet, claudeModel: providerSet, dshModel: providerSet, anthropicKey: providerSet, dshKey: providerSet,
+    provider: providerSet, codexModel: providerSet, claudeModel: providerSet, dshModel: providerSet,
+    // A key counts as answered only when one is saved: a DeepSeek Harness install without one cannot run, so phase one asks. (Claude may use its login, which the config cannot show, so its key question stays kept once a provider is set.)
+    anthropicKey: providerSet, dshKey: () => providerSet() && !!envVal(dshKeyVar),
     appWrite: () => configured, orchestrator: () => configured, memory: () => configured, codexMemoriesOff: () => configured, codexMemoriesOn: () => configured,
     password: () => !!savedPassword,
   };
@@ -855,8 +857,10 @@ export function walkValues(plan, sent = {}) {
   const v = {};
   const rows = [];
   const problems = [];
+  const skippedSent = [];
   for (const step of plan) {
     plan.reset();
+    if (step.skip && Object.hasOwn(sent, step.id)) skippedSent.push(step.id);
     const intro = step.skip ? null : step.intro?.(v) || null;
     if (!isActive(step, v)) {
       const f = skipFill(step, v);
@@ -882,7 +886,7 @@ export function walkValues(plan, sent = {}) {
     if (problem) problems.push({ id: step.id, message: problem });
     rows.push({ step, active: true, intro, resolved: r, value, lines: [...s.lines, ...(step.after?.(value, v, { generated: false }) || [])], problem });
   }
-  return { values: v, rows, problems };
+  return { values: v, rows, problems, skippedSent };
 }
 
 /** One step as the browser gets it: no secret is ever in it (a saved one is only marked `saved`). */
