@@ -65,7 +65,7 @@ app asks for the **setup code** printed in the same window, then three screens:
 
 That creates their home folder at `~/Documents/companion-home` and writes the app's
 settings to `sanctum.yaml` and `.env`. Everything else (what they may touch, memory,
-Discord, plugins) is under **Settings → Run setup again**, or `npm run setup` in the
+Discord, plugins) is under **Settings → Status → Run setup again**, or `npm run setup` in the
 terminal.
 
 ## 4. On your phone (optional)
@@ -99,7 +99,7 @@ cors:
 
 Keep each identity file under about 400 words, say what you want rather than what you
 don't, and use your own words. After editing a file outside the app, approve the change
-in **Settings → Identity → Ratify**; until then they keep running on the last approved
+in **Settings → You & them → Ratify**; until then they keep running on the last approved
 version.
 
 ## Memory
@@ -115,7 +115,7 @@ revien connect codex        # on Codex only
 revien start                # leave it running
 ```
 
-Then choose Revien under **Settings → Run setup again**. Run one memory system at a
+Then choose Revien under **Settings → Status → Run setup again**. Run one memory system at a
 time; setup switches the others off.
 
 ## Good to know
@@ -157,7 +157,7 @@ pause. The page reloads when it is back. In household mode one update restarts e
 
 - **Something went wrong?** A failed install or build changes nothing (the app keeps running the
   old version). A crash during the swap is put right at the next start, before anything of the app loads: the previous
-  version is put back and the app starts over from it. A failed swap keeps the previous rollback copy. The log is in **Settings → Preferences → Updates**. After a good update, **Roll back to X.Y**
+  version is put back and the app starts over from it. A failed swap keeps the previous rollback copy. The log is in **Settings → Status → Updates**. After a good update, **Roll back to X.Y**
   there returns to the kept copy (one copy is kept: the version before the last update).
 - **Messages while it updates** are refused, not dropped: the web box keeps what you typed ("Updating; your message was not sent."),
   Discord and Telegram answer once with "Updating, back in a minute.", and a wake or handoff skipped meanwhile runs once when the pause ends.
@@ -195,7 +195,7 @@ This page is written so an assistant can follow it. If you hand it to one:
 | `EADDRINUSE` / port already in use | another copy is running: stop it, or change `server.port` in `sanctum.yaml` |
 | Sign-in succeeds, then bounces back | use `http://`, not `https://`, for a local address |
 | "Disconnected" on the phone | the exact address in the browser bar must be in `cors.origins`; restart after adding it |
-| Their replies fail | check the connection in **Settings → Run setup again** |
+| Their replies fail | check the connection in **Settings → Status → Run setup again** |
 
 ## License
 

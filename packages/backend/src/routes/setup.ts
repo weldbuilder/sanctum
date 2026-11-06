@@ -289,7 +289,7 @@ router.post('/apply', setupGate, (req, res) => {
       passwordSource: rt ? (rt.config.auth.password ? 'dotenv' : 'none') : getAppPasswordSource(),
       passwordKeptByParent: parentKeepsOld,
       changed: result.changed,
-      notes: [...new Set([...notes, ...result.leftOut.map((id: string) => `${id} was left out of plugins.enabled. Ratify it later in Settings > Plugins, then add it to plugins.enabled.`)])],
+      notes: [...new Set([...notes, ...result.leftOut.map((id: string) => `${id} was left out of plugins.enabled. Ratify it later in Settings → Permissions, then add it to plugins.enabled.`)])],
     });
   } catch (err) {
     console.error('[setup] apply failed:', (err as Error).message);

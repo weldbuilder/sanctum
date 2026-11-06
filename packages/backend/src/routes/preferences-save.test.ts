@@ -191,6 +191,25 @@ describe('PUT /api/preferences: the summarizer and picture fields', () => {
   });
 });
 
+describe('api_key_env takes a variable NAME, never a key', () => {
+  const tryPut = async (v: string) => {
+    const res = await fetch(`${base}/preferences`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: { summarizer: { api_key_env: v } } }) });
+    return { status: res.status, body: await res.json() as any };
+  };
+  it('refuses the three probes (Groq, Replicate, 64-hex) and other key shapes with the NAME message, writing nothing', async () => {
+    for (const v of ['gsk_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789', 'r8_AbCdEfGhIjKlMnOpQrStUvWxYz012345678', 'a'.repeat(16) + '0123456789abcdef'.repeat(3),
+      'sk-abc', 'xai-AAAA', 'AIzaSyAAAA', 'ghp_AAAA', 'github_pat_AAAA', 'my_secret_variable', 'summarizer_api_key', '0123456789ABCDEF0123456789ABCDEF']) {
+      const r = await tryPut(v);
+      expect(r.status, v).toBe(400);
+      expect(r.body.error, v).toContain('this field takes the NAME of the variable, e.g. SUMMARIZER_API_KEY, not the key itself');
+    }
+    expect(readFileSync(file(), 'utf8')).toBe(YAML);
+  });
+  it('accepts upper-case variable names and the empty string', async () => {
+    for (const v of ['SUMMARIZER_API_KEY', 'OPENROUTER_API_KEY', 'K', '']) expect((await tryPut(v)).status, v).toBe(200);
+  });
+});
+
 describe('PUT /api/preferences: the memory choice writes the right trio', () => {
   const saved = () => yaml.load(readFileSync(file(), 'utf8')) as any;
   it('reads as Revien when the file says nothing, and each choice writes revien.enabled, agent.harness_memory and agent.local_recall together', async () => {
@@ -211,6 +230,30 @@ describe('PUT /api/preferences: the memory choice writes the right trio', () => 
     await put({ memory: 'revien' });
     expect(saved().revien.enabled).toBe(true);
     expect((await get('/preferences')).memory).toBe('revien');
+  });
+  it('a mixed file (Revien on beside harness memory) reads as harness, says so, and posting harness normalises it', async () => {
+    const doc = yaml.load(readFileSync(file(), 'utf8')) as any;
+    doc.revien = { enabled: true };
+    doc.agent = { ...(doc.agent || {}), harness_memory: true };
+    writeFileSync(file(), yaml.dump(doc));
+    const g = await get('/preferences');
+    expect(g.memory).toBe('harness');
+    expect(g.memory_mixed).toBe(true);
+    const r = await put({ memory: 'harness' });
+    expect(r.written).toContain('revien.enabled');
+    expect(saved().revien.enabled).toBe(false);
+    expect(saved().agent.harness_memory).toBe(true);
+    expect((await get('/preferences')).memory_mixed).toBe(false);
+    expect((await put({ memory: 'harness' })).written).toEqual([]);
+  });
+  it('on dsh, a file with harness memory on reads as the system that is really running (dsh has no harness memory), never as harness', async () => {
+    const doc = yaml.load(readFileSync(file(), 'utf8')) as any;
+    doc.revien = { enabled: false };
+    doc.agent = { ...(doc.agent || {}), provider: 'dsh', harness_memory: true };
+    writeFileSync(file(), yaml.dump(doc));
+    const g = await get('/preferences');
+    expect(g.memory).toBe('none');
+    expect(g.memory_mixed).toBe(true);
   });
   it('posting back the choice it was shown writes nothing; an unknown choice is a 400', async () => {
     const r = await put({ memory: 'revien' });

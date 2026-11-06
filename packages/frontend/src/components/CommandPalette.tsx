@@ -26,7 +26,7 @@ interface Command {
   keywords?: string;
 }
 
-const COMMANDS: Command[] = [
+export const COMMANDS: Command[] = [
   // ── Navigate ──
   { id: 'nav-home',     name: 'Home',     description: 'Mantelpiece — presence & the day',  group: 'navigate', to: '/home',     keywords: 'mantelpiece orb presence' },
   { id: 'nav-chat',     name: 'Chat',     description: 'Open the conversation',             group: 'navigate', to: '/chat',     keywords: 'talk message conversation' },
@@ -34,15 +34,14 @@ const COMMANDS: Command[] = [
   { id: 'nav-files',    name: 'Files',    description: 'Browse the workspace',              group: 'navigate', to: '/files',    keywords: 'workspace browse folder' },
   { id: 'nav-settings', name: 'Settings', description: 'Preferences & configuration',       group: 'navigate', to: '/settings', keywords: 'config preferences options' },
 
-  // ── Settings quick links (route to /settings) ──
-  { id: 'set-preferences',  name: 'Preferences',     description: 'Identity · model · server',      group: 'settings', to: '/settings', keywords: 'identity model server write-gate auth' },
-  { id: 'set-appearance',   name: 'Appearance',      description: 'Theme & visual options',         group: 'settings', to: '/settings', keywords: 'theme colour color visual' },
-  { id: 'set-orchestrator', name: 'Orchestrator',    description: 'Scheduled wakes & cycles',        group: 'settings', to: '/settings', keywords: 'wake cycle schedule autonomous' },
-  { id: 'set-discord',      name: 'Discord',         description: 'Discord integration',            group: 'settings', to: '/settings', keywords: 'discord integration channel' },
-  { id: 'set-telegram',     name: 'Telegram',        description: 'Telegram integration',           group: 'settings', to: '/settings', keywords: 'telegram integration' },
-  { id: 'set-mcps',         name: 'Registered MCPs', description: 'Connected MCP servers',           group: 'settings', to: '/settings', keywords: 'mcp servers tools' },
-  { id: 'set-skills',       name: 'Skills & Status', description: 'Skills list & system health',     group: 'settings', to: '/settings', keywords: 'skills status health system uptime' },
-  { id: 'set-usage',        name: 'Usage & Model',   description: 'Token usage & active model',      group: 'settings', to: '/settings', keywords: 'usage tokens cost model billing' },
+  // ── Settings quick links (one per Settings tab; ?tab= opens it) ──
+  { id: 'set-you',         name: 'You & them',  description: 'Names, time, identity files',          group: 'settings', to: '/settings?tab=you',         keywords: 'identity name timezone companion profile ratify' },
+  { id: 'set-mind',        name: 'Mind',        description: 'Model, memory, summaries, pictures',   group: 'settings', to: '/settings?tab=mind',        keywords: 'model memory summarizer pictures effort prompt revien' },
+  { id: 'set-rhythm',      name: 'Rhythm',      description: 'Check-ins, handoff, watchtower',       group: 'settings', to: '/settings?tab=rhythm',      keywords: 'orchestrator wake cycle schedule autonomous handoff' },
+  { id: 'set-channels',    name: 'Channels',    description: 'Discord, Telegram, voice',             group: 'settings', to: '/settings?tab=channels',    keywords: 'discord telegram voice integration channel' },
+  { id: 'set-permissions', name: 'Permissions', description: 'What the companion may do',            group: 'settings', to: '/settings?tab=permissions', keywords: 'consent guard pin grant receipts write access plugins' },
+  { id: 'set-look',        name: 'Look',        description: 'Room, material, readability',          group: 'settings', to: '/settings?tab=look',        keywords: 'appearance theme colour color visual skin' },
+  { id: 'set-status',      name: 'Status',      description: 'Skills, MCPs, usage, logs',            group: 'settings', to: '/settings?tab=status',      keywords: 'skills mcp servers usage tokens cost logs health google update' },
 ];
 
 const GROUP_LABELS: Record<Command['group'], string> = {

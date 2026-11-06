@@ -12,3 +12,9 @@ export const TABS: ReadonlyArray<{ id: SectionId; label: string; sub: string }> 
 ];
 
 export const DEFAULT_TAB: SectionId = 'you';
+
+/** The tab a `?tab=` query names (the command palette's links), else the default. */
+export function tabFromSearch(search: string): SectionId {
+  const id = new URLSearchParams(search).get('tab');
+  return TABS.some(t => t.id === id) ? (id as SectionId) : DEFAULT_TAB;
+}

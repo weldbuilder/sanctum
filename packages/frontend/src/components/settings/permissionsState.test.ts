@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  guardSentence, pinNeeded, receiptsQuery, rowLabel, selectedButton, turnOnAction, untilText, windowMinutes,
+  guardSentence, pinNeeded, receiptRouteLabel, receiptsQuery, rowLabel, selectedButton, turnOnAction, untilText, windowMinutes,
   type CapabilityRow, type ConsentSnapshot,
 } from './permissionsState';
 
@@ -100,5 +100,19 @@ describe('receipts query and the Guard sentence', () => {
     expect(guardSentence('open', false)).toContain('PIN you set first');
     expect(guardSentence('open', true)).toContain('behind your PIN');
     expect(guardSentence('guard', true)).toContain('every grant asks for your PIN');
+  });
+});
+
+describe('receiptRouteLabel', () => {
+  it('shows a verb for the consent routes, not the HTTP route', () => {
+    expect(receiptRouteLabel('POST /api/consent/revoke')).toBe('revoke');
+    expect(receiptRouteLabel('POST /api/consent/grant')).toBe('grant');
+    expect(receiptRouteLabel('POST /api/consent/mode')).toBe('mode');
+    expect(receiptRouteLabel('/api/consent/off')).toBe('switch off');
+  });
+  it('leaves tool names and other routes alone', () => {
+    expect(receiptRouteLabel('Bash')).toBe('Bash');
+    expect(receiptRouteLabel('POST /api/files/write')).toBe('POST /api/files/write');
+    expect(receiptRouteLabel('POST /api/consent/unknown')).toBe('POST /api/consent/unknown');
   });
 });

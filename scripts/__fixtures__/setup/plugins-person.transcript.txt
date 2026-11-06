@@ -106,11 +106,11 @@ other: the code you are about to ratify (2 files):
   sanctum.plugin.json
 digest de428dc61199d9871dd366e1e205d4dee7928e4b1d543c0df1abad80b4dee00b
 Ratify this code? [y/N] n
-other was left out of plugins.enabled. Ratify it later in Settings > Plugins, then add it to plugins.enabled.
+other was left out of plugins.enabled. Ratify it later in Settings → Permissions, then add it to plugins.enabled.
 Ratified: hello (<SBX>/app/data/plugins/ratified.json).
 Turned on: hello.
 
-mine was left out of plugins.enabled: it is not ratified (or its code changed since). Ratify it in the app under Settings > Plugins, then add it back to plugins.enabled.
+mine was left out of plugins.enabled: it is not ratified (or its code changed since). Ratify it in the app under Settings → Permissions, then add it back to plugins.enabled.
 Wrote <SBX>/app/sanctum.yaml
 Wrote <SBX>/app/.env
 

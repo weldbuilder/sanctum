@@ -27,7 +27,7 @@ the code runs in, not from a flag:
 | Discord private lists (word gate, names, exclusions) | `discord.private_dir` | **`<agent.cwd>/../sanctum-private`** |
 | Discord rules | the `discord.rules` setting in the DB, else a file | `<checkout>/packages/backend/data/discord-rules.json` |
 | Discord public transcripts | beside the DB | `<db dir>/discord/public/` |
-| logs | Settings → Logs reads `data/logs/pm2-{out,err}.log` (only if pm2 writes there, step 4); the orchestrator log is fixed | `<checkout>/data/logs`, `<checkout>/logs` |
+| logs | Settings → Status reads `data/logs/pm2-{out,err}.log` (only if pm2 writes there, step 4); the orchestrator log is fixed | `<checkout>/data/logs`, `<checkout>/logs` |
 | port and bind address | `server.port`/`PORT`, `server.host`/`HOST` | `3099`, `127.0.0.1` |
 | login | `APP_PASSWORD` (process env, then the wizard's `.env`, then `auth.password`) | fails closed |
 | Discord bot | one encrypted token in the config table, or `DISCORD_BOT_TOKEN` | – |
@@ -119,7 +119,7 @@ only when the filesystem separates them. The recipe:
      -o data/logs/pm2-out.log -e data/logs/pm2-err.log -- start
    ```
 
-   The `-o`/`-e` paths are where Settings → Logs looks; without them pm2 logs under
+   The `-o`/`-e` paths are where Settings → Status looks; without them pm2 logs under
    `~/.pm2` and that tab is empty. `APP_PASSWORD` in a process manager's environment
    beats the clone's `.env` (`CONFIGURATION.md` §5), so if you set it that way, set it per
    process.

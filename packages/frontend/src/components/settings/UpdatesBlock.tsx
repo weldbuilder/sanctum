@@ -8,7 +8,7 @@ export function logText(job: UpdateJob | null, max = 40): string {
   return job.log.slice(-max).map(l => `${l.t.slice(11, 19)}  ${l.line}`).join('\n');
 }
 
-/** Settings → Preferences → Updates: the version, Check now, Update and restart, Roll back, and what the last job said. */
+/** Settings → Status → Updates: the version, Check now, Update and restart, Roll back, and what the last job said. */
 export function UpdatesBlock() {
   const snapshot = useUpdateStore(s => s.snapshot);
   const unavailable = useUpdateStore(s => s.unavailable);

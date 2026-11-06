@@ -124,7 +124,7 @@ import { registry } from '../services/ws.js';
 import { getSanctumConfig, PROJECT_ROOT, CONFIG_FILE_NAMES, browserFrameOrigin, checkBrowserUrl, resolveBrowserUrlUpdate } from '../config.js';
 import { browserToolsConfigured } from '../services/browser-gate.js';
 import { mergeProviderAndDsh } from '../services/preferences-merge.js';
-import { memoryChoiceOf, mergeImagegen, mergeMemory, mergeSummarizer } from '../services/preferences-merge-extra.js';
+import { memoryChoiceOf, memoryIsMixed, mergeImagegen, mergeMemory, mergeSummarizer } from '../services/preferences-merge-extra.js';
 import { resolveAll, resolveSetting } from '../services/settings/index.js';
 import { overlay } from '../../../../scripts/setup-inherit.mjs';
 import { getUsageSummary } from '../services/usage-log.js';
@@ -1864,7 +1864,9 @@ router.get('/preferences', (req, res) => {
         },
       },
       // One memory system at a time (revien | sanctum | harness | none); PUT { memory: '<choice>' } writes revien.enabled, agent.harness_memory and agent.local_recall together.
-      memory: memoryChoiceOf(fileLayer),
+      memory: memoryChoiceOf(fileLayer, String(e['agent.provider'])),
+      // true when the file turns on more than the one system `memory` names; posting `memory` back normalises it.
+      memory_mixed: memoryIsMixed(fileLayer, String(e['agent.provider'])),
       imagegen: {
         provider: e['imagegen.provider'],
         model: e['imagegen.model'],

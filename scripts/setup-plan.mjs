@@ -230,7 +230,7 @@ export function setupPlan(existingConfig, env = {}) {
     id: 'dshModel', kind: 'text', section: 'The model', when: isDsh,
     help: [
       'DeepSeek Harness is new (alpha). Install it once, pinned: npm i -g @deepseek-ai/dsh@0.2.1-alpha.2',
-      ...(ex.agent?.dsh?.model_provider ? [`It runs on the "${ex.agent.dsh.model_provider}" route; Settings > Preferences > Model changes the route.`] : []),
+      ...(ex.agent?.dsh?.model_provider ? [`It runs on the "${ex.agent.dsh.model_provider}" route; Settings → Mind changes the route.`] : []),
     ],
     question: 'DeepSeek Harness model id (empty = its own default)', default: ex.agent?.dsh?.model || '',
   });
@@ -318,7 +318,7 @@ export function setupPlan(existingConfig, env = {}) {
     ],
     cli: ['1) your companion: it can turn plugins on and off and edit them, and you see what changed in Settings.', '2) you: nothing runs until you have read and ratified its exact code, and a change stops it until you ratify again.'],
     parse: (raw) => parsePluginTrust(raw, ex.plugins?.trust),
-    after: (value) => [value === 'companion' ? 'Your companion manages plugins. Settings > Plugins shows what changed since you last looked.' : 'You manage plugins. Each one is shown to you before it is turned on.'],
+    after: (value) => [value === 'companion' ? 'Your companion manages plugins. Settings → Permissions shows what changed since you last looked.' : 'You manage plugins. Each one is shown to you before it is turned on.'],
   });
   add({
     id: 'plugins', kind: 'multichoice', section: 'Plugins', when: () => shipped.length > 0,

@@ -202,7 +202,7 @@ This creates the search index and its live-sync triggers, then fills it in from 
 
 **New in v3 (waiting for you when you log in):**
 - A completely rebuilt React interface.
-- Runtime theming — restyle the app live from Settings → Appearance, no rebuild.
+- Runtime theming — restyle the app live from Settings → Look, no rebuild.
 - The presence orb and mantelpiece — your Sanctum Mobile can set its own visual "state."
 - Updated tools and background services (its organs, the house-outlook layer, the proactive orchestrator).
 - Command Center — the relational dashboard (cycle, care, routines, wins, countdowns), off by default until you enable it.

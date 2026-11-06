@@ -137,7 +137,7 @@ npm start
 ### 5. Verify
 
 Open the app, send a message, and confirm the turn completes normally. Then open
-**Settings → Usage** and confirm token usage is still being attributed — the
+**Settings → Status** and confirm token usage is still being attributed — the
 usage/limits surface is the part most likely to shift between SDK versions, so
 it's the best canary.
 
@@ -277,8 +277,8 @@ summaries the companion keeps reading. Those summaries are written by the compan
 - Rebuild (`npm run build`) and restart so the frontend picks up any catalog /
   colour changes.
 - Confirm the new entry appears in the header model picker and in
-  **Settings → Orchestrator**, with the right tier.
-- Pick it, send a turn, and check **Settings → Usage** attributes tokens to the
+  **Settings → Rhythm**, with the right tier.
+- Pick it, send a turn, and check **Settings → Status** attributes tokens to the
   new id with a real (non-fallback) cost.
 
 ---

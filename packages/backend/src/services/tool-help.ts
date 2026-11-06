@@ -147,7 +147,7 @@ export function toolHelpSections(o: ToolHelpOptions): Record<ToolTopic, string[]
     identity: [
       'IDENTITY (the files in identity/ are who you are; the person ratifies changes to them in the app):',
       `  ${SC} identity status          (read-only: ok | pending | unratified | unavailable | legacy (no identity/ folder: identity is CLAUDE.md), what is waiting, and who changed it)`,
-      '  While a change waits, every run uses the ratified version. You cannot ratify; the person does, in Settings > Identity.',
+      '  While a change waits, every run uses the ratified version. You cannot ratify; the person does, in Settings → You & them.',
     ],
     browser: o.browser ? [
       'BROWSER (tools from the `browser` MCP server, not res; the same browser the person watches in the Browser tab):',

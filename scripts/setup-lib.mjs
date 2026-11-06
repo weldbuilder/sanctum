@@ -361,7 +361,7 @@ export function chooseEnabledPlugins(existingEnabled, shipped, ratified, opts = 
   for (const id of Array.isArray(existingEnabled) ? existingEnabled : []) {
     if (typeof id !== 'string' || shippedIds.has(id) || kept.includes(id)) continue;
     if (ownPluginRatified(opts.ledgerDir, opts.personDir, id)) kept.push(id);
-    else opts.say?.(`${id} was left out of plugins.enabled: it is not ratified (or its code changed since). Ratify it in the app under Settings > Plugins, then add it back to plugins.enabled.`);
+    else opts.say?.(`${id} was left out of plugins.enabled: it is not ratified (or its code changed since). Ratify it in the app under Settings → Permissions, then add it back to plugins.enabled.`);
   }
   return [...kept, ...ratified.filter((id) => !kept.includes(id))];
 }
@@ -860,7 +860,7 @@ export function ledgerChoicePath(root, answer) {
 }
 
 /** The one line said for a plugin that was not turned on. */
-export const leftOutLine = (id) => `${id} was left out of plugins.enabled. Ratify it later in Settings > Plugins, then add it to plugins.enabled.`;
+export const leftOutLine = (id) => `${id} was left out of plugins.enabled. Ratify it later in Settings → Permissions, then add it to plugins.enabled.`;
 
 /** The two lines said when the ledger would sit where the companion can write. */
 export function ledgerClashLines(root, cfg, clash) {

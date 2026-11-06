@@ -132,7 +132,7 @@ describe.skipIf(!posix || inTemp)('the terminal wizard prints and writes what th
       for (const line of identityLines) {
         const masked = line.replace(/(are recorded as ratified \()[0-9a-f]{12}(\))/, '$1<digest>$2');
         expect(masked, 'the Identity line says exactly what it is expected to say').toMatch(
-          /^Identity: (?:the starter files in .+ are recorded as ratified \(<digest>\)\. Changes after this wait for you in Settings > Identity\.|no ledger written \(the identity folder already has a ledger\)\.)$/);
+          /^Identity: (?:the starter files in .+ are recorded as ratified \(<digest>\)\. Changes after this wait for you in Settings → You & them\.|no ledger written \(the identity folder already has a ledger\)\.)$/);
       }
 
       const golden = JSON.parse(fs.readFileSync(path.join(FIX, `${sc.name}.files.json`), 'utf-8'));
