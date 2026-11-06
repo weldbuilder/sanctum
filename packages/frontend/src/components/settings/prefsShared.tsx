@@ -49,6 +49,8 @@ export interface Preferences {
   auth: { has_password: boolean };
   /** One memory system at a time; the server writes revien.enabled, agent.harness_memory and agent.local_recall together. */
   memory?: MemoryChoice;
+  /** The file turns on more than the one system `memory` names (read-only; saving the choice normalises it). */
+  memory_mixed?: boolean;
   imagegen?: { provider: 'none' | 'runware' | 'replicate'; model: string; size: string; safety_checker: boolean };
   sources?: Record<string, string>;
 }

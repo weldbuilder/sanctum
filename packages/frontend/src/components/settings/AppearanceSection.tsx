@@ -21,6 +21,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Group, Eyebrow, Btn, SaveIndicator, ToggleRow } from './primitives';
+import { legacyOverrideCount, legacyOverrideLine } from './legacyOverridesState';
 import { useThemeStore, THEME_TOKENS, FONT_CHOICES, toHexColor, type ThemeToken } from '../../store/theme';
 import { useAppearanceStore } from '../../store/appearance';
 import { useIdentity, patchIdentity, uploadAvatar } from '../../store/identity';
@@ -122,6 +123,7 @@ const STATUS_HOLD_MS = 2200;
 export function AppearanceSection() {
   // The v2 appearance document is the only editor. The legacy server-synced token set (store/theme.ts) is no longer edited here; reset clears it.
   const resetTheme = useThemeStore(s => s.resetTheme);
+  const legacyCount = useThemeStore(s => legacyOverrideCount(s.overrides));
 
   const applied = useAppearanceStore(s => s.applied);
   const draft = useAppearanceStore(s => s.draft);
@@ -189,6 +191,13 @@ export function AppearanceSection() {
     clearCustom(material);
     setMessage('Custom colours removed. This material’s own readable palette is back.');
   };
+  // Clears the stored legacy colour overrides only (the server set and the live ones); the room, material and readability stay.
+  const clearLegacy = async () => {
+    setStatus('saving');
+    const ok = await resetTheme();
+    holdStatus(ok);
+    setMessage(ok ? 'Legacy colour overrides cleared.' : 'Could not clear the legacy colour overrides.');
+  };
   const resetEverything = async () => {
     clearTimers();
     setStatus('saving');
@@ -206,6 +215,14 @@ export function AppearanceSection() {
     <div className="appearance-section">
       <div className="ap-safe" style={panelScopeVars(material) as React.CSSProperties}>
         <Eyebrow label="appearance" sub="rooms & materials" />
+        {legacyOverrideLine(legacyCount) && (
+          <Group>
+            <div className="ap-legacy-row" data-testid="legacy-overrides">
+              <span className="appearance-lead">{legacyOverrideLine(legacyCount)}</span>
+              <Btn variant="muted" small onClick={clearLegacy} disabled={status === 'saving'}>Clear</Btn>
+            </div>
+          </Group>
+        )}
         <Group>
           <p className="appearance-lead">
             A <strong>room</strong> is the scenery behind the app. A <strong>material</strong> is the
@@ -437,6 +454,7 @@ export function AppearanceSection() {
 
       <style>{`
         .appearance-section { padding-bottom: 2rem; }
+        .ap-legacy-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
 
         /* Everything that edits the appearance is drawn on this plate in its own colours. */
         .ap-safe {

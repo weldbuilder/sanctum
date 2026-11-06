@@ -363,16 +363,16 @@ falls back to the default shown.
 *ratified*. A change to those files that you have not ratified yet (an edit in a
 text editor, an edit by your companion through `res`, or anything else that can
 write the folder) is noticed at the next turn, recorded in the journal with its
-author, and waits in Settings > Identity; until you ratify it, every run uses the
+author, and waits in Settings → You & them; until you ratify it, every run uses the
 ratified copy, and the companion is told in one line that a change is waiting.
-An edit you make in Settings > Identity ratifies itself when nothing else was
+An edit you make in Settings → You & them ratifies itself when nothing else was
 waiting. Setup records the starter files as ratified; an existing home that
 upgrades gets its first look at the next start and stays "not yet ratified"
 until you ratify it once. The gate protects against anything that can write
 `identity/` but cannot also rewrite the ledger folder. On a harness with
 unconfined file access (Claude's) that is the companion's own file tools unless
 the ledger is placed elsewhere, so put `ledger_dir` somewhere the companion
-cannot write; the app warns at start, and in Settings > Identity, when it is
+cannot write; the app warns at start, and in Settings → You & them, when it is
 inside a folder it lets the companion write. The set is every regular file directly in `identity/` except dot files, avatar images and files whose name is longer than 120 characters: a file with a longer name is invisible to the check and to the prompt alike (it is neither ratified nor read), so keep names short. See [PLUGINS.md](PLUGINS.md),
 "Identity ratification" and "Where to put the house".
 
@@ -447,7 +447,7 @@ The in-app routes take the same choice: `GET /api/setup/plan?more=1` (or `?phase
 
 `agent.local_recall: false` turns the stand-in off too (Revien or nothing). Recalled lines go in the same `[Memory]` block for every source, each with its date and who said it, and the conversation already open is left out (it is in the context).
 
-Only those answers are sent. Every other setup answer takes the same default `npm run setup` offers (the home folder from the starter template, memory, plugins off, no Discord, and so on), and all of them stay in Settings: **Run setup again** (Settings → Preferences) is still the full step-by-step wizard. Signing in happens in the same foyer.
+Only those answers are sent. Every other setup answer takes the same default `npm run setup` offers (the home folder from the starter template, memory, plugins off, no Discord, and so on), and all of them stay in Settings: **Run setup again** (Settings → Status) is still the full step-by-step wizard. Signing in happens in the same foyer.
 
 The server never makes a password up for the setup screen (it could not hand one back safely), so an empty password is refused on a first run: the onboarding makes one in the browser, and the step-by-step wizard's password screen has a **Make one up for me** button. Either way it is made on the page, locally, and nothing is sent back to the server until the last screen, as the password you are choosing. (`npm run setup` in a terminal does make one up when you leave it empty, and prints it once.) It backs up `sanctum.yaml` and `.env` (the copy is owner-only) before writing, and the response lists what was written and whether a restart is needed. No secret is put in a log or a response.
 
@@ -734,7 +734,7 @@ Saving a `mind.*` setting while a check is running queues exactly one more check
 
 | Key | Default | Meaning |
 |---|---|---|
-| `trust` | `companion` | Who manages plugins. `companion`: your companion can turn plugins on and off and edit them, enabled plugins run from their live folder, and Settings > Plugins shows you what changed since you last looked (it can change anything the OS user can, by design). `person`: nothing runs until you have read and ratified a plugin's exact code, and a change stops it until you ratify again; plugin folders and the ledger must be outside the companion's writable folders, and plugins are off under `danger-full-access`. An unknown value warns and means `companion`. |
+| `trust` | `companion` | Who manages plugins. `companion`: your companion can turn plugins on and off and edit them, enabled plugins run from their live folder, and Settings → Permissions shows you what changed since you last looked (it can change anything the OS user can, by design). `person`: nothing runs until you have read and ratified a plugin's exact code, and a change stops it until you ratify again; plugin folders and the ledger must be outside the companion's writable folders, and plugins are off under `danger-full-access`. An unknown value warns and means `companion`. |
 | `enabled` | `[]` | Plugin ids that may load. In `companion` mode the companion (or you, in Settings) changes this list and it applies on the next run; in `person` mode edit it here and restart. |
 | `dir` | `""` | Your own plugin folder, loaded after the ones that ship with the app. `""` = none. In `person` mode it must be outside the companion's writable folders. |
 | `ledger_dir` | `""` | Where `data/plugins` lives (`audit.json`, and in `person` mode `ratified.json` and `snapshots/`). `""` = `data/plugins`. In `person` mode it must be outside the companion's writable folders. |
@@ -759,7 +759,7 @@ Process-only (see `tenants`).
 
 #### Updating from inside the app
 
-**Update and restart** (the bar on Home, in the page above the welcome, and on Chat, under the header, the pill elsewhere, Settings → Preferences → Updates) calls `POST /api/house/update/start`
+**Update and restart** (the bar on Home, in the page above the welcome, and on Chat, under the header, the pill elsewhere, Settings → Status → Updates) calls `POST /api/house/update/start`
 with the house password typed again; `POST /api/house/update/rollback` does the same for a roll back; `GET /api/house/update` is the status. They are
 house routes, never under a companion's prefix, and a companion's tools cannot reach them. One job runs at a time (a second is `409`), and none starts
 while a conversation turn or a background model run (the outlook author, the handoff, the digest, the summarizer) is in progress in any companion.
@@ -1000,7 +1000,7 @@ transcription. Set the keys for the pieces you want.
 ## 7. Theming — the Appearance tab
 
 You can restyle Sanctum Mobile from inside the app, with no rebuild and no restart. Open
-**Settings → Appearance**. Your choices are saved **in this browser** (`localStorage`), not on the
+**Settings → Look**. Your choices are saved **in this browser** (`localStorage`), not on the
 server, so each phone or computer keeps its own look (the one exception, the classic Hedgewitch
 colours, is described under *Where it is saved*).
 
@@ -1202,9 +1202,9 @@ Inside `data/` you'll find:
 - **`digests/`** — the daily written record your AI keeps of your days.
 - **`.internal-token`** — an auto-generated secret the app uses to talk to itself.
 - **`.google-key`** — an auto-generated key that encrypts stored Google tokens.
-- **`identity/`** — the identity ledger (`identity.ledger_dir` moves it): `ledger.json` (the digest of the identity files you ratified, who ratified it and when), `journal.jsonl` (one line for every change to the identity folder: when, which files, and whether it was you, your companion, something else on disk, a rollback or the first look) and `snapshots/` (the ratified copy that your companion actually runs on, and the one before it). It is separate from `plugins/`. Back up the whole folder: without `snapshots/` the app cannot serve the ratified copy and says so in Settings > Identity.
+- **`identity/`** — the identity ledger (`identity.ledger_dir` moves it): `ledger.json` (the digest of the identity files you ratified, who ratified it and when), `journal.jsonl` (one line for every change to the identity folder: when, which files, and whether it was you, your companion, something else on disk, a rollback or the first look) and `snapshots/` (the ratified copy that your companion actually runs on, and the one before it). It is separate from `plugins/`. Back up the whole folder: without `snapshots/` the app cannot serve the ratified copy and says so in Settings → You & them.
 - **`update-job.json`, `update-restart.log`** — the in-app updater's last job and the log of the restart (the rollback copy is `.update-rollback/` in the app folder). Safe to delete when no update is running; see "Updating from inside the app" under `updates`.
-- **`plugins/`** — `audit.json`: every change to a plugin's files, as it was noticed (the last 20 per plugin), which Settings > Plugins reads for "changed since you last looked". If you chose `plugins.trust: person`, it also holds `ratified.json` (which plugin code you have approved, by hash) and `snapshots/` (the approved copy that actually runs); a plugin whose files differ from that record does nothing until you approve it again. Back up the whole folder. If you set `plugins.ledger_dir`, it lives there instead.
+- **`plugins/`** — `audit.json`: every change to a plugin's files, as it was noticed (the last 20 per plugin), which Settings → Permissions reads for "changed since you last looked". If you chose `plugins.trust: person`, it also holds `ratified.json` (which plugin code you have approved, by hash) and `snapshots/` (the approved copy that actually runs); a plugin whose files differ from that record does nothing until you approve it again. Back up the whole folder. If you set `plugins.ledger_dir`, it lives there instead.
 
 The database is created automatically the first time you run the app — the schema
 sets itself up on boot, so there's no separate "initialize the database" step.

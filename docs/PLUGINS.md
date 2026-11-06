@@ -158,7 +158,7 @@ the error. No `deny` list: an id that is not enabled is simply off.
   (body `{ "enabled": ["hello", "mine"] }`, the whole list). The app writes `plugins.enabled` into
   `sanctum.yaml` and into the running config, so the **next run** reads the new list: no restart. Routes
   of a plugin enabled this way serve from its first request (they are dispatched by id on each request,
-  and answer `404` while the id is not enabled). The person can do the same from Settings > Plugins, which
+  and answer `404` while the id is not enabled). The person can do the same from Settings → Permissions, which
   calls the same route with the session. The write goes through the companion's write switch
   (`agent.app_write`) like every other companion write; the person's own request does not.
 - After editing a plugin's `routes.mjs`, the companion calls `POST /api/plugins/<id>/reload` with the
@@ -181,7 +181,7 @@ exact code (see Ratifying), a change stops it until you ratify again, plugin roo
 outside the companion's writable folders, and plugins are off under `danger-full-access`. **`sanctum.yaml`
 is read once, at startup, in this mode: a change to `plugins.enabled` or `plugins.dir` applies after a
 restart**, and the internal token cannot change `plugins.enabled` (`PUT /api/plugins/enabled` answers
-`403 {"error": "trust_person"}`). Settings > Plugins shows each plugin's ratification state and lets you review
+`403 {"error": "trust_person"}`). Settings → Permissions shows each plugin's ratification state and lets you review
 and ratify it (turning a plugin on or off is an edit to `sanctum.yaml`).
 
 The setup wizard (`scripts/setup.mjs`) asks "Who manages plugins?" first, default your companion. Under
@@ -233,7 +233,7 @@ marked as seen, so several edits since the last look add up; a plugin never view
 added. `POST /api/plugins/:id/seen` records the current code as viewed (with the `digest` the list showed
 you, it refuses with `409 digest_mismatch` if the files changed since, so what you mark is what you saw).
 
-Settings > Plugins shows an enabled switch per plugin, a "Changed since you last looked" marker, **Review**
+Settings → Permissions shows an enabled switch per plugin, a "Changed since you last looked" marker, **Review**
 (the changed files first and the full file list; tap a file to read it, from `GET /:id/files` and
 `GET /:id/file`) and **Mark as seen**. There is nothing to ratify.
 
@@ -440,7 +440,7 @@ live folder as it is now):
   `{ path, sha256, size, binary: true }`. The path must be one of the listed relative paths,
   compared as a string and never resolved, so there is no traversal: anything else is
   `404`; no `path` (or more than one) is `400 {"error": "path_required"}`; a folder that
-  cannot be read is `409 plugin_invalid`. Settings > Plugins uses it: each file in Review
+  cannot be read is `409 plugin_invalid`. Settings → Permissions uses it: each file in Review
   is tappable and shows its text, changed files first and marked.
 
 These routes are registered ahead of the per-plugin mounts, like `/reload`, so a plugin cannot
@@ -454,7 +454,7 @@ shipped plugins you turn on, but only after the questions and before it writes
 `sanctum.yaml`, and it writes `plugins.enabled` with the ids that are ratified now: the shipped
 ones that ratified in that run, and the ones of your own that already have a ratification (a
 plugin of your own that is enabled but not ratified is left out, with a message naming
-Settings > Plugins). For a plugin never ratified it prints the file list and asks "Ratify this
+Settings → Permissions). For a plugin never ratified it prints the file list and asks "Ratify this
 code? [y/N]"; for a shipped plugin whose code differs from the ledger it prints the changed
 paths (kind first, up to 10) and the digest and asks "Ratify this changed code? [y/N]". Both
 default to no: you type `y` after reading the list. An id left out says so. The wizard keeps a
@@ -693,7 +693,7 @@ not yet ratified" or "Identity needs attention") is where to see that.
 
 **Telling the person.** A newly noticed pending change posts one system line to
 today's thread ("Identity change waiting: <files>. Changed by your companion and
-you. Settings > Identity.", kept out of the model's history). The line goes out
+you. Settings → You & them.", kept out of the model's history). The line goes out
 when the state moves into pending, and while it stays pending at most once per ten
 minutes even when the digest keeps changing; it comes again when a change returns
 after the files were back at the ratified version (a ratify, a rollback, a check
@@ -702,7 +702,7 @@ whenever the state or the digest moves. `unavailable` posts one line on entering
 it. The authors are everyone who changed the files since the ratified version, in
 the order they first did (`pending.authors`; `pending.author` is the latest). The
 chat header shows a quiet "Identity change waiting", "Identity not yet ratified"
-or "Identity needs attention". In Settings > Identity an `unavailable` state shows
+or "Identity needs attention". In Settings → You & them an `unavailable` state shows
 the reason and a Ratify button when ratifying can go ahead (`status.canRatify`);
 ratifying over an unreadable `ledger.json` sets it aside as
 `ledger.json.damaged-<time>` and starts a new record. The companion can ask with
@@ -739,7 +739,7 @@ folders the app itself lets the companion write (the home, the write-gate roots,
 the Codex and dsh folders), but that does not confine the Claude harness. Unlike the
 plugin ledger, which refuses to start with its ledger inside such a folder,
 identity has no person-mode gate to refuse in: the app logs a warning at start and
-shows the same warning in Settings > Identity (`status.warning`) when
+shows the same warning in Settings → You & them (`status.warning`) when
 `identity.ledger_dir` is inside, or contains, a folder the companion can write.
 
 **Not done.** The wire types (`IdentityStatus` and the journal entry) live in

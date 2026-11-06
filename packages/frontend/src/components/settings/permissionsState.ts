@@ -130,3 +130,11 @@ export function guardSentence(mode: ConsentMode, pinSet: boolean): string {
     ? 'Guard is off: everything below is on. Switch it on to make every capability off until you grant it a window, behind your PIN.'
     : 'Guard is off: everything below is on. Switching Guard on makes every capability off until you grant it a window, behind a PIN you set first.';
 }
+
+const CONSENT_VERBS: Record<string, string> = { grant: 'grant', revoke: 'revoke', mode: 'mode', off: 'switch off', pin: 'PIN', 'pin/verify': 'PIN check' };
+
+/** A receipt's route as the person reads it: "POST /api/consent/revoke" becomes "revoke". Anything else (a tool name) is left as it is. */
+export function receiptRouteLabel(route: string): string {
+  const m = /^(?:[A-Z]+\s+)?\/api\/consent\/([a-z/]+?)\/?$/.exec(route.trim());
+  return m && CONSENT_VERBS[m[1]] ? CONSENT_VERBS[m[1]] : route;
+}

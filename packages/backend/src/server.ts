@@ -463,7 +463,7 @@ server.listen(PORT, HOST, () => {
   }
   // Boot diagnostic for the internal token (gates loopback /mcp/* and
   // /api/internal/*). DO NOT print the raw value: stdout flows to
-  // data/logs/pm2-out.log, which the auth-gated Settings → Logs viewer can read.
+  // data/logs/pm2-out.log, which the auth-gated Settings → Status viewer can read.
   // The full token is read out-of-band by callers (.mcp.json headers, res CLI,
   // ~/.claude.json) directly from its source below. Fingerprint only here.
   console.log(`Internal token loaded (${internalTokenFingerprint()}) — full value at: ${internalTokenSource()}`);

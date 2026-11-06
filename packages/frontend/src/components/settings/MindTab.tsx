@@ -8,7 +8,7 @@ import { HearthSelect } from '../hearth';
 import { MindSection } from './MindSection';
 import { SystemPromptBlock } from './SystemPromptBlock';
 import { DSH_EMPTY, PREFS_CSS, PrefsSaveBar, usePreferences, type MemoryChoice } from './prefsShared';
-import { SUMMARIZER_DEFAULT_KEY_ENV, imagegenKeyFor, keyMarker, keyText, memoryOptions, summarizerWho, type KeyState } from './mindState';
+import { SUMMARIZER_DEFAULT_KEY_ENV, imagegenKeyFor, keyMarker, keyEnvTyped, keyText, KEY_ENV_HINT, memoryMixedNote, memoryOptions, shownMemory, summarizerWho, type KeyState } from './mindState';
 
 const SUMMARIZER = { provider: '', model: '', base_url: '', api_key_env: SUMMARIZER_DEFAULT_KEY_ENV };
 const IMAGEGEN = { provider: 'none' as 'none' | 'runware' | 'replicate', model: '', size: '1024x1024', safety_checker: false };
@@ -39,7 +39,8 @@ export function MindTab({ base }: { base: string }) {
   const img = { ...IMAGEGEN, ...draft.imagegen };
   const setSumm = (u: Partial<typeof SUMMARIZER>) => patchDraft({ agent: { ...draft.agent, summarizer: { ...summ, ...u } } });
   const setImg = (u: Partial<typeof IMAGEGEN>) => patchDraft({ imagegen: { ...img, ...u } });
-  const memory: MemoryChoice = draft.memory ?? 'revien';
+  const memory: MemoryChoice = shownMemory(provider, draft.memory ?? 'revien');
+  const mixedNote = memoryMixedNote(draft.memory_mixed);
   const imgKey = imagegenKeyFor(img.provider);
   const summKey: KeyState = keyMarker(effective, 'summarizer.api_key');
   const summKeyIsDefault = summ.api_key_env === SUMMARIZER_DEFAULT_KEY_ENV;
@@ -131,13 +132,14 @@ export function MindTab({ base }: { base: string }) {
       <div className="prefs-radio" role="radiogroup" aria-label="Memory">
         {memoryOptions(provider).map(o => (
           <label key={o.value} className={`prefs-radio-opt${memory === o.value ? ' sel' : ''}`}>
-            <input type="radio" name="memory-choice" value={o.value} checked={memory === o.value} onChange={() => patchDraft({ memory: o.value })} />
+            <input type="radio" name="memory-choice" value={o.value} checked={memory === o.value} onChange={() => patchDraft({ memory: o.value })} onClick={() => patchDraft({ memory: o.value })} />
             <span className="prefs-radio-text">
               <span className="prefs-radio-label">{o.label}</span>
               <span className="prefs-radio-hint">{o.hint}</span>
             </span>
           </label>
         ))}
+        {mixedNote && <span className="prefs-radio-hint" data-testid="memory-mixed">{mixedNote}</span>}
         <span className="prefs-radio-hint">Applies on restart. Two systems at once fight over what to remember, so choosing one turns the others off.</span>
       </div>
 
@@ -181,14 +183,14 @@ export function MindTab({ base }: { base: string }) {
           {summ.provider === 'openai-compat' && (
             <>
               <TextField label="base url" value={summ.base_url} mono restartRequired onChange={v => setSumm({ base_url: v })} hint="e.g. https://openrouter.ai/api/v1" />
-              <TextField label="api key env var name" value={summ.api_key_env} mono restartRequired onChange={v => setSumm({ api_key_env: v })}
-                hint="The NAME of the variable that holds the key. Never paste the key here; put it in .env." />
+              <TextField label="api key env var name" value={summ.api_key_env} mono restartRequired onChange={v => setSumm({ api_key_env: keyEnvTyped(v) })}
+                hint={KEY_ENV_HINT} />
               <span className={`prefs-keystate ${summKeyIsDefault ? (summKey?.set ? 'set' : 'unset') : 'unset'}`} data-testid="summarizer-key">
                 {summKeyIsDefault ? `key: ${keyText(summKey)}` : `key: set ${summ.api_key_env} in .env (status shows only for ${SUMMARIZER_DEFAULT_KEY_ENV})`}
               </span>
             </>
           )}
-          <span className="prefs-radio-hint" data-testid="summarizer-who">{summarizerWho(summ)}</span>
+          <span className="prefs-radio-hint" data-testid="summarizer-who">{summarizerWho(summ, draft.agent.rolling)}</span>
         </div>
       </Group>
 

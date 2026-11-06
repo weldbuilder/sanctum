@@ -215,7 +215,7 @@ added  dsh/extra.mjs
 modified  dsh/index.mjs
 digest 8b146f0701ee81bd341f9cb26180f2e693fb699dbb6117dee53dc33b03e201f1
 Ratify this changed code? [y/N] n
-other was left out of plugins.enabled. Ratify it later in Settings > Plugins, then add it to plugins.enabled.
+other was left out of plugins.enabled. Ratify it later in Settings → Permissions, then add it to plugins.enabled.
 No plugin was turned on.
 
 Wrote <SBX>/app/sanctum.yaml

@@ -97,7 +97,7 @@ changes later, the plugin stops until you ratify it again.
 The ratification ledger would live in <SBX>/app/data/plugins, which is inside (or contains) agent.codex.additional_directories <SBX>/app.
 The companion can write there, so it could ratify its own changes. Plugins stay off while that is so.
 Folder for the ratification ledger (outside every folder the companion can write; empty = leave plugins off) 
-hello was left out of plugins.enabled. Ratify it later in Settings > Plugins, then add it to plugins.enabled.
+hello was left out of plugins.enabled. Ratify it later in Settings → Permissions, then add it to plugins.enabled.
 No plugin was turned on.
 
 Wrote <SBX>/app/sanctum.yaml

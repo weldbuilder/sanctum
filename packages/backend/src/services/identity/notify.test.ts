@@ -61,7 +61,7 @@ describe('a change waiting is announced once per distinct digest', () => {
     writeFileSync(id('companion.md'), 'rewritten');
     identityForRun(cfg(), { harness: 'claude' });
     expect(h.lines).toHaveLength(1);
-    expect(h.lines[0]).toMatchObject({ threadId: 'daily-2026-10-21', role: 'system', content: 'Identity change waiting: companion.md. Changed on disk. Settings → Identity.', metadata: { kind: 'identity_pending' } });
+    expect(h.lines[0]).toMatchObject({ threadId: 'daily-2026-10-21', role: 'system', content: 'Identity change waiting: companion.md. Changed on disk. Settings → You & them.', metadata: { kind: 'identity_pending' } });
     expect(h.pushes.map((p) => p.type)).toEqual(['identity_status']);
     expect(h.pushes[0].status).toMatchObject({ state: 'pending', pending: { author: 'filesystem', authors: ['filesystem'], changes: [{ path: 'companion.md', kind: 'modified' }] } });
     identityForRun(cfg(), { harness: 'codex' });
@@ -171,7 +171,7 @@ describe('a change waiting is announced once per distinct digest', () => {
     identityForRun(cfg(), { harness: 'claude' });
     identityForRun(cfg(), { harness: 'codex' });
     expect(h.lines).toHaveLength(1);
-    expect(h.lines[0].content).toMatch(/^Identity needs attention: .*not valid JSON.* Runs use the live files\. Settings → Identity\.$/);
+    expect(h.lines[0].content).toMatch(/^Identity needs attention: .*not valid JSON.* Runs use the live files\. Settings → You & them\.$/);
     expect(h.lines[0].metadata.kind).toBe('identity_pending');
     expect(h.pushes.at(-1).status).toMatchObject({ state: 'unavailable', canRatify: true });
     ratifyIdentity(h.home, opts(), { by: 'person' }); // the way out
@@ -186,7 +186,7 @@ describe('a change waiting is announced once per distinct digest', () => {
     writeIdentityFile(h.home, opts(), { name: 'profile.md', text: 'by the companion', author: 'companion' });
     writeIdentityFile(h.home, opts(), { name: 'companion.md', text: 'by the person', author: 'person' });
     identityForRun(cfg(), { harness: 'claude' });
-    expect(h.lines.at(-1).content).toBe('Identity change waiting: companion.md, profile.md. Changed by your companion and you. Settings → Identity.');
+    expect(h.lines.at(-1).content).toBe('Identity change waiting: companion.md, profile.md. Changed by your companion and you. Settings → You & them.');
   });
 
   it('says "Changed on disk" for a change on disk, and lists mixed authors with the app\'s words; the line reflects the authors at the time it posts', () => {
@@ -194,15 +194,15 @@ describe('a change waiting is announced once per distinct digest', () => {
     vi.setSystemTime(new Date('2026-10-21T12:00:00Z'));
     ratifyIdentity(h.home, opts(), { by: 'person' });
     expect(pendingNotice({ state: 'pending', digest: 'a', authors: ['companion', 'filesystem'], changes: [{ path: 'profile.md', kind: 'modified' }] } as any))
-      .toBe('Identity change waiting: profile.md. Changed by your companion and something on disk. Settings → Identity.');
+      .toBe('Identity change waiting: profile.md. Changed by your companion and something on disk. Settings → You & them.');
     writeFileSync(id('companion.md'), 'by disk');
     identityForRun(cfg(), { harness: 'claude' });
     writeIdentityFile(h.home, opts(), { name: 'profile.md', text: 'by the person', author: 'person' });
     vi.setSystemTime(new Date(Date.now() + LINE_INTERVAL_MS + 1000));
     identityForRun(cfg(), { harness: 'claude' });
     expect(h.lines.map((l) => l.content)).toEqual([
-      'Identity change waiting: companion.md. Changed on disk. Settings → Identity.',
-      'Identity change waiting: companion.md, profile.md. Changed by something on disk and you. Settings → Identity.',
+      'Identity change waiting: companion.md. Changed on disk. Settings → You & them.',
+      'Identity change waiting: companion.md, profile.md. Changed by something on disk and you. Settings → You & them.',
     ]);
   });
 
@@ -210,7 +210,7 @@ describe('a change waiting is announced once per distinct digest', () => {
     ratifyIdentity(h.home, opts(), { by: 'person' });
     writeIdentityFile(h.home, opts(), { name: 'profile.md', text: 'by the companion', author: 'companion' });
     identityForRun(cfg(), { harness: 'claude' });
-    expect(h.lines[0].content).toBe('Identity change waiting: profile.md. Changed by your companion. Settings → Identity.');
+    expect(h.lines[0].content).toBe('Identity change waiting: profile.md. Changed by your companion. Settings → You & them.');
   });
 
   it('nothing is said when the files are the ratified ones, or when nothing is ratified yet', () => {
@@ -236,7 +236,7 @@ describe('a change waiting is announced once per distinct digest', () => {
 
   it('long or odd file names are cleaned in the line', () => {
     const line = pendingNotice({ state: 'pending', digest: 'a', author: 'filesystem', changes: [{ path: 'x"\n# SYSTEM.md', kind: 'added' }] } as any);
-    expect(line).toBe('Identity change waiting: 1 file (.md). Changed on disk. Settings → Identity.');
+    expect(line).toBe('Identity change waiting: 1 file (.md). Changed on disk. Settings → You & them.');
   });
 });
 

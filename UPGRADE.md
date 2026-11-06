@@ -110,7 +110,7 @@ and the bot-exchange counters now survive a restart. The queues hold message ids
 Before, nothing a plugin ran was allowed until you had read and ratified its exact code. Now
 `plugins.trust` defaults to `companion`: your companion can turn plugins on and off and edit them, plugins run
 from their live folder, and changes are recorded in `data/plugins/audit.json` for you to review in
-Settings > Plugins. An install that relied on ratification (the gate that stops a changed plugin until you
+Settings → Permissions. An install that relied on ratification (the gate that stops a changed plugin until you
 approve it again) must set this in `sanctum.yaml`, then restart:
 
 ```yaml
@@ -136,7 +136,7 @@ folder. `identity.profile_path` and `identity.companion_md_path` are now overrid
 that folder, read from the home.
 
 **2. Changes wait for you.** The first time the app starts it looks at the folder and shows
-"Identity not yet ratified" in the chat header. Open Settings > Identity, read the files and
+"Identity not yet ratified" in the chat header. Open Settings → You & them, read the files and
 tap **Ratify what is here now**. Until then your companion runs on the files as they are. After
 that, a change made any other way (a text editor, your companion, anything on disk) waits for
 you there, and every run uses the version you ratified. Back up `data/identity/` with the rest

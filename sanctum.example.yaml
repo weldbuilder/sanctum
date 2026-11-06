@@ -38,7 +38,7 @@ auth:
 # trust: companion (the default). Your companion manages plugins: it can turn them on and off
 #   (PUT /api/plugins/enabled with the internal token) and edit them. Enabled plugins run from their
 #   live folder. Every change to a plugin's files is recorded in data/plugins/audit.json, and
-#   Settings > Plugins shows "changed since you last looked" with the files and their contents.
+#   Settings → Permissions shows "changed since you last looked" with the files and their contents.
 #   Nothing stops running. The companion can change anything the OS user can, by design; the
 #   boundary worth having is the machine (Windows: run the whole app inside WSL2; Linux and Mac:
 #   a dedicated user or directory). See docs/PLUGINS.md, "Where to put the house".

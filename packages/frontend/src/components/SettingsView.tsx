@@ -16,7 +16,7 @@ import { ChannelsTab } from './settings/ChannelsTab';
 import { PermissionsSection } from './settings/PermissionsSection';
 import { StatusTab } from './settings/StatusTab';
 import { PRIMITIVES_CSS } from './settings/primitives';
-import { DEFAULT_TAB, TABS, type SectionId } from './settingsTabs';
+import { TABS, tabFromSearch, type SectionId } from './settingsTabs';
 
 import { BASE } from '../lib/base';
 
@@ -101,7 +101,7 @@ function SectionContent({ id, logsQuery, onOpenLogs }: { id: SectionId; logsQuer
 // ─── SettingsView ─────────────────────────────────────────────────────────────
 
 export function SettingsView() {
-  const [activeSection, setActiveSection] = useState<SectionId>(DEFAULT_TAB);
+  const [activeSection, setActiveSection] = useState<SectionId>(() => tabFromSearch(typeof window === 'undefined' ? '' : window.location.search));
   // A card can send the person to the log viewer with a filter already typed (the Discord card: `[discord]`); the log lives on Status.
   const [logsQuery, setLogsQuery] = useState('');
   const openLogs = (q: string) => { setLogsQuery(q); setActiveSection('status'); };

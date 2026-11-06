@@ -12,7 +12,7 @@ things each verification pass left behind. Update it when a PR merges.*
 | 2 | Agent-driven browser seat (`.mcp.json` entry, MCP filter, skill) | `CONFIGURATION.md` |
 | 3 | Discord: two lanes, persisted queues, fence-aware chunker, attachments, send-scan guard, holes D1–D14 (the D11 reader is done: channel card plus failure alert) | `DISCORD-PLAN.md` |
 | 4 | Mind client and Mind watchdog (status, Test connection, header notice, `MIND_API_KEY` from `.env`, key never in a child env) | `CONFIGURATION.md` |
-| 7 | Identity ratification: one identity source for every harness, ledger + journal with authors, boot on the verified ratified copy, Settings → Identity | `PLUGINS.md` "Identity ratification" |
+| 7 | Identity ratification: one identity source for every harness, ledger + journal with authors, boot on the verified ratified copy, Settings → You & them | `PLUGINS.md` "Identity ratification" |
 | – | In-app setup wizard (first-run page, Run setup again, CLI on one declarative plan with a byte-identical replay) | `CONFIGURATION.md`, README step 8 |
 | – | `npm run doctor`: config, tenants (boot scan, clashes, never-inherited table, file modes, homes) and process health checks, OK / WARN / FAIL, `--tenant`, `--json`, no secrets | `MULTI-TENANT.md`, `CONFIGURATION.md` |
 | – | Skins: six rooms and materials, Extra readable, safe preview | `CONFIGURATION.md` §7 |

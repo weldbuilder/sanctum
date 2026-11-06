@@ -324,7 +324,7 @@ describe('plugins in the wizard (BLOCKER A)', () => {
     it('the shipped ids are exactly the ones that ratified; with nothing to check an unratified own id is left out with a message naming Settings', () => {
       const s = said();
       expect(chooseEnabledPlugins(['hello', 'mine'], shipped, ['browser'], { say: s.say })).toEqual(['browser']);
-      expect(s.out.join('\n')).toMatch(/mine was left out of plugins\.enabled.*Settings > Plugins/);
+      expect(s.out.join('\n')).toMatch(/mine was left out of plugins\.enabled.*Settings → Permissions/);
       expect(chooseEnabledPlugins(undefined, shipped, [])).toEqual([]);
       expect(chooseEnabledPlugins(undefined, shipped, ['hello'])).toEqual(['hello']);
     });
@@ -336,7 +336,7 @@ describe('plugins in the wizard (BLOCKER A)', () => {
         expect(chooseEnabledPlugins(['hello', 'mine', 'other'], shipped, ['browser'], { ledgerDir, personDir, say: s.say })).toEqual(['mine', 'browser']);
         expect(s.out).toHaveLength(1);
         expect(s.out[0]).toMatch(/^other was left out of plugins\.enabled: it is not ratified/);
-        expect(s.out[0]).toMatch(/Settings > Plugins/);
+        expect(s.out[0]).toMatch(/Settings → Permissions/);
       } finally { rmSync(root, { recursive: true, force: true }); }
     });
 

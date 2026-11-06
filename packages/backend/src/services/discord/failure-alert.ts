@@ -74,7 +74,7 @@ export function noteDiscordFailure(kind: string, opts: AlertOptions = {}): boole
   st.active = true;
   st.lastAlertAt = now;
   const mins = Math.round(windowMs / 60_000);
-  (opts.post ?? defaultPost)(`Discord: ${st.failures.length} sends failed on ${laneName(lane)} in the last ${mins} minutes. Settings → Channels has the last reason; Settings → Logs, filter [discord], has the lines.`);
+  (opts.post ?? defaultPost)(`Discord: ${st.failures.length} sends failed on ${laneName(lane)} in the last ${mins} minutes. Settings → Channels has the last reason; Settings → Status, filter [discord], has the lines.`);
   return true;
 }
 

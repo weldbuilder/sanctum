@@ -11,7 +11,7 @@ import { useChatStore } from '../../store/chat';
 import { AccessBlock } from './AccessBlock';
 import { PluginsSection } from './PluginsSection';
 import {
-  OUTCOME_FILTERS, WINDOW_CHOICES, guardSentence, pinNeeded, receiptsQuery, rowLabel, selectedButton, turnOnAction, windowMinutes,
+  OUTCOME_FILTERS, WINDOW_CHOICES, guardSentence, pinNeeded, receiptsQuery, receiptRouteLabel, rowLabel, selectedButton, turnOnAction, windowMinutes,
   type CapabilityRow, type ChangeAction, type ConsentSnapshot,
 } from './permissionsState';
 
@@ -307,10 +307,10 @@ export function PermissionsSection({ base, openThread, initial }: { base: string
                 <span className="pm-receipt-cap">{r.capability}</span>
                 <span className={`pm-outcome ${r.outcome}`}>{r.outcome.replace('_', ' ')}{r.count > 1 ? ` ×${r.count}` : ''}</span>
               </div>
-              <div className="pm-receipt-body">{r.summary || r.tool_or_route}</div>
+              <div className="pm-receipt-body">{r.summary || receiptRouteLabel(r.tool_or_route)}</div>
               <div className="pm-receipt-meta">
                 <span>{r.harness}</span>
-                {r.tool_or_route && r.tool_or_route !== r.summary && <span>{r.tool_or_route}</span>}
+                {r.tool_or_route && r.tool_or_route !== r.summary && <span>{receiptRouteLabel(r.tool_or_route)}</span>}
                 {r.thread_id && openThread && (
                   <button type="button" className="pm-link" onClick={() => openThread(r.thread_id!)}>open the thread</button>
                 )}

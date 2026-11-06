@@ -18,7 +18,7 @@ export function pendingLine(files: string[]): string {
 /** What the harness is told when no ratified copy could be read at all and the live files are served instead. */
 export const UNREADABLE_LINE = 'The ratified identity could not be read; this run uses the live files. Ratify in the app.';
 /** The identity folder is gone and no ratified copy can be read: the run gets this line and nothing else, never a CLAUDE.md. */
-export const MISSING_LINE = 'The identity folder is missing and no ratified copy could be read; this run has no identity. Settings → Identity.';
+export const MISSING_LINE = 'The identity folder is missing and no ratified copy could be read; this run has no identity. Settings → You & them.';
 
 const KNOWN_NAMES = ['profile.md', 'companion.md', 'companion.profile.yaml', 'companion.profile.yml'];
 

@@ -96,7 +96,7 @@ Phone address, if you set up Tailscale (https://... .ts.net), else empty
 Plugins run with the app's own access. Ratifying records the exact code you were shown; if it
 changes later, the plugin stops until you ratify it again.
 other: cannot be ratified: dsh/index.mjs refers to "../../../outside.mjs", which is outside the plugin folder; the hash covers only the folder, so keep the code a plugin runs inside it (this scan reads comments and strings as text too: reword or remove a comment that merely mentions such a path)
-other was left out of plugins.enabled. Ratify it later in Settings > Plugins, then add it to plugins.enabled.
+other was left out of plugins.enabled. Ratify it later in Settings → Permissions, then add it to plugins.enabled.
 No plugin was turned on.
 
 Wrote <SBX>/app/sanctum.yaml

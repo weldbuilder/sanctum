@@ -34,7 +34,7 @@ export function authorsLabel(authors: readonly string[]): string {
 export function pendingNotice(check: IdentityCheck): string {
   const authors = check.authors?.length ? check.authors : check.author ? [check.author] : [];
   const who = authors.length > 0 && authors.every((a) => a === 'filesystem') ? 'Changed on disk' : `Changed by ${authorsLabel(authors)}`;
-  return `Identity change waiting: ${nameList((check.changes ?? []).map((c) => c.path)).join(', ')}. ${who}. Settings → Identity.`;
+  return `Identity change waiting: ${nameList((check.changes ?? []).map((c) => c.path)).join(', ')}. ${who}. Settings → You & them.`;
 }
 
 /** While a change keeps waiting, at most one thread line per this long, even when the digest keeps changing (a writer in a loop). */
@@ -49,7 +49,7 @@ export function resetIdentityNotify(): void { notifyState.set({ lastPushed: '', 
 export function unavailableNotice(check: IdentityCheck): string {
   const why = (check.detail ?? 'the check could not run').replace(/[\u0000-\u001f\u007f]+/g, ' ').slice(0, 240);
   const runs = check.snapshot ? 'Runs use the ratified copy.' : 'Runs use the live files.';
-  return `Identity needs attention: ${why}. ${runs} Settings → Identity.`;
+  return `Identity needs attention: ${why}. ${runs} Settings → You & them.`;
 }
 
 /** Heard for every check that found a change waiting (guard.ts). The socket push goes out whenever the state or the digest moved (cheap, and the
@@ -101,6 +101,6 @@ export function startIdentityGate(): void {
     if (!cur) return;
     try { pruneIdentitySnapshots(l.opts.ledgerDir, { keepPrevious: true }); } catch { /* old copies linger until the next ratification */ }
     const s = cur.status;
-    console.log(`[identity] ${s.state}${s.state === 'pending' ? ` (${s.pending?.changes.length ?? 0} file${s.pending?.changes.length === 1 ? '' : 's'} waiting; runs use the ratified copy)` : s.state === 'unratified' ? ' (nothing ratified yet: Settings > Identity)' : s.state === 'unavailable' ? ` (${s.detail})` : s.state === 'legacy' ? ' (no identity/ folder: identity is CLAUDE.md, nothing to ratify)' : ''}`);
+    console.log(`[identity] ${s.state}${s.state === 'pending' ? ` (${s.pending?.changes.length ?? 0} file${s.pending?.changes.length === 1 ? '' : 's'} waiting; runs use the ratified copy)` : s.state === 'unratified' ? ' (nothing ratified yet: Settings → You & them)' : s.state === 'unavailable' ? ` (${s.detail})` : s.state === 'legacy' ? ' (no identity/ folder: identity is CLAUDE.md, nothing to ratify)' : ''}`);
   } catch (e) { console.warn('[identity] boot check failed:', e instanceof Error ? e.message : e); }
 }
