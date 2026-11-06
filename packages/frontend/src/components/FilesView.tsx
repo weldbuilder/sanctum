@@ -21,6 +21,7 @@ import { useIdentity } from '../store/identity';
 import { useConfirm } from './ConfirmDialog';
 import { useChatStore } from '../store/chat';
 import { ImageGenPanel } from './files/ImageGenPanel';
+import { StickerLibrary } from './files/StickerLibrary';
 import { NO_CHAT_TITLE, clipPrompt, readGenerated, shareError, type GeneratedItem } from './files/imageGen';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -35,7 +36,7 @@ interface PlacesResponse {
 type SortKey = 'name' | 'type' | 'modified' | 'size';
 type View = 'list' | 'grid';
 /** The open file: a picture is shown as itself; text is read; anything else offers its download. */
-type Filter = 'all' | 'generated';
+type Filter = 'all' | 'generated' | 'stickers';
 /** A generated picture is listed by file id, not by path: its Entry carries this prefix and the id after it. */
 const GEN = 'gen:';
 interface Sheet { entry: Entry; state: 'loading' | 'ready' | 'none' | 'error'; text?: string }
@@ -670,6 +671,7 @@ export function FilesView() {
               <span className="fl-glyph"><Icon name={place ? PLACE_GLYPH[place.kind] : 'folder'} size={20} /></span>
               <nav className="fl-crumbs" aria-label="Folder path">
                 {filter === 'generated' && <span className="fl-crumb" aria-current="page">Generated</span>}
+                {filter === 'stickers' && <span className="fl-crumb" aria-current="page">Stickers</span>}
                 {filter === 'all' && crumbs.map((c, i) => (
                   <React.Fragment key={c.path}>
                     {i > 0 && <span className="fl-crumb-sep" aria-hidden="true"><Icon name="chevron" size={13} /></span>}
@@ -681,6 +683,7 @@ export function FilesView() {
                 <span className="fl-toggle fl-toggle-text" role="group" aria-label="Show">
                   <button type="button" aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>All</button>
                   <button type="button" aria-pressed={filter === 'generated'} onClick={() => { setGenListing('loading'); setFilter('generated'); }}>Generated</button>
+                  <button type="button" aria-pressed={filter === 'stickers'} onClick={() => setFilter('stickers')}>Stickers</button>
                 </span>
                 {filter === 'all' && inShelf(dir) && (
                   <button type="button" className="fl-btn hearth-press" onClick={() => setNewFolder(n => (n == null ? '' : null))} aria-expanded={newFolder != null}>
@@ -702,7 +705,9 @@ export function FilesView() {
               </div>
             )}
 
-            {filter === 'generated' ? (
+            {filter === 'stickers' ? (
+              <StickerLibrary query={query} threadId={threadId} onNotice={(text, error) => setNotice({ text, error })} />
+            ) : filter === 'generated' ? (
               genListing === 'loading' ? <p className="fl-quiet-in">Opening…</p>
               : genListing === 'error' ? <p className="fl-quiet-in">Could not load the generated pictures.</p>
               : generatedShown.length === 0 ? <p className="fl-quiet-in">{q ? `Nothing generated matches “${query.trim()}”.` : 'Nothing generated yet. Use Generate to make a picture.'}</p>
