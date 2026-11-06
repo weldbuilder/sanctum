@@ -110,6 +110,7 @@ import { appWriteGate } from '../middleware/app-write.js';
 import { ConsentDeniedError, check as consentCheck, denyMessage, isCapability as isConsentCapability, normalizeWindow as normalizeConsentWindow } from '../services/consent/gate.js';
 import { planAskGrant } from './consent.js';
 import { imagesRouter, imageGenerateHandler } from './imagegen.js';
+import { stickersRouter } from './stickers.js';
 import { imagegenOffered, imagegenStatusReason } from '../services/imagegen/index.js';
 import { handleTool as ccHandleTool, CC_TOOL_NAMES } from './cc-mcp.js';
 import { fullToolHelp, topicHelp } from '../services/tool-help.js';
@@ -1725,6 +1726,9 @@ router.post('/approvals/:id/decide', (req, res) => {
 
 // Image generation (public: POST /images/generate, GET /images/status).
 router.use('/images', imagesRouter);
+
+// The sticker library (GET/POST /stickers, DELETE /stickers/:id); the companion sends one with [sticker: name].
+router.use('/stickers', stickersRouter);
 
 // --- Command Center (mounted via initCcRoutes after config loads) ---
 

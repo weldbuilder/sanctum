@@ -84,6 +84,10 @@ export function openDb(dbPath: string): Database.Database {
   // consent_receipts.count (coalesced `allowed` rows): fresh tables get it from 004's CREATE TABLE, an existing one here (additive, idempotent).
   try { db.exec('ALTER TABLE consent_receipts ADD COLUMN count INTEGER DEFAULT 1'); } catch { /* column already exists */ }
 
+  // Stickers the owner uploads (the companion's [sticker: name] tag); IF NOT EXISTS like the others.
+  const stickersMigrationPath = join(__dirname, '../../migrations/005_stickers.sql');
+  if (existsSync(stickersMigrationPath)) db.exec(readFileSync(stickersMigrationPath, 'utf-8'));
+
   // Insert default config if not exists
   const stmt = db.prepare('INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)');
   stmt.run('dnd_start', '23:00');
@@ -844,13 +848,18 @@ export function createMessage(params: {
   threadId: string;
   role: 'companion' | 'user' | 'system';
   content: string;
-  contentType?: 'text' | 'image' | 'audio' | 'file';
+  /** 'gif' and 'sticker' are stored as 'image' (messages.content_type has a CHECK that cannot change on an existing database) with
+   *  metadata.media_kind; every read maps them back (parseMessageMetadata). */
+  contentType?: 'text' | 'image' | 'audio' | 'file' | 'gif' | 'sticker';
   platform?: 'web' | 'discord' | 'telegram' | 'api';
   metadata?: Record<string, unknown>;
   replyToId?: string;
   createdAt: string;
 }): Message {
   const sequence = getNextSequence(params.threadId);
+  const mediaKind = params.contentType === 'gif' || params.contentType === 'sticker' ? params.contentType : null;
+  const storedType = mediaKind ? 'image' : params.contentType;
+  const storedMeta = mediaKind ? { ...(params.metadata ?? {}), media_kind: mediaKind } : params.metadata;
 
   const stmt = getDb().prepare(`
     INSERT INTO messages (
@@ -864,9 +873,9 @@ export function createMessage(params: {
     sequence,
     params.role,
     params.content,
-    params.contentType || 'text',
+    storedType || 'text',
     params.platform || 'web',
-    params.metadata ? JSON.stringify(params.metadata) : null,
+    storedMeta ? JSON.stringify(storedMeta) : null,
     params.replyToId || null,
     params.createdAt
   );
@@ -902,6 +911,9 @@ function parseMessageMetadata(msg: Message): Message {
       msg.metadata = null;
     }
   }
+  // A gif or sticker is stored as an image with metadata.media_kind (see createMessage); it reads back as what it is.
+  const kind = (msg.metadata as Record<string, unknown> | null)?.media_kind;
+  if (msg.content_type === 'image' && (kind === 'gif' || kind === 'sticker')) msg.content_type = kind;
   return msg;
 }
 

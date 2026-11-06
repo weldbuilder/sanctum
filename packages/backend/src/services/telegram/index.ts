@@ -15,9 +15,12 @@ import type { AgentService } from '../agent.js';
 import type { VoiceService } from '../voice.js';
 import { createMessage, createThread, getThread, getMostRecentActiveThread, updateThreadActivity, setConfig } from '../db.js';
 import { getBotToken } from '../bot-token.js';
-import { saveFile } from '../files.js';
+import { saveFile, getFile } from '../files.js';
+import { readOwn } from '../../tenancy/own-files.js';
+import { search as giphySearch, giphyOffered } from '../media/giphy.js';
+import { mediaRelayOf, type MediaMessageLike } from '../media/relay.js';
 import { getSanctumConfig } from '../../config.js';
-import { bindCurrentTenant, envFor } from '../../tenancy/context.js';
+import { bindCurrentTenant } from '../../tenancy/context.js';
 import { UPDATING_REPLY, noticeOnce, updateBlocking } from '../update-block.js';
 import type { registry as registryInstance } from '../ws.js';
 import { requireCapability } from '../consent/gate.js';
@@ -597,38 +600,36 @@ export class TelegramService {
     requireCapability('outward_telegram', { harness: 'server', tool: 'telegram GIF', summary: query ? `${query}` : 'GIF' });
 
     try {
-      const apiKey = envFor('the GIF search').GIPHY_API_KEY;
-      if (!apiKey) {
+      if (!giphyOffered()) {
         console.error('[Telegram] GIPHY_API_KEY not set — cannot search GIFs');
         return;
       }
-      const url = `https://api.giphy.com/v1/gifs/search?api_key=${apiKey}&q=${encodeURIComponent(query)}&limit=5&rating=r`;
-      const res = await fetch(url);
-      if (!res.ok) {
-        console.error(`[Telegram] GIPHY search failed: ${res.status}`);
-        return;
-      }
-
-      const data = await res.json() as any;
-      const results = data?.data;
-      if (!results?.length) {
+      // Telegram keeps the rating it always had ('r'); media.gif_rating governs the companion's own [gif:] tag.
+      const results = await giphySearch(query, { limit: 5, rating: 'r' });
+      if (!results.length) {
         console.log(`[Telegram] No GIF results for: ${query}`);
         return;
       }
 
       // Pick a random result from top 5 for variety
-      const pick = results[Math.floor(Math.random() * results.length)];
-      const gifUrl = pick.images?.downsized?.url || pick.images?.original?.url;
-      if (!gifUrl) {
-        console.error('[Telegram] GIF result has no URL');
-        return;
-      }
+      const gifUrl = results[Math.floor(Math.random() * results.length)].url;
 
       await this.bot.telegram.sendAnimation(telegramConfig.ownerChatId, { url: gifUrl }, { caption });
       console.log(`[Telegram] Sent GIF for "${query}": ${gifUrl.slice(0, 60)}...`);
     } catch (error) {
       console.error('[Telegram] GIF send error:', error);
     }
+  }
+
+  /** Send a companion gif or sticker message to the owner: sendAnimation for a gif, sendPhoto for a sticker (services/media/relay.ts). */
+  async relayMediaToOwner(message: MediaMessageLike): Promise<boolean> {
+    const r = mediaRelayOf(message);
+    if (!r) return false;
+    if (r.kind === 'url') { await this.sendAnimationToOwner(r.url); return true; }
+    const f = getFile(r.fileId);
+    if (!f) return false;
+    await this.sendPhotoToOwner(readOwn(f.path));
+    return true;
   }
 
   /**

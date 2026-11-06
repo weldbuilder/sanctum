@@ -162,6 +162,11 @@ export interface SanctumConfig {
     safety_checker: boolean;
     timeout_ms: number;
   };
+  /** Media the companion sends inline ([gif:] through Giphy; key GIPHY_API_KEY in .env). */
+  media: {
+    /** Giphy content rating for the companion's gifs. */
+    gif_rating: 'g' | 'pg' | 'pg-13' | 'r';
+  };
   discord: DiscordConfig;
   telegram: {
     enabled: boolean;
@@ -549,6 +554,9 @@ const DEFAULTS: SanctumConfig = {
     size: '1024x1024',
     safety_checker: false,
     timeout_ms: 90000,
+  },
+  media: {
+    gif_rating: 'pg-13',
   },
   discord: {
     enabled: false,

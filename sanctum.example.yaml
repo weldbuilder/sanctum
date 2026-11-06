@@ -230,6 +230,11 @@ imagegen:
   safety_checker: false           # passed to the provider's own safety flag
   timeout_ms: 90000
 
+# ── Inline media (optional) ──────────────────────────────────────────────────
+# The companion can send a gif with [gif: a few words] when GIPHY_API_KEY is set in .env.
+media:
+  gif_rating: "pg-13"             # Giphy rating for the companion's gifs: "g" | "pg" | "pg-13" | "r"
+
 # ── Discord channel (optional; token in .env or Settings) ─────────────────────
 # Two lanes that never touch (docs/DISCORD-PLAN.md): the owner lane (one channel, one user)
 # and the public lane (listed guilds, mention-only, off by default). Every outgoing message,
