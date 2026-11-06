@@ -113,6 +113,8 @@ interface ChatStore {
   clearRefusedDraft: () => void;
   /** Permissions the companion is waiting on, oldest first. */
   approvals: Approval[];
+  /** Bumped by the socket's `consent_changed`: the Permissions tab reloads when it moves. */
+  consentTick: number;
   /** The Mind watchdog's last reading; null until the first arrives. The chat header notice derives from it. */
   mindStatus: MindStatus | null;
   /** The identity gate's last reading (ratified, a change waiting, or not yet ratified); null until the first arrives. The header notice derives from it. */
@@ -756,6 +758,10 @@ export const useChatStore = create<ChatStore>((set, get) => {
 
       case 'approval_request':
         set(s => ({ approvals: [...s.approvals.filter(a => a.id !== m.approval.id), m.approval] }));
+        break;
+
+      case 'consent_changed':
+        set(s => ({ consentTick: s.consentTick + 1 }));
         break;
 
       case 'approval_decided':
@@ -1409,6 +1415,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
     refusedDraft: null,
     clearRefusedDraft: () => set({ refusedDraft: null }),
     approvals: [],
+    consentTick: 0,
     mindStatus: null,
     identityStatus: null,
     pendingMessages: [],
