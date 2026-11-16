@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { AUTH_KEY_IGNORED_LINE } from './setup-lib.mjs';
-import { CONSENT_CAPABILITIES, consentSummary, referenceCounts, IMAGEGEN_KEY_ENV, SHIPPED_PATHS, SMALL_TIER, formatReport, frameResolution, nodeInRange, parseArgs, runDoctor } from './doctor.mjs';
+import { CONSENT_CAPABILITIES, consentSummary, referenceCounts, IMAGEGEN_KEY_ENV, SHIPPED_PATHS, SMALL_TIER, formatReport, frameResolution, nodeInRange, parseArgs, runDoctor, runHeadless } from './doctor.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const posix = process.platform !== 'win32';
@@ -589,5 +589,204 @@ describe('doctor: a key the auth mode ignores', () => {
       expect(noKey).toEqual([]);
       expect(noDb).toEqual([]);
     } finally { roots.forEach(cleanup); }
+  });
+});
+
+// ── --headless: the Service section, every branch through injected probes (no real system is touched) ──────────────────────────────────
+
+/** Fake probes. `cmds` maps "cmd arg arg" to { status, stdout } (a command not listed "is not installed"); `urls` maps a URL to a status or an Error; `files` maps a path to its text. */
+function fake({ cmds = {}, urls = {}, files = {}, free = 50 * 1024 ** 3, uid = 1000, envUid, writable = true } = {}) {
+  return {
+    exec: (cmd, args) => { const hit = cmds[[cmd, ...args].join(' ')]; return hit ? { status: 0, stderr: '', stdout: '', ...hit } : { error: 'ENOENT', status: null, stdout: '', stderr: '' }; },
+    fetch: async (url) => { const r = urls[url]; if (r === undefined || r instanceof Error) throw r ?? new Error('connection refused'); return { ok: r >= 200 && r < 300, status: r }; },
+    fs: {
+      exists: (p) => p in files || fs.existsSync(p),
+      readFile: (p) => { if (p in files) return files[p]; throw new Error('EACCES'); },
+      stat: (p) => (p.endsWith('.env') && envUid !== undefined ? { uid: envUid } : fs.statSync(p)),
+      access: (p, m) => { if (!writable) throw new Error('EACCES'); fs.accessSync(p, m); },
+      freeBytes: () => free,
+    },
+    uid: uid === null ? undefined : uid,
+  };
+}
+const TS_RUNNING = JSON.stringify({ BackendState: 'Running', Self: { DNSName: 'echo-box.tail1234.ts.net.' } });
+const tsOn = (servePort = 3099) => ({
+  'tailscale status --json': { stdout: TS_RUNNING },
+  'tailscale serve status': { stdout: `https://echo-box.tail1234.ts.net (tailnet only)\n|-- / proxy http://127.0.0.1:${servePort}\n` },
+});
+const ACTIVE = { 'systemctl is-active sanctum': { stdout: 'active\n' } };
+const HEALTH = { 'http://127.0.0.1:3099/api/health': 200 };
+const service = async (root, probes, extra = {}) => {
+  const report = await runHeadless({ root, env: {}, nodeVersion: '22.1.0', probes, ...extra });
+  return { report, svc: Object.fromEntries(report.sections.find((x) => x.name === 'Service').checks.map((c) => [c.check, c])) };
+};
+const ORIGIN_YAML = 'cors:\n  origins:\n    - "https://echo-box.tail1234.ts.net"\n';
+
+describe('doctor --headless: the Service section', () => {
+  it('a healthy Tailscale box is all OK or INFO, and the section comes last', async () => {
+    const root = app(ORIGIN_YAML);
+    try {
+      const { report, svc } = await service(root, fake({ cmds: { ...ACTIVE, ...tsOn() }, urls: HEALTH, envUid: 1000 }));
+      expect(report.sections.map((x) => x.name)).toEqual(['Config', 'Tenants', 'Process', 'Service']);
+      expect(svc.service.status).toBe('OK');
+      expect(svc.port.status).toBe('OK');
+      expect(svc.tailscale.status).toBe('INFO');
+      expect(svc.tailscale.message).toContain('echo-box.tail1234.ts.net');
+      expect(svc.tailscale.message).toContain('lists port 3099');
+      expect(svc.https.status).toBe('OK');
+      expect(svc.bind.status).toBe('OK');
+      expect(svc.origin).toMatchObject({ status: 'OK', message: expect.stringContaining('https://echo-box.tail1234.ts.net') });
+      expect(svc.disk.status).toBe('OK');
+      expect(svc.home.status).toBe('OK');
+      expect(svc['.env owner'].status).toBe('OK');
+      expect(lines(report, 'FAIL')).toEqual([]);
+      expect(lines(report, 'WARN')).toEqual([]);
+      expect(report.exitCode).toBe(0);
+      expect(formatReport(report)).toContain('\nService\n  OK    service: sanctum.service is active.');
+    } finally { cleanup(root); }
+  });
+  it('the unit: systemctl missing is INFO, inactive is FAIL, absent is WARN', async () => {
+    const root = app();
+    try {
+      expect((await service(root, fake())).svc.service.status).toBe('INFO');
+      const down = (await service(root, fake({ cmds: { 'systemctl is-active sanctum': { status: 3, stdout: 'failed\n' }, 'systemctl cat sanctum.service': { stdout: '[Unit]' } } }))).svc.service;
+      expect(down.status).toBe('FAIL');
+      expect(down.message).toContain('failed');
+      expect((await service(root, fake({ cmds: { 'systemctl is-active sanctum': { status: 4, stdout: 'inactive\n' }, 'systemctl cat sanctum.service': { status: 1 } } }))).svc.service.status).toBe('WARN');
+    } finally { cleanup(root); }
+  });
+  it('the port: active but silent is FAIL (exit 1), silent and not active is WARN, and PORT / HOST are honoured', async () => {
+    const root = app();
+    try {
+      const silent = await service(root, fake({ cmds: ACTIVE }));
+      expect(silent.svc.port.status).toBe('FAIL');
+      expect(silent.report.exitCode).toBe(1);
+      expect((await service(root, fake())).svc.port.status).toBe('WARN');
+      const moved = await service(root, fake({ urls: { 'http://127.0.0.1:4100/api/health': 200 } }), { env: { PORT: '4100' } });
+      expect(moved.svc.port.status).toBe('OK');
+      const wide = await service(root, fake({ urls: HEALTH }), { env: { HOST: '0.0.0.0' } });
+      expect(wide.svc.port.status).toBe('OK');
+      expect((await service(root, fake({ urls: { 'http://127.0.0.1:3099/api/health': 503 } }))).svc.port.status).toBe('WARN');
+    } finally { cleanup(root); }
+  });
+  it('Tailscale: signed out is INFO and fronts nothing; serve without the port is INFO and WARNs about HTTPS', async () => {
+    const root = app();
+    try {
+      const out = await service(root, fake({ cmds: { 'tailscale status --json': { stdout: JSON.stringify({ BackendState: 'NeedsLogin' }) } } }));
+      expect(out.svc.tailscale.message).toMatch(/not signed in/);
+      expect(out.svc.https.status).toBe('WARN');
+      const other = await service(root, fake({ cmds: tsOn(8080) }));
+      expect(other.svc.tailscale.message).toContain('does not list port 3099');
+      expect(other.svc.https.status).toBe('WARN');
+      expect(other.svc.https.message).toMatch(/cookie will not be Secure/);
+    } finally { cleanup(root); }
+  });
+  it('Caddy: a Caddyfile that proxies the port fronts it; one that does not, does not', async () => {
+    const root = app('cors:\n  origins:\n    - "https://sanctum.example.org"\n');
+    try {
+      const good = await service(root, fake({ urls: HEALTH, files: { '/etc/caddy/Caddyfile': '# managed\nsanctum.example.org {\n\treverse_proxy 127.0.0.1:3099\n}\n' } }));
+      expect(good.svc.caddy.message).toContain('proxies sanctum.example.org to port 3099');
+      expect(good.svc.https.status).toBe('OK');
+      expect(good.svc.origin).toMatchObject({ status: 'OK', message: expect.stringContaining('https://sanctum.example.org') });
+      const wrong = await service(root, fake({ files: { '/etc/caddy/Caddyfile': 'sanctum.example.org {\n\treverse_proxy 127.0.0.1:9000\n}\n' } }));
+      expect(wrong.svc.caddy.message).toMatch(/does not mention port 3099/);
+      expect(wrong.svc.https.status).toBe('WARN');
+      expect(wrong.svc.origin).toBeUndefined();
+    } finally { cleanup(root); }
+  });
+  it('the origin: a fronting address missing from cors.origins is a WARN that names it', async () => {
+    const root = app();
+    try {
+      const { svc } = await service(root, fake({ cmds: tsOn() }));
+      expect(svc.origin.status).toBe('WARN');
+      expect(svc.origin.message).toContain('https://echo-box.tail1234.ts.net');
+      expect(svc.origin.message).toMatch(/phone is refused/);
+    } finally { cleanup(root); }
+  });
+  it('the bind address: loopback behind a proxy is OK, wide behind a proxy is WARN, and with no proxy it is an INFO that names it', async () => {
+    const root = app(ORIGIN_YAML);
+    try {
+      expect((await service(root, fake({ cmds: tsOn() }))).svc.bind.status).toBe('OK');
+      const wide = await service(root, fake({ cmds: tsOn() }), { env: { HOST: '0.0.0.0' } });
+      expect(wide.svc.bind.status).toBe('WARN');
+      const none = await service(root, fake(), { env: { HOST: '0.0.0.0' } });
+      expect(none.svc.bind).toMatchObject({ status: 'INFO', message: expect.stringContaining('bound to 0.0.0.0; make sure something in front does TLS') });
+    } finally { cleanup(root); }
+  });
+  it('a container: no systemctl, and no proxy in sight is INFO, not WARN', async () => {
+    const root = app();
+    try {
+      const { svc } = await service(root, fake({ files: { '/.dockerenv': '' } }), { env: { HOST: '0.0.0.0' } });
+      expect(svc.service.status).toBe('INFO');
+      expect(svc.https.status).toBe('INFO');
+      expect(svc.https.message).toMatch(/container/);
+    } finally { cleanup(root); }
+  });
+  it('disk: under 1 GB is a WARN, a failed read is a WARN, plenty is OK', async () => {
+    const root = app();
+    try {
+      expect((await service(root, fake({ free: 0.5 * 1024 ** 3 }))).svc.disk.message).toMatch(/0\.5 GB free .*under 1 GB/);
+      expect((await service(root, fake({ free: 0.5 * 1024 ** 3 }))).svc.disk.status).toBe('WARN');
+      expect((await service(root, fake({ free: 2 * 1024 ** 3 }))).svc.disk.status).toBe('OK');
+      const bad = fake();
+      bad.fs.freeBytes = () => { throw new Error('statfs failed'); };
+      expect((await service(root, bad)).svc.disk.status).toBe('WARN');
+    } finally { cleanup(root); }
+  });
+  it('the home must be writable by the user running doctor, and exist', async () => {
+    const root = app();
+    try {
+      expect((await service(root, fake({ writable: false }))).svc.home.status).toBe('FAIL');
+      fs.rmSync(path.join(root, 'home'), { recursive: true });
+      expect((await service(root, fake())).svc.home.status).toBe('WARN');
+    } finally { cleanup(root); }
+  });
+  it('.env must belong to the user running doctor, and a missing .env or an unknown uid skips the line', async () => {
+    const root = app();
+    try {
+      const other = (await service(root, fake({ envUid: 0, uid: 1000 }))).svc['.env owner'];
+      expect(other.status).toBe('WARN');
+      expect(other.message).toMatch(/owned by uid 0, but this runs as uid 1000/);
+      expect((await service(root, fake({ uid: null }))).svc['.env owner']).toBeUndefined();
+      fs.rmSync(path.join(root, '.env'));
+      expect((await service(root, fake({ envUid: 0 }))).svc['.env owner']).toBeUndefined();
+    } finally { cleanup(root); }
+  });
+  it('prints no secret, and the real probes are used for any probe not replaced', async () => {
+    const root = app();
+    try {
+      fs.writeFileSync(path.join(root, '.env'), 'TZ=UTC\nAPP_PASSWORD=hunter2-demo\n', { mode: 0o600 });
+      const { report } = await service(root, fake({ cmds: tsOn() }));
+      expect(JSON.stringify(report)).not.toContain('hunter2-demo');
+      const r = await runHeadless({ root, env: {}, nodeVersion: '22.1.0', probes: { exec: () => ({ error: 'ENOENT' }), fetch: async () => { throw new Error('refused'); } } });
+      expect(r.sections.at(-1).name).toBe('Service');
+    } finally { cleanup(root); }
+  });
+});
+
+describe('doctor --headless: the command line, and the output without it', () => {
+  it('parses the flag, keeps --json, and sets nothing when it is absent', () => {
+    expect(parseArgs(['--headless'])).toEqual({ json: false, headless: true });
+    expect(parseArgs(['--headless', '--json', '--root', '/x'])).toEqual({ json: true, headless: true, root: '/x' });
+    expect(parseArgs(['--json'])).toEqual({ json: true });
+    expect(parseArgs(['--nope']).error).toContain('[--headless]');
+  });
+  it('without --headless there is no Service section, and the command prints the same text as before', () => {
+    const root = app();
+    try {
+      const plain = spawnSync(process.execPath, [path.join(HERE, 'doctor.mjs'), '--root', root], { encoding: 'utf-8', env: { ...process.env, PORT: '', HOST: '' } });
+      expect(plain.stdout).not.toMatch(/^Service$/m);
+      expect(plain.stdout.split('\n').filter((l) => /^[A-Z][a-z]+$/.test(l))).toEqual(['Config', 'Tenants', 'Process']);
+      expect(plain.stdout).toBe(formatReport(go(root, { env: { ...process.env, PORT: '', HOST: '' }, nodeVersion: process.versions.node })) + '\n');
+    } finally { cleanup(root); }
+  });
+  it('the command with --headless --json carries the Service section and exits with the report', () => {
+    const root = app();
+    try {
+      const r = spawnSync(process.execPath, [path.join(HERE, 'doctor.mjs'), '--root', root, '--headless', '--json'], { encoding: 'utf-8' });
+      const json = JSON.parse(r.stdout);
+      expect(json.sections.map((x) => x.name)).toEqual(['Config', 'Tenants', 'Process', 'Service']);
+      expect(r.status).toBe(json.exitCode);
+    } finally { cleanup(root); }
   });
 });
