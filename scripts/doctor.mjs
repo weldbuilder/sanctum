@@ -436,6 +436,7 @@ function checkProcess(r, root, ctx, nodeVersion) {
   if (w.ok) r.ok('database', w.exists ? `${dbPath} is writable.` : `${dbPath} does not exist yet and ${w.at} can be written.`);
   else r.fail('database', `${dbPath} cannot be written (${w.at} is not writable).`);
   checkConsent(r, dbPath);
+  checkReferences(r, dbPath, ctx);
   // A key the auth mode ignores: ANTHROPIC_API_KEY in the environment/.env with the default subscription mode (the same sentence boot logs).
   if (authKeyIgnored(readAuthMode(dbPath), ctx.env.ANTHROPIC_API_KEY)) r.warn('auth mode', sentence(AUTH_KEY_IGNORED_LINE));
   // The process's own secrets.
@@ -470,6 +471,33 @@ export function consentSummary(dbPath) {
     return typeof e.expires_at === 'string' && Date.parse(e.expires_at) <= now;
   });
   return { mode, off };
+}
+
+/** The reference library (pictures the generator draws from), counted straight from the database, read-only. A database that does not exist yet,
+ *  or has no such table, holds none. */
+export function referenceCounts(dbPath) {
+  let total = 0;
+  let self = 0;
+  try {
+    if (existsSync(dbPath)) {
+      const Database = require('better-sqlite3');
+      const db = new Database(dbPath, { readonly: true, fileMustExist: true });
+      try {
+        const row = db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(self), 0) AS s FROM "references"').get();
+        total = Number(row?.n) || 0;
+        self = Number(row?.s) || 0;
+      } finally { db.close(); }
+    }
+  } catch { /* none */ }
+  return { total, self };
+}
+
+/** One INFO line, only while pictures are on or the library holds something: how many references there are and how many show the companion. Never a warning. */
+function checkReferences(r, dbPath, ctx) {
+  const provider = String(dig(ctx.file, 'imagegen.provider') ?? '').trim().toLowerCase();
+  const { total, self } = referenceCounts(dbPath);
+  if (!Object.hasOwn(IMAGEGEN_KEY_ENV, provider) && total === 0) return;
+  r.info('references', `References: ${total} (${self} marked as the companion).`);
 }
 
 function checkConsent(r, dbPath) {

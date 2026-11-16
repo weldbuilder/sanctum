@@ -226,6 +226,7 @@ voice:
 imagegen:
   provider: "none"                # "none" | "runware" | "replicate"
   model: ""                       # empty = provider default (runware:100@1 / black-forest-labs/flux-schnell)
+  reference_model: ""             # model for pictures that carry reference images; empty = bfl:3@1 (Runware) / black-forest-labs/flux-kontext-pro (Replicate)
   size: "1024x1024"               # "1024x1024" | "1024x1536" | "1536x1024"
   safety_checker: false           # passed to the provider's own safety flag
   timeout_ms: 90000

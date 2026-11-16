@@ -1877,6 +1877,7 @@ router.get('/preferences', (req, res) => {
       imagegen: {
         provider: e['imagegen.provider'],
         model: e['imagegen.model'],
+        reference_model: e['imagegen.reference_model'],
         size: e['imagegen.size'],
         safety_checker: e['imagegen.safety_checker'],
       },

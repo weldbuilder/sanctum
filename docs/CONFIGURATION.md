@@ -659,11 +659,22 @@ Native image generation with FLUX, through Runware or Replicate. The companion c
 |---|---|---|
 | `provider` | `"none"` | `"none"`, `"runware"` or `"replicate"`. The companion is told it can generate images only when this is set **and** the provider's key is in `.env`. |
 | `model` | `""` | Empty = the provider's default: `runware:100@1` (FLUX.1 schnell; `runware:101@1` is FLUX.1 dev) or `black-forest-labs/flux-schnell` (`black-forest-labs/flux-dev` also works). |
+| `reference_model` | `""` | The model for a picture that carries reference images (below). Empty = `bfl:3@1` (FLUX.1 Kontext [pro]) on Runware or `black-forest-labs/flux-kontext-pro` on Replicate. `model` is the text-only model and is **not** used for these pictures. |
 | `size` | `"1024x1024"` | Default size; `"1024x1536"` and `"1536x1024"` are the other two. |
 | `safety_checker` | `false` | Passed to the provider's own flag (Runware `checkNSFW`; Replicate `disable_safety_checker` is the inverse). |
 | `timeout_ms` | `90000` | How long to wait on the provider before answering 504. |
 
 Keys: `RUNWARE_API_KEY` or `REPLICATE_API_TOKEN` in `.env`. `GET /api/images/status` reports `configured` (provider and key set) and `offered` (also needs `agent.app_write`; `reason` is `not_configured` or `app_write_off` when it is false). Generated files are listed in `GET /api/files/list` with `meta` (`source: "image-gen"`, prompt, provider, model), filterable with `?source=image-gen` (`GET /api/files` is the same route as `/api/files/list`). Prompts are never logged above debug level, and upstream error text is reduced to a class (`auth`, `billing` for a 402, `rate_limit`, `content_blocked`, `bad_request`, `server`, `network`, `timeout`).
+
+#### Reference images: a picture *of* someone or something
+
+Upload a few pictures in the Files tab (References chip; or `POST /api/references`: multipart `name` + `file`, optional `note` and `self`), name them, and mark the ones that show your companion. A picture can then be drawn from them: the Generate panel in Files has a chip per reference and an "As you" chip, the companion writes `[image: description | with: name, name]` or `[selfie: scene]` in a reply, and the `generate_image` tool and `res image "..." --with name,name --self` take the same names. Up to four references travel with one picture (the companion's own first, then the named ones); a name the library does not have is skipped and reported back (`unknown_references`).
+
+- **Limits.** PNG, JPEG or WebP, up to **1 MB** each (a reference is sent to the provider inline as a data URI, and Replicate advises under 1 MB; there is no resizing yet). Up to 12 references, up to 4 of them marked as the companion. A name is up to 40 characters, unique without regard to case, with no `[ ] : , |`. A note (what the companion sees next to the name) is up to 200 characters.
+- **Which models honour them.** Runware: `bfl:3@1` (FLUX.1 Kontext [pro], the default here), `bfl:4@1` (Kontext [max]) and `runware:400@1` (FLUX.2 [dev], several references). The text-only `runware:100@1` ignores them. Replicate: `black-forest-labs/flux-kontext-pro` (default) and `flux-kontext-dev` take **one** reference (the first; the rest are dropped); `black-forest-labs/flux-2-pro` takes up to eight. Set another model in `imagegen.reference_model` (Settings, Mind, pictures).
+- **What is sent.** Runware: `inputs.referenceImages` on the `imageInference` task. Replicate: `input_image` (one) or, for a `flux-2` model, `input_images` (an array). With no references the request is exactly the text-only one, on `model`.
+- **After setup, run one real reference picture per provider** (the app's Generate panel, one chip on) and look at it. The request shapes above follow the providers' documentation but are only proven by a real run with your key.
+- **Where they live.** The pictures are ordinary stored files (`?source=reference` on `GET /api/files`), the names in the database. `GET /api/images/status` also reports `references`, `self_references` and `reference_model`; `npm run doctor` prints one line, `References: N (M marked as the companion)`.
 
 ### Media (`media`)
 
@@ -673,9 +684,10 @@ Keys: `RUNWARE_API_KEY` or `REPLICATE_API_TOKEN` in `.env`. `GET /api/images/sta
 
 ### Inline expression tags
 
-The companion can write `[image: a short visual description]`, `[gif: a few words]`, `[sticker: name]` or `[voice]` / `[voice:playful|warm|calm]` inside a reply, on any harness, with no tool call. The app removes the tag from the stored (and live-streamed) text, then acts on it after the reply is stored:
+The companion can write `[image: a short visual description]`, `[selfie: scene]`, `[gif: a few words]`, `[sticker: name]` or `[voice]` / `[voice:playful|warm|calm]` inside a reply, on any harness, with no tool call. The app removes the tag from the stored (and live-streamed) text, then acts on it after the reply is stored:
 
-- `[image: ...]` generates a picture (the `imagegen` section above) and posts it after the reply. At most two per reply; extras are stripped.
+- `[image: ...]` generates a picture (the `imagegen` section above) and posts it after the reply. At most two per reply; extras are stripped. With references, `[image: description | with: name, name]` draws from the named ones (the companion is shown the names).
+- `[selfie: what you are doing and where]` sends a picture of the companion, drawn from the references marked as its own. Offered only while pictures are offered and at least one reference is marked as the companion. At most one per reply. Both picture tags sit behind the `app_write` consent.
 - `[gif: a few words]` searches Giphy and posts the first result as a gif after the reply. Offered only while `GIPHY_API_KEY` is set in `.env`. At most two per reply. The rating comes from `media.gif_rating` (`g`, `pg`, `pg-13` (default) or `r`). A search that fails or finds nothing posts nothing.
 - `[sticker: name]` posts one of the stickers you have uploaded (Files tab, Stickers; or `POST /api/stickers`: multipart `name` + `file`, a png, jpg, webp or gif up to 2 MB). Offered only while at least one sticker exists, and the companion is shown the names (the first 20, then "and N more"). Names match without regard to case; an unknown name posts nothing. At most two per reply.
 - `[voice]` is honoured only at the very start of the reply. It sends the reply as a voice note too (needs `voice.enabled`, `ELEVENLABS_API_KEY` and a voice id). The emotion maps to ElevenLabs v3 stability: `playful` 0, `warm` 0.5 (the default), `calm` 1. An unknown emotion is a plain voice note.

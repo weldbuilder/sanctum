@@ -155,7 +155,7 @@ describe('PUT /api/preferences: the summarizer and picture fields', () => {
   it('GET shows the registry defaults for both blocks', async () => {
     const g = await get('/preferences');
     expect(g.agent.summarizer).toEqual({ provider: '', model: '', base_url: '', api_key_env: 'SUMMARIZER_API_KEY' });
-    expect(g.imagegen).toEqual({ provider: 'none', model: '', size: '1024x1024', safety_checker: false });
+    expect(g.imagegen).toEqual({ provider: 'none', model: '', reference_model: '', size: '1024x1024', safety_checker: false });
   });
 
   it('writes only what changed: echoing the defaults leaves the file alone, a real change lands and is listed', async () => {
@@ -174,6 +174,19 @@ describe('PUT /api/preferences: the summarizer and picture fields', () => {
     const saved = yaml.load(readFileSync(file(), 'utf8')) as any;
     expect(saved.agent.summarizer.provider).toBe('openai-compat');
     expect(saved.imagegen.provider).toBe('runware');
+  });
+
+  it('reference_model round-trips, is trimmed, and echoing it back writes nothing', async () => {
+    const r = await put({ imagegen: { reference_model: '  bfl:4@1 ' } });
+    expect(r.written).toEqual(['imagegen.reference_model']);
+    expect((yaml.load(readFileSync(file(), 'utf8')) as any).imagegen.reference_model).toBe('bfl:4@1');
+    const g = await get('/preferences');
+    expect(g.imagegen.reference_model).toBe('bfl:4@1');
+    const echo = await put({ imagegen: g.imagegen });
+    expect(echo.written).toEqual([]);
+    const cleared = await put({ imagegen: { reference_model: '' } });
+    expect(cleared.written).toEqual(['imagegen.reference_model']);
+    expect((await get('/preferences')).imagegen.reference_model).toBe('');
   });
 
   it('refuses a bad provider, size, key-env name (a key pasted in its place) and non-boolean checker', async () => {

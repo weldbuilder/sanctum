@@ -51,7 +51,7 @@ export interface Preferences {
   memory?: MemoryChoice;
   /** The file turns on more than the one system `memory` names (read-only; saving the choice normalises it). */
   memory_mixed?: boolean;
-  imagegen?: { provider: 'none' | 'runware' | 'replicate'; model: string; size: string; safety_checker: boolean };
+  imagegen?: { provider: 'none' | 'runware' | 'replicate'; model: string; reference_model?: string; size: string; safety_checker: boolean };
   sources?: Record<string, string>;
 }
 
