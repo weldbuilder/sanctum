@@ -24,6 +24,7 @@ import { imagesRouter } from './imagegen.js';
 import workspace from './workspace-mcp.js';
 import { initDb, getDb } from '../services/db.js';
 import { addReference } from '../services/media/references.js';
+import { setMode, grant, turnOff } from '../services/consent/gate.js';
 
 let server: Server; let base = '';
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
@@ -136,5 +137,46 @@ describe('workspace MCP generate_image with references', () => {
       expect(r.result.isError, JSON.stringify(args)).toBe(true);
     }
     expect(upstream).not.toHaveBeenCalled();
+  });
+});
+
+describe('workspace MCP generate_image and the consent gate', () => {
+  const call = (args: Record<string, unknown>) => rpc('tools/call', { name: 'generate_image', arguments: args });
+  const receipts = (outcome: string) => getDb().prepare("SELECT harness, tool_or_route, summary FROM consent_receipts WHERE capability = 'app_write' AND tool_or_route = 'generate_image' AND outcome = ?").all(outcome) as Array<{ harness: string; tool_or_route: string; summary: string }>;
+  const reset = () => { getDb().prepare('DELETE FROM consent_receipts').run(); getDb().prepare("DELETE FROM config WHERE key LIKE 'consent.%'").run(); };
+  beforeEach(reset);
+  afterEach(reset);
+
+  it('allowed: generates, and leaves an allowed receipt naming the tool, the harness and the prompt', async () => {
+    const r = await call({ prompt: 'a red door' });
+    expect(r.result.isError).not.toBe(true);
+    expect(upstream).toHaveBeenCalledTimes(1);
+    expect(receipts('allowed')).toEqual([{ harness: 'claude', tool_or_route: 'generate_image', summary: 'a red door' }]);
+  });
+
+  it('app_write turned off in the gate: the tool answers "app_write is off", nothing reaches the provider, a denied receipt is written', async () => {
+    turnOff('app_write');
+    const r = await call({ prompt: 'a red door' });
+    expect(r.result.isError).toBe(true);
+    expect(r.result.content[0].text).toBe('app_write is off');
+    expect(upstream).not.toHaveBeenCalled();
+    expect(receipts('denied')).toHaveLength(1);
+    expect(receipts('allowed')).toHaveLength(0);
+  });
+
+  it('guard mode: refused without a window, allowed with one', async () => {
+    setMode('guard');
+    expect((await call({ prompt: 'x' })).result.isError).toBe(true);
+    expect(upstream).not.toHaveBeenCalled();
+    grant('app_write', 30);
+    expect((await call({ prompt: 'x' })).result.isError).not.toBe(true);
+    expect(upstream).toHaveBeenCalledTimes(1);
+  });
+
+  it('a bad argument is answered before the gate is asked: no receipt is written', async () => {
+    const r = await call({ prompt: 'x', references: 'Sam' });
+    expect(r.result.isError).toBe(true);
+    expect(r.result.content[0].text).toMatch(/references must be/);
+    expect(receipts('allowed')).toHaveLength(0);
   });
 });

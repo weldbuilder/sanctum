@@ -18,7 +18,7 @@
 // request — never from content returned by a read action (anti-injection).
 
 import { Router } from 'express';
-import { ConsentDeniedError } from '../services/consent/gate.js';
+import { ConsentDeniedError, check as consentCheck } from '../services/consent/gate.js';
 import {
   accountForApp,
   isScopeGranted,
@@ -364,8 +364,11 @@ async function handleGenerateImage(args: any): Promise<{ text: string; isError?:
   const refs = parseReferenceNames(args?.references);
   if (!refs.ok) return { text: 'references must be a list of up to 4 names.', isError: true };
   if (args?.as_self !== undefined && typeof args.as_self !== 'boolean') return { text: 'as_self must be true or false.', isError: true };
+  // The [image] tag and the routes ask the gate; the tool is the same send into the chat, so it asks too (a receipt is written either way).
+  const threadId = currentThreadId();
+  if (!consentCheck('app_write', { harness: 'claude', threadId, tool: 'generate_image', summary: prompt }).allow) return { text: 'app_write is off', isError: true };
   try {
-    const r = await generateImage({ prompt, size: size as ImageSize, postToChat: true, threadId: currentThreadId(), ...(refs.names.length ? { references: refs.names } : {}), ...(args?.as_self === true ? { asSelf: true } : {}) });
+    const r = await generateImage({ prompt, size: size as ImageSize, postToChat: true, threadId, ...(refs.names.length ? { references: refs.names } : {}), ...(args?.as_self === true ? { asSelf: true } : {}) });
     return { text: oneLineResult(r) };
   } catch (e) {
     if (e instanceof ImageGenNotConfigured) return { text: 'Image generation is not configured.', isError: true };
