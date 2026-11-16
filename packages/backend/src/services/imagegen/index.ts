@@ -200,7 +200,8 @@ export async function generateImage(o: GenerateImageOptions): Promise<GenerateIm
 
 /** The text an agent sees after a successful generation (MCP tool and `res image`). */
 export function oneLineResult(r: GenerateImageResult): string {
-  return `Image generated and posted (${r.provider}, ${r.model})`;
+  const skipped = r.unknown_references?.length ? ` Not in your references, skipped: ${r.unknown_references.join(', ')}.` : '';
+  return `Image generated and posted (${r.provider}, ${r.model})${skipped}`;
 }
 
 export function isImageGenError(e: unknown): e is ImageGenError { return e instanceof ImageGenError; }

@@ -72,7 +72,7 @@ import { registry } from '../services/ws.js';
 import {
   generateImage, imagegenOffered, oneLineResult, isImageGenError, ImageGenNotConfigured,
 } from '../services/imagegen/index.js';
-import { parseSize, MAX_PROMPT_LENGTH, IMAGE_SIZES, type ImageSize } from '../services/imagegen/types.js';
+import { parseSize, parseReferenceNames, MAX_PROMPT_LENGTH, IMAGE_SIZES, type ImageSize } from '../services/imagegen/types.js';
 
 const router = Router();
 
@@ -337,6 +337,8 @@ const IMAGE_TOOL = {
     properties: {
       prompt: { type: 'string', description: 'What to draw (1-2000 characters).' },
       size: { type: 'string', enum: [...IMAGE_SIZES], description: 'Optional. Default from config (1024x1024).' },
+      references: { type: 'array', items: { type: 'string' }, maxItems: 4, description: 'Optional. Names from your reference images; the picture is drawn from them.' },
+      as_self: { type: 'boolean', description: 'Optional. true draws you, from the references marked as yours.' },
     },
     required: ['prompt'],
   },
@@ -359,8 +361,11 @@ async function handleGenerateImage(args: any): Promise<{ text: string; isError?:
   if (prompt.length > MAX_PROMPT_LENGTH) return { text: `prompt is too long (max ${MAX_PROMPT_LENGTH} characters).`, isError: true };
   const size = args?.size ?? getSanctumConfig().imagegen.size;
   if (typeof size !== 'string' || !parseSize(size)) return { text: `size must be one of ${IMAGE_SIZES.join(', ')}.`, isError: true };
+  const refs = parseReferenceNames(args?.references);
+  if (!refs.ok) return { text: 'references must be a list of up to 4 names.', isError: true };
+  if (args?.as_self !== undefined && typeof args.as_self !== 'boolean') return { text: 'as_self must be true or false.', isError: true };
   try {
-    const r = await generateImage({ prompt, size: size as ImageSize, postToChat: true, threadId: currentThreadId() });
+    const r = await generateImage({ prompt, size: size as ImageSize, postToChat: true, threadId: currentThreadId(), ...(refs.names.length ? { references: refs.names } : {}), ...(args?.as_self === true ? { asSelf: true } : {}) });
     return { text: oneLineResult(r) };
   } catch (e) {
     if (e instanceof ImageGenNotConfigured) return { text: 'Image generation is not configured.', isError: true };

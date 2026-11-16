@@ -269,25 +269,31 @@ switch (cmd) {
     await post('tts', { text: args[0], threadId: thread });
     break;
 
-  // res image "prompt" [--size 1024x1024|1024x1536|1536x1024]  -> one line; exit 0 only on success
+  // res image "prompt" [--size 1024x1024|1024x1536|1536x1024] [--with name,name] [--self]  -> one line; exit 0 only on success
   case 'image': {
     const rest = [...args];
     let size;
     const si = rest.indexOf('--size');
     if (si !== -1) { size = (rest[si + 1] || '').toLowerCase().replace('*', 'x'); rest.splice(si, 2); }
+    let references;
+    const wi = rest.indexOf('--with');
+    if (wi !== -1) { references = (rest[wi + 1] || '').split(',').map((n) => n.trim()).filter(Boolean); rest.splice(wi, 2); }
+    const asSelf = rest.includes('--self');
+    if (asSelf) rest.splice(rest.indexOf('--self'), 1);
     const prompt = rest.join(' ').trim();
-    if (!prompt) { console.error('Usage: res image "prompt" [--size 1024x1024|1024x1536|1536x1024]'); process.exitCode = 2; break; }
+    if (!prompt) { console.error('Usage: res image "prompt" [--size 1024x1024|1024x1536|1536x1024] [--with name,name] [--self]'); process.exitCode = 2; break; }
     try {
       const r = await fetch(`${BASE}/image`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(INTERNAL_TOKEN ? { 'x-internal-token': INTERNAL_TOKEN } : {}) },
-        body: JSON.stringify({ prompt, ...(size ? { size } : {}), threadId: thread }),
+        body: JSON.stringify({ prompt, ...(size ? { size } : {}), ...(references && references.length ? { references } : {}), ...(asSelf ? { as_self: true } : {}), threadId: thread }),
         signal: AbortSignal.timeout(150000), // the server's own limit is imagegen.timeout_ms (default 90s)
       });
       let j = null;
       try { j = await r.json(); } catch { /* not JSON */ }
       if (r.ok && j && j.ok) {
         console.log(`Image generated and posted (${j.provider}, ${j.model})`);
+        if (Array.isArray(j.unknown_references) && j.unknown_references.length) console.log(`Not in your references, skipped: ${j.unknown_references.join(', ')}`);
       } else {
         const why = j && j.error ? `${j.error}${j.detail ? `: ${j.detail}` : ''}${j.provider ? ` (${j.provider})` : ''}` : `HTTP ${r.status}`;
         console.error(`Error: image failed: ${why}`);

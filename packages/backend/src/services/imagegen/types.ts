@@ -16,6 +16,20 @@ export function parseSize(size: string): { width: number; height: number } | nul
 /** Most references one request carries (a picture is rarely helped by more, and each travels as a data URI). */
 export const REFERENCE_MAX_PER_REQUEST = 4;
 
+/** `references`: absent, or an array of up to REFERENCE_MAX_PER_REQUEST non-empty strings of at most 40 characters. */
+export function parseReferenceNames(v: unknown): { ok: true; names: string[] } | { ok: false } {
+  if (v === undefined || v === null) return { ok: true, names: [] };
+  if (!Array.isArray(v) || v.length > REFERENCE_MAX_PER_REQUEST) return { ok: false };
+  const names: string[] = [];
+  for (const n of v) {
+    if (typeof n !== 'string') return { ok: false };
+    const t = n.trim();
+    if (!t || t.length > 40) return { ok: false };
+    names.push(t);
+  }
+  return { ok: true, names };
+}
+
 export interface ImageGenReference {
   bytes: Buffer;
   mime: string;
