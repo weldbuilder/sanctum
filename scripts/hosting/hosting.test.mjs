@@ -72,7 +72,9 @@ describe('deploy/sanctum.service', () => {
       const f = path.join(dir, 'sanctum.service');
       fs.writeFileSync(f, unit.replace('/usr/bin/npm start', '/bin/true'));
       const r = spawnSync('systemd-analyze', ['verify', f], { encoding: 'utf-8' });
-      expect((r.stderr + r.stdout).replace(/^.*(?:User sanctum|Group sanctum).*$/gm, '').trim()).toBe('');
+      // Only lines about our unit count: the runner's own units (xfs_scrub_all and friends) also get checked and may complain.
+      const ours = (r.stderr + r.stdout).split('\n').filter((l) => l.includes('sanctum.service') && !/User sanctum|Group sanctum/.test(l));
+      expect(ours).toEqual([]);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
   it('docs/HOSTING.md quotes the unit as it is, and is linked from the README and UPGRADE.md', () => {
