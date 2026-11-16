@@ -54,6 +54,8 @@ export function mergeImagegen(parsed: Record<string, any>, updates: Record<strin
   if (u.safety_checker !== undefined) parsed.imagegen.safety_checker = u.safety_checker;
   const model = str(u.model);
   if (model !== undefined) parsed.imagegen.model = model;
+  const referenceModel = str(u.reference_model);
+  if (referenceModel !== undefined) parsed.imagegen.reference_model = referenceModel;
   return null;
 }
 

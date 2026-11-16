@@ -176,6 +176,7 @@ export const REGISTRY: readonly KeyDef[] = [
   // --- image generation (keys are env-only secrets)
   d({ key: 'imagegen.provider', type: 'enum', values: ['none', 'runware', 'replicate'], default: 'none', yaml: 'imagegen.provider' }),
   d({ key: 'imagegen.model', type: 'string', default: '', yaml: 'imagegen.model' }),
+  d({ key: 'imagegen.reference_model', type: 'string', default: '', yaml: 'imagegen.reference_model' }),
   d({ key: 'imagegen.size', type: 'enum', values: ['1024x1024', '1024x1536', '1536x1024'], default: '1024x1024', yaml: 'imagegen.size' }),
   d({ key: 'imagegen.safety_checker', type: 'bool', default: false, yaml: 'imagegen.safety_checker' }),
   d({ key: 'imagegen.timeout_ms', type: 'number', default: 90000, yaml: 'imagegen.timeout_ms' }),

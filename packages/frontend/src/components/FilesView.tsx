@@ -22,6 +22,8 @@ import { useConfirm } from './ConfirmDialog';
 import { useChatStore } from '../store/chat';
 import { ImageGenPanel } from './files/ImageGenPanel';
 import { StickerLibrary } from './files/StickerLibrary';
+import { ReferenceLibrary } from './files/ReferenceLibrary';
+import { FILTER_CHIPS, type Filter } from './files/filters';
 import { NO_CHAT_TITLE, clipPrompt, readGenerated, shareError, type GeneratedItem } from './files/imageGen';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -36,7 +38,6 @@ interface PlacesResponse {
 type SortKey = 'name' | 'type' | 'modified' | 'size';
 type View = 'list' | 'grid';
 /** The open file: a picture is shown as itself; text is read; anything else offers its download. */
-type Filter = 'all' | 'generated' | 'stickers';
 /** A generated picture is listed by file id, not by path: its Entry carries this prefix and the id after it. */
 const GEN = 'gen:';
 interface Sheet { entry: Entry; state: 'loading' | 'ready' | 'none' | 'error'; text?: string }
@@ -672,6 +673,7 @@ export function FilesView() {
               <nav className="fl-crumbs" aria-label="Folder path">
                 {filter === 'generated' && <span className="fl-crumb" aria-current="page">Generated</span>}
                 {filter === 'stickers' && <span className="fl-crumb" aria-current="page">Stickers</span>}
+                {filter === 'references' && <span className="fl-crumb" aria-current="page">References</span>}
                 {filter === 'all' && crumbs.map((c, i) => (
                   <React.Fragment key={c.path}>
                     {i > 0 && <span className="fl-crumb-sep" aria-hidden="true"><Icon name="chevron" size={13} /></span>}
@@ -681,9 +683,9 @@ export function FilesView() {
               </nav>
               <div className="fl-panel-tools">
                 <span className="fl-toggle fl-toggle-text" role="group" aria-label="Show">
-                  <button type="button" aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>All</button>
-                  <button type="button" aria-pressed={filter === 'generated'} onClick={() => { setGenListing('loading'); setFilter('generated'); }}>Generated</button>
-                  <button type="button" aria-pressed={filter === 'stickers'} onClick={() => setFilter('stickers')}>Stickers</button>
+                  {FILTER_CHIPS.map(c => (
+                    <button key={c.id} type="button" aria-pressed={filter === c.id} onClick={() => { if (c.id === 'generated') setGenListing('loading'); setFilter(c.id); }}>{c.label}</button>
+                  ))}
                 </span>
                 {filter === 'all' && inShelf(dir) && (
                   <button type="button" className="fl-btn hearth-press" onClick={() => setNewFolder(n => (n == null ? '' : null))} aria-expanded={newFolder != null}>
@@ -707,6 +709,8 @@ export function FilesView() {
 
             {filter === 'stickers' ? (
               <StickerLibrary query={query} threadId={threadId} onNotice={(text, error) => setNotice({ text, error })} />
+            ) : filter === 'references' ? (
+              <ReferenceLibrary query={query} onNotice={(text, error) => setNotice({ text, error })} />
             ) : filter === 'generated' ? (
               genListing === 'loading' ? <p className="fl-quiet-in">Opening…</p>
               : genListing === 'error' ? <p className="fl-quiet-in">Could not load the generated pictures.</p>
@@ -722,7 +726,7 @@ export function FilesView() {
                           <span className="fl-tile-foot">
                             <span className="fl-tile-text">
                               <span className="fl-tile-name" title={g.prompt || g.name}>{clipPrompt(g.prompt || g.name)}</span>
-                              <span className="fl-meta">{g.createdAt ? ago(g.createdAt) : ''}</span>
+                              <span className="fl-meta">{[g.createdAt ? ago(g.createdAt) : '', g.references.length ? `with ${g.references.join(', ')}` : ''].filter(Boolean).join(' · ')}</span>
                             </span>
                           </span>
                         </button>

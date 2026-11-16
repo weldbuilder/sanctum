@@ -88,6 +88,10 @@ export function openDb(dbPath: string): Database.Database {
   const stickersMigrationPath = join(__dirname, '../../migrations/005_stickers.sql');
   if (existsSync(stickersMigrationPath)) db.exec(readFileSync(stickersMigrationPath, 'utf-8'));
 
+  // Reference pictures for the picture generator (the owner's library; `self` marks the companion's own look).
+  const referencesMigrationPath = join(__dirname, '../../migrations/006_references.sql');
+  if (existsSync(referencesMigrationPath)) db.exec(readFileSync(referencesMigrationPath, 'utf-8'));
+
   // Insert default config if not exists
   const stmt = db.prepare('INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)');
   stmt.run('dnd_start', '23:00');

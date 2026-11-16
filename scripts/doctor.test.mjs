@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { AUTH_KEY_IGNORED_LINE } from './setup-lib.mjs';
-import { CONSENT_CAPABILITIES, consentSummary, IMAGEGEN_KEY_ENV, SHIPPED_PATHS, SMALL_TIER, formatReport, frameResolution, nodeInRange, parseArgs, runDoctor } from './doctor.mjs';
+import { CONSENT_CAPABILITIES, consentSummary, referenceCounts, IMAGEGEN_KEY_ENV, SHIPPED_PATHS, SMALL_TIER, formatReport, frameResolution, nodeInRange, parseArgs, runDoctor } from './doctor.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const posix = process.platform !== 'win32';
@@ -388,6 +388,45 @@ describe('doctor: pictures and summaries', () => {
         expect(find(go(root, { env: { [keyVar]: 'k' } }), 'imagegen')[0].status).toBe('OK');
       } finally { cleanup(root); }
     }
+  });
+
+  describe('references', () => {
+    const seed = (root, rows) => {
+      const Database = createRequire(import.meta.url)('better-sqlite3');
+      const db = new Database(path.join(root, 'data', 'sanctum.db'));
+      db.exec('CREATE TABLE "references" (id TEXT PRIMARY KEY, name TEXT, file_id TEXT, self INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT \'\', created_at TEXT)');
+      rows.forEach(([name, self], i) => db.prepare('INSERT INTO "references" (id, name, file_id, self, created_at) VALUES (?, ?, ?, ?, ?)').run(`id${i}`, name, `f${i}`, self, 'now'));
+      db.close();
+    };
+    const refLine = (report) => report.sections.flatMap((s) => s.checks).filter((c) => c.check === 'references');
+
+    it('counts what the library holds, and how many are the companion\'s', () => {
+      const root = app('imagegen:\n  provider: runware\n');
+      try {
+        seed(root, [['Echo', 1], ['Sam', 0], ['Lake house', 0]]);
+        expect(referenceCounts(path.join(root, 'data', 'sanctum.db'))).toEqual({ total: 3, self: 1 });
+        const [c] = refLine(go(root));
+        expect(c).toMatchObject({ status: 'INFO', message: 'References: 3 (1 marked as the companion).' });
+      } finally { cleanup(root); }
+    });
+
+    it('pictures on with an empty or missing library: an INFO line of zero, never a warning', () => {
+      const root = app('imagegen:\n  provider: replicate\n');
+      try {
+        const report = go(root, { env: { REPLICATE_API_TOKEN: 'k' } });
+        expect(refLine(report)[0]).toMatchObject({ status: 'INFO', message: 'References: 0 (0 marked as the companion).' });
+        expect(lines(report, 'WARN')).toEqual([]);
+      } finally { cleanup(root); }
+    });
+
+    it('pictures off and nothing in the library: no line at all; a library with entries still shows', () => {
+      const root = app();
+      try {
+        expect(refLine(go(root))).toEqual([]);
+        seed(root, [['Sam', 0]]);
+        expect(refLine(go(root))[0].message).toBe('References: 1 (0 marked as the companion).');
+      } finally { cleanup(root); }
+    });
   });
 
   it('an unknown provider is a WARN', () => {

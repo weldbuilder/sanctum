@@ -50,6 +50,16 @@ describe('image generation helpers', () => {
     expect(readGenerated(null, urlOf)).toEqual([]);
   });
 
+  it('reads the references a picture was drawn from (none for a plain one, junk dropped)', () => {
+    const urlOf = (id: string) => id;
+    const [a, b] = readGenerated({ files: [
+      { fileId: 'a', meta: { createdAt: '2', references: ['Echo', 4, 'Sam'] } },
+      { fileId: 'b', meta: { createdAt: '1' } },
+    ] }, urlOf);
+    expect(a.references).toEqual(['Echo', 'Sam']);
+    expect(b.references).toEqual([]);
+  });
+
   it('clips a prompt to one line', () => {
     expect(clipPrompt('a\n  b')).toBe('a b');
     expect(clipPrompt('x'.repeat(100), 10)).toBe('xxxxxxxxx…');

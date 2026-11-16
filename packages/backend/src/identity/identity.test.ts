@@ -43,7 +43,7 @@ function makeConfig(overrides: Partial<SanctumConfig> = {}): SanctumConfig {
     handoff: { enabled: false },
     hooks: { safe_write_prefixes: [], workspace_root: '', vault_path: '', extra_write_paths: [] },
     voice: { enabled: false, elevenlabs_voice_id: '' },
-    imagegen: { provider: 'none', model: '', size: '1024x1024', safety_checker: false, timeout_ms: 90000 },
+    imagegen: { provider: 'none', model: '', reference_model: '', size: '1024x1024', safety_checker: false, timeout_ms: 90000 },
     media: { gif_rating: 'pg-13' },
     discord: {
       enabled: false, owner_user_id: '', owner: { user_id: '', channel_id: '' },

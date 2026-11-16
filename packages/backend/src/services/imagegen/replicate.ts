@@ -1,7 +1,9 @@
-import { ImageGenError, classFromStatus, classFromText, timedFetch, type ImageGenProvider, type ImageGenRequest, type ImageGenResult } from './types.js';
+import { ImageGenError, classFromStatus, classFromText, referenceDataUri, timedFetch, type ImageGenProvider, type ImageGenRequest, type ImageGenResult } from './types.js';
 
 export const REPLICATE_BASE = 'https://api.replicate.com/v1';
 export const REPLICATE_DEFAULT_MODEL = 'black-forest-labs/flux-schnell';
+/** The model references use when none is configured: FLUX.1 Kontext [pro], one reference image. */
+export const REPLICATE_DEFAULT_REFERENCE_MODEL = 'black-forest-labs/flux-kontext-pro';
 const POLL_MS = 1500;
 
 /** Closest Replicate FLUX aspect ratio for a size. */
@@ -25,6 +27,24 @@ function outputUrl(output: unknown): string | null {
   return typeof v === 'string' && /^https:\/\//.test(v) ? v : null;
 }
 
+/** The `input` object. Without references it is exactly the text-only one. With them: flux-2 models take `input_images` (an array),
+ *  every other model takes `input_image` (the FIRST reference; the rest are dropped). Kontext and flux-2 have no safety-checker or
+ *  num_outputs field, so those two are left out for them. */
+function buildInput(req: ImageGenRequest, model: string): Record<string, unknown> {
+  const aspect_ratio = aspectRatioFor(req.width, req.height);
+  const refs = req.references ?? [];
+  if (!refs.length) {
+    return { prompt: req.prompt, aspect_ratio, output_format: 'png', num_outputs: 1, disable_safety_checker: !req.safetyChecker };
+  }
+  const uris = refs.map(referenceDataUri);
+  const own = /flux-2|kontext/i.test(model);
+  if (/flux-2/i.test(model)) return { prompt: req.prompt, input_images: uris, aspect_ratio, output_format: 'png' };
+  if (refs.length > 1) console.debug(`[ImageGen] replicate ${model} takes one reference; dropped: ${refs.slice(1).map((r) => r.name).join(', ')}`);
+  return own
+    ? { prompt: req.prompt, input_image: uris[0], aspect_ratio, output_format: 'png' }
+    : { prompt: req.prompt, input_image: uris[0], aspect_ratio, output_format: 'png', num_outputs: 1, disable_safety_checker: !req.safetyChecker };
+}
+
 export function createReplicateProvider(token: string, opts: { pollMs?: number } = {}): ImageGenProvider {
   const pollMs = opts.pollMs ?? POLL_MS;
   return {
@@ -44,15 +64,7 @@ export function createReplicateProvider(token: string, opts: { pollMs?: number }
       const res = await timedFetch('replicate', `${REPLICATE_BASE}/models/${model}/predictions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Prefer: 'wait', ...auth },
-        body: JSON.stringify({
-          input: {
-            prompt: req.prompt,
-            aspect_ratio: aspectRatioFor(req.width, req.height),
-            output_format: 'png',
-            num_outputs: 1,
-            disable_safety_checker: !req.safetyChecker,
-          },
-        }),
+        body: JSON.stringify({ input: buildInput(req, model) }),
       }, deadline);
       let pred: any = null;
       try { pred = await res.json(); } catch { /* non-JSON */ }

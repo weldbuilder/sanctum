@@ -11,7 +11,7 @@ import { DSH_EMPTY, PREFS_CSS, PrefsSaveBar, usePreferences, type MemoryChoice }
 import { SUMMARIZER_DEFAULT_KEY_ENV, imagegenKeyFor, keyMarker, keyEnvTyped, keyText, KEY_ENV_HINT, memoryMixedNote, memoryOptions, shownMemory, summarizerWho, type KeyState } from './mindState';
 
 const SUMMARIZER = { provider: '', model: '', base_url: '', api_key_env: SUMMARIZER_DEFAULT_KEY_ENV };
-const IMAGEGEN = { provider: 'none' as 'none' | 'runware' | 'replicate', model: '', size: '1024x1024', safety_checker: false };
+const IMAGEGEN = { provider: 'none' as 'none' | 'runware' | 'replicate', model: '', reference_model: '', size: '1024x1024', safety_checker: false };
 
 export function MindTab({ base }: { base: string }) {
   const { draft, patchDraft, saveAll, saveStatus, saveError, dirty } = usePreferences(base);
@@ -215,6 +215,8 @@ export function MindTab({ base }: { base: string }) {
           {img.provider !== 'none' && (
             <>
               <TextField label="model" value={img.model} mono restartRequired onChange={v => setImg({ model: v })} hint="The provider's model id. Empty = its default." />
+              <TextField label="model for pictures with references" value={img.reference_model} mono restartRequired onChange={v => setImg({ reference_model: v })}
+                hint="Empty uses the provider's default (bfl:3@1 on Runware, black-forest-labs/flux-kontext-pro on Replicate). Pick a model that takes reference images." />
               <div className="sp-form-group">
                 <label className="sp-form-label">size</label>
                 <HearthSelect

@@ -111,6 +111,7 @@ import { ConsentDeniedError, check as consentCheck, denyMessage, isCapability as
 import { planAskGrant } from './consent.js';
 import { imagesRouter, imageGenerateHandler } from './imagegen.js';
 import { stickersRouter } from './stickers.js';
+import { referencesRouter } from './references.js';
 import { imagegenOffered, imagegenStatusReason } from '../services/imagegen/index.js';
 import { handleTool as ccHandleTool, CC_TOOL_NAMES } from './cc-mcp.js';
 import { fullToolHelp, topicHelp } from '../services/tool-help.js';
@@ -1730,6 +1731,8 @@ router.use('/images', imagesRouter);
 
 // The sticker library (GET/POST /stickers, DELETE /stickers/:id); the companion sends one with [sticker: name].
 router.use('/stickers', stickersRouter);
+// The reference library for pictures (GET/POST /references, PATCH/DELETE /references/:id).
+router.use('/references', referencesRouter);
 
 // --- Command Center (mounted via initCcRoutes after config loads) ---
 
@@ -1874,6 +1877,7 @@ router.get('/preferences', (req, res) => {
       imagegen: {
         provider: e['imagegen.provider'],
         model: e['imagegen.model'],
+        reference_model: e['imagegen.reference_model'],
         size: e['imagegen.size'],
         safety_checker: e['imagegen.safety_checker'],
       },

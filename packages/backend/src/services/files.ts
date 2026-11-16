@@ -48,6 +48,8 @@ export interface FileSource {
   prompt?: string;
   provider?: string;
   model?: string;
+  /** Names of the references a generated picture was drawn from. */
+  references?: string[];
   createdAt: string;
 }
 

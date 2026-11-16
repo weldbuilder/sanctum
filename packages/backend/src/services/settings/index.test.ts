@@ -34,7 +34,7 @@ describe('registry', () => {
   it('lists the 39 keys PUT /api/preferences writes, the imagegen keys and every key family of the precedence map', () => {
     expect(PREFERENCE_KEYS).toHaveLength(39);
     for (const k of PREFERENCE_KEYS) expect(lookupKey(k), k).not.toBeNull();
-    for (const k of ['imagegen.provider', 'imagegen.model', 'imagegen.size', 'imagegen.safety_checker', 'imagegen.timeout_ms', 'imagegen.runware_api_key', 'imagegen.replicate_api_token',
+    for (const k of ['imagegen.provider', 'imagegen.model', 'imagegen.reference_model', 'imagegen.size', 'imagegen.safety_checker', 'imagegen.timeout_ms', 'imagegen.runware_api_key', 'imagegen.replicate_api_token',
       'discord.enabled', 'telegram.enabled', 'handoff.enabled', 'failsafe.enabled', 'failsafe.gentle', 'pulse.enabled', 'pulse.frequency', 'cron.morning.schedule', 'cron.morning.enabled', 'cron.morning.model', 'cron.morning.target',
       'mind.enabled', 'mind.url', 'mind.mind_id', 'mind.api_key', 'discord.bot_token', 'telegram.bot_token', 'google.client_id', 'google.client_secret', 'auth.password', 'agent.model', 'agent.model_autonomous', 'agent.provider']) {
       expect(lookupKey(k), k).not.toBeNull();

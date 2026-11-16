@@ -157,6 +157,8 @@ export interface SanctumConfig {
     provider: 'none' | 'runware' | 'replicate';
     /** '' = the provider's default (runware:100@1 / black-forest-labs/flux-schnell). */
     model: string;
+    /** The model for a picture that carries reference images; '' = the provider's reference default (bfl:3@1 / black-forest-labs/flux-kontext-pro). `model` is the text-only model and is not used for these. */
+    reference_model: string;
     size: '1024x1024' | '1024x1536' | '1536x1024';
     /** Passed to the provider's own safety flag (Runware checkNSFW; Replicate disable_safety_checker inverted). */
     safety_checker: boolean;
@@ -551,6 +553,7 @@ const DEFAULTS: SanctumConfig = {
   imagegen: {
     provider: 'none',
     model: '',
+    reference_model: '',
     size: '1024x1024',
     safety_checker: false,
     timeout_ms: 90000,

@@ -158,7 +158,8 @@ export function toolHelpSections(o: ToolHelpOptions): Record<ToolTopic, string[]
     ] : [],
     image: o.image ? [
       'IMAGE GENERATION (FLUX; the picture is posted into the chat as my own image message):',
-      `  ${SC} image "what to draw" [--size 1024x1024|1024x1536|1536x1024]`,
+      `  ${SC} image "what to draw" [--size 1024x1024|1024x1536|1536x1024] [--with name,name] [--self]`,
+      '  --with draws from named reference images (up to four); --self draws you from the references marked as yours.',
       '  Prints one line when done. On Claude the same thing is the generate_image tool. Do not re-send or describe the file.',
     ] : [],
     tg: o.telegram ? [

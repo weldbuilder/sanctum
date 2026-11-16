@@ -30,6 +30,17 @@ describe('runware adapter', () => {
     expect(out.model).toBe('runware:100@1');
   });
 
+  // Pinned from main before references existed: with zero references the body must stay byte for byte this.
+  it('zero references: the exact body of main (key order, no inputs)', async () => {
+    const f = mockFetch({ json: { data: [{ imageBase64Data: png.toString('base64') }] } });
+    await createRunwareProvider('K').generate(base);
+    const raw = ((f.mock.calls[0] as unknown as [string, RequestInit])[1]).body as string;
+    const uuid = JSON.parse(raw)[0].taskUUID as string;
+    expect(raw).toBe(`[{"taskType":"imageInference","taskUUID":"${uuid}","positivePrompt":"a lighthouse","model":"runware:100@1","width":1024,"height":1536,"numberResults":1,"outputType":"base64Data","outputFormat":"PNG","checkNSFW":true}]`);
+    await createRunwareProvider('K').generate({ ...base, references: [] });
+    expect(((f.mock.calls[1] as unknown as [string, RequestInit])[1]).body as string).toBe(raw.replace(uuid, JSON.parse(((f.mock.calls[1] as unknown as [string, RequestInit])[1]).body as string)[0].taskUUID));
+  });
+
   it('checkNSFW follows the flag, and an odd size is snapped to 64', async () => {
     const f = mockFetch({ json: { data: [{ imageBase64Data: png.toString('base64') }] } });
     await createRunwareProvider('K').generate({ ...base, safetyChecker: false, width: 1000, height: 1030, model: 'runware:101@1' });
@@ -66,5 +77,35 @@ describe('runware adapter', () => {
     const err = await createRunwareProvider('KEY').generate(base).catch((e) => e);
     expect(err.cls).toBe('network');
     expect(err.message).not.toContain('KEY');
+  });
+
+  describe('references', () => {
+    const refs = [
+      { bytes: Buffer.from('ref-a'), mime: 'image/png', name: 'Echo' },
+      { bytes: Buffer.from('ref-b'), mime: 'image/jpeg', name: 'Sam' },
+      { bytes: Buffer.from('ref-c'), mime: 'image/webp', name: 'Lake house' },
+    ];
+    const run = async (references: typeof refs) => {
+      const f = mockFetch({ json: { data: [{ imageBase64Data: png.toString('base64') }] } });
+      await createRunwareProvider('K').generate({ ...base, model: 'bfl:3@1', references });
+      const raw = ((f.mock.calls[0] as unknown as [string, RequestInit])[1]).body as string;
+      return { raw, task: JSON.parse(raw)[0] };
+    };
+
+    it('one reference: exact body, inputs.referenceImages is one data URI, last key of the task', async () => {
+      const { raw, task } = await run(refs.slice(0, 1));
+      expect(raw).toBe(`[{"taskType":"imageInference","taskUUID":"${task.taskUUID}","positivePrompt":"a lighthouse","model":"bfl:3@1","width":1024,"height":1536,"numberResults":1,"outputType":"base64Data","outputFormat":"PNG","checkNSFW":true,"inputs":{"referenceImages":["data:image/png;base64,cmVmLWE="]}}]`);
+    });
+
+    it('three references: all three, in order, each a data URI of its own type', async () => {
+      const { task } = await run(refs);
+      expect(task.inputs).toEqual({ referenceImages: ['data:image/png;base64,cmVmLWE=', 'data:image/jpeg;base64,cmVmLWI=', 'data:image/webp;base64,cmVmLWM='] });
+      expect(task.width).toBe(1024);
+      expect(task.height).toBe(1536);
+    });
+
+    it('no references: no inputs key at all', async () => {
+      expect('inputs' in (await run([])).task).toBe(false);
+    });
   });
 });

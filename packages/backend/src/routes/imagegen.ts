@@ -8,7 +8,7 @@ import { registry } from '../services/ws.js';
 import {
   generateImage, imagegenStatus, imagegenOffered, isImageGenError, ImageGenNotConfigured,
 } from '../services/imagegen/index.js';
-import { parseSize, MAX_PROMPT_LENGTH, type ImageGenProviderName, type ImageSize } from '../services/imagegen/types.js';
+import { parseSize, parseReferenceNames, MAX_PROMPT_LENGTH, type ImageGenProviderName, type ImageSize } from '../services/imagegen/types.js';
 
 type ThreadResolution = { ok: true; threadId: string } | { ok: false; status: number; error: string };
 export type ThreadResolver = (explicit: unknown) => ThreadResolution;
@@ -34,6 +34,9 @@ export function imageGenerateHandler(resolveThread: ThreadResolver = resolveThre
     if (typeof size !== 'string' || !parseSize(size)) { res.status(400).json({ ok: false, error: 'bad_size' }); return; }
     const provider = b.provider === 'runware' || b.provider === 'replicate' ? (b.provider as ImageGenProviderName) : undefined;
     const postToChat = b.post_to_chat !== false;
+    const refs = parseReferenceNames(b.references);
+    if (!refs.ok) { res.status(400).json({ ok: false, error: 'bad_references' }); return; }
+    if (b.as_self !== undefined && typeof b.as_self !== 'boolean') { res.status(400).json({ ok: false, error: 'bad_as_self' }); return; }
 
     let threadId: string | undefined;
     if (postToChat) {
@@ -46,7 +49,7 @@ export function imageGenerateHandler(resolveThread: ThreadResolver = resolveThre
     const ac = new AbortController();
     res.on('close', () => { if (!res.writableEnded) ac.abort(); });
     try {
-      const out = await generateImage({ prompt, size: size as ImageSize, provider, postToChat, threadId, signal: ac.signal });
+      const out = await generateImage({ prompt, size: size as ImageSize, provider, postToChat, threadId, signal: ac.signal, ...(refs.names.length ? { references: refs.names } : {}), ...(b.as_self === true ? { asSelf: true } : {}) });
       res.json({ ok: true, ...out });
     } catch (e) {
       if (e instanceof ImageGenNotConfigured) { res.status(409).json({ ok: false, error: 'imagegen_not_configured', detail: e.detail }); return; }
