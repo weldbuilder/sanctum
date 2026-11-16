@@ -245,7 +245,7 @@ How the container is laid out:
 - The app is started as `node packages/backend/boot.mjs`, never `npm start`: the updater is for a checkout. **The image is the update**: pull a newer one and `docker compose up -d`.
 - `HOST=0.0.0.0` inside the container, published on `127.0.0.1:3099` of the host only. Do not publish it wider without TLS in front.
 - `APP_PASSWORD` in the environment (a `.env` next to the compose file) is honoured, if you would rather not run the wizard. Do not leave `HOST=` or `AGENT_CWD=` empty in that file (as `.env.example` has them): an empty value overrides the image's `0.0.0.0` and `/companion-home`, and the published port goes dead.
-- On the first start the entrypoint writes `agent.cwd: /companion-home` into `sanctum.yaml` on the volume, so the wizard offers the home volume as the companion's folder (answer yes; the starter template is seeded there).
+- On the first start the entrypoint writes `agent.cwd: /companion-home` into `sanctum.yaml` on the volume, so the wizard uses the home volume as the companion's folder (the entrypoint has already seeded it with the starter files).
 
 **Reaching it.** On the host, run `tailscale serve --bg 3099` as in the README, or start the sidecar: `TS_AUTHKEY=… docker compose --profile tailscale up -d` (without a key, the sidecar's log prints a sign-in address). Either way, add the https address to `cors.origins` (the wizard's "Phone address" question, or Settings).
 

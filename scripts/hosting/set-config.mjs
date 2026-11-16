@@ -35,7 +35,7 @@ export function editConfig(text, opts = {}) {
     const cwd = isMap(cfg.agent) ? cfg.agent.cwd : undefined;
     if (typeof cwd !== 'string' || !cwd.trim() || cwd.trim() === '.') cfg.agent = { ...(isMap(cfg.agent) ? cfg.agent : {}), cwd: opts.defaultCwd };
   }
-  const head = header.length ? `${header.join('\n')}\n` : '# sanctum.yaml, written by install.sh. Every key has a default; see sanctum.example.yaml for the whole surface.\n';
+  const head = header.length ? `${header.join('\n')}\n` : '# sanctum.yaml, written by the Sanctum installer. Every key has a default; see sanctum.example.yaml for the whole surface.\n';
   return head + yaml.dump(cfg, { lineWidth: -1, quotingType: '"', forceQuotes: true });
 }
 
