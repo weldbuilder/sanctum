@@ -36,7 +36,7 @@ describe('Permissions tab, Open mode with nothing changed', () => {
 });
 
 describe('Permissions tab, Guard with one window', () => {
-  const until = new Date(2026, 10, 6, 14, 32).toISOString();
+  const until = (() => { const d = new Date(); d.setHours(14, 32, 0, 0); return d.toISOString(); })(); // today at 14:32, so the label reads "14:32" and not "Fri 14:32" after the date passes
   const r = rows();
   for (const c of r) { c.state = 'off'; c.allow = false; }
   Object.assign(r.find(c => c.capability === 'web')!, { state: 'window', allow: true, expires_at: until, grant_id: 'g-1', source: 'grant', note: 'research' });
