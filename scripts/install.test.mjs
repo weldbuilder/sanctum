@@ -45,7 +45,11 @@ describe.skipIf(!haveBash)('install.sh', () => {
     expect(out).toMatch(/\.env: HOST=127\.0\.0\.1/);
     expect(out).toMatch(/npm --prefix \S+ run setup\n/);
     expect(out).toMatch(/tailscale serve --bg 3099/);
-    expect(out).toMatch(/systemctl enable --now sanctum/);
+    expect(out).toMatch(/systemctl enable sanctum\n/);
+    expect(out).toMatch(/systemctl restart sanctum\n/);
+    // The wizard creates the companion home (and seeds the template), so the installer does not.
+    expect(out).not.toMatch(/install -d .*companion-home/);
+    expect(out).toMatch(/DEBIAN_FRONTEND=noninteractive apt-get/);
     expect(out).toMatch(/journalctl -u sanctum -f/);
     expect(out).toMatch(/npm run doctor -- --headless/);
     expect(left).toEqual([]);
@@ -86,5 +90,58 @@ describe.skipIf(!haveBash)('install.sh', () => {
       expect(line).not.toMatch(/read\b.*-s\b/);
     }
     expect(text).not.toMatch(/ANTHROPIC_API_KEY/);
+  });
+
+  it('does not pre-create the companion home, and runs git on the service-owned repo as the service user', () => {
+    expect(text).not.toMatch(/install -d .*companion-home/);
+    expect(text).toMatch(/"\$\{SVC\[@\]\}" git -C "\$INSTALL_DIR" show-ref/);
+  });
+  it('--help works when the script is piped in', () => {
+    const r = spawnSync('bash', ['-s', '--', '--help'], { encoding: 'utf-8', input: text });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/--dry-run\s+print every command/);
+  });
+
+  /** Run configure_app with the machine-touching helpers stubbed. `yaml` is whether sanctum.yaml exists first; the wizard prompt's answer is `reply`. */
+  function configure(yaml, reply) {
+    const root = fs.mkdtempSync(path.join(tmpdir(), 'install-cfg-'));
+    try {
+      if (yaml) fs.writeFileSync(path.join(root, 'sanctum.yaml'), 'identity:\n  user_name: Sam\n');
+      const src = text.replace(/^main "\$@"; exit \$\?$/m, '');
+      const script = `${src}
+INSTALL_DIR='${root}'; STATE_DIR='${root}/state'; SUDO=(); SVC=(env); DRY=0; TZ_NAME=UTC; CLAUDE_NOW=0
+as_root() { :; }
+env_default() { :; }
+ask() { printf '%s' '${reply}'; }
+as_svc() { case "$*" in *set-config.mjs*) : > "$INSTALL_DIR/sanctum.yaml" ;; *) echo "RAN $*" ;; esac; }
+grep() { return 0; }
+configure_app`;
+      const r = spawnSync('bash', ['-c', script], { encoding: 'utf-8', input: '' });
+      return r.stdout + r.stderr;
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
+  it('a first install runs the wizard even though the installer has just created sanctum.yaml', () => {
+    const out = configure(false, 'n');
+    expect(out).toMatch(/RAN .*npm --prefix \S+ run setup/);
+    expect(out).not.toMatch(/Keeping the existing setup/);
+  });
+  it('a re-run asks, and keeps the setup on the default answer or runs it on y', () => {
+    expect(configure(true, 'n')).toMatch(/Keeping the existing setup/);
+    expect(configure(true, 'y')).toMatch(/RAN .*run setup/);
+  });
+  it('picks the Claude program that runs, not the first one found', () => {
+    const root = fs.mkdtempSync(path.join(tmpdir(), 'install-claude-'));
+    try {
+      const mk = (name, ok) => {
+        const d = path.join(root, 'node_modules', '@anthropic-ai', name);
+        fs.mkdirSync(d, { recursive: true });
+        fs.writeFileSync(path.join(d, 'claude'), ok ? '#!/bin/sh\necho 1.0\n' : '#!/bin/sh\nexit 127\n', { mode: 0o755 });
+      };
+      mk('claude-agent-sdk-linux-x64-musl', false);
+      mk('claude-agent-sdk-linux-x64', true);
+      const src = text.replace(/^main "\$@"; exit \$\?$/m, '');
+      const r = spawnSync('bash', ['-c', `${src}\nINSTALL_DIR='${root}'; SVC=(env); pick_claude`], { encoding: 'utf-8' });
+      expect(r.stdout).toBe(path.join(root, 'node_modules', '@anthropic-ai', 'claude-agent-sdk-linux-x64', 'claude'));
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
 });
