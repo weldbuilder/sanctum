@@ -253,6 +253,40 @@ export const scenarios = [
     answers: [...who('', '', ''), ...home(''), [PROVIDER_Q, ''], ['Add a model provider', ''], ['Chat model id', ''], ['Chat provider name', ''], [PROVIDER_Q, ''], ['Extra folders', ''],
       ...restDefaults({ browser: 'y' })],
   },
+  // ── phases (npm run setup, npm run setup -- --more): recorded from the in-process walk, not from the original wizard ──
+  {
+    name: 'phase-one-fresh-claude',
+    note: 'phase one, a fresh install on Claude: the longest path, 12 questions (the home folder is made, a key is pasted, a password is typed)',
+    phase: 'one',
+    answers: [...who('Echo', 'Sam'), ...home(''), ['does not exist. Create it', ''], [PROVIDER_Q, '2'], ['Claude model id', ''], ['Anthropic API key', 'sk-ant-xyz'],
+      ['Let your companion write', ''], ['Let your companion keep time', 'n'], ['App password', 'pw one'], ['Which one?', '']],
+  },
+  {
+    name: 'phase-one-fresh-codex-harness-memory',
+    note: 'phase one, a fresh install on Codex with the harness memory: 12 questions, the Codex-memories offer last',
+    phase: 'one',
+    codex: true,
+    answers: [...who('Echo', 'Sam'), ...home(''), ['does not exist. Create it', ''], [PROVIDER_Q, '1'], ['Chat model id', 'deepseek-chat'],
+      ['Let your companion write', ''], ['Let your companion keep time', ''], ['App password', ''], ['Which one?', '3'], ['Switch Codex memories on', 'y']],
+  },
+  {
+    name: 'phase-one-rerun',
+    note: 'phase one on a finished setup: nothing is asked, what is set is said to be kept, and the files are rewritten as they were',
+    phase: 'one',
+    codex: true,
+    files: { 'app/sanctum.yaml': EXISTING_YAML('orchestrator:\n  enabled: true\n'), 'app/.env': 'APP_PASSWORD=kept-password\n', ...homeWithProfile, 'home/.codex/config.toml': TOML_DEEPSEEK },
+    answers: [],
+  },
+  {
+    name: 'more-rerun',
+    note: 'the second phase (--more) on a finished setup: only the questions phase one does not ask, and Discord is set up there',
+    phase: 'more',
+    codex: true,
+    files: { 'app/sanctum.yaml': EXISTING_YAML('orchestrator:\n  enabled: true\n'), 'app/.env': 'APP_PASSWORD=kept-password\n', ...homeWithProfile, 'home/.codex/config.toml': TOML_DEEPSEEK },
+    answers: [['Add a model provider', ''], ['Chat provider name', ''], [PROVIDER_Q, ''], ['Extra folders', ''], ['Long-conversation memory on', ''], [PROVIDER_Q, ''], ['Which to turn on?', ''],
+      ['Set up Discord?', 'y'], ['Your Discord user id', '123456789012345678'], ['Your owner channel id', '234567890123456789'], ['Private folder', ''],
+      ['Is the browser seat running', ''], ['Phone address', 'https://phone.tail1234.ts.net']],
+  },
 ];
 
 

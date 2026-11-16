@@ -43,6 +43,10 @@ const digestOf = (p) => createHash('sha256').update(fs.readFileSync(p)).digest('
 const fixedBytes = Buffer.from(Array.from({ length: 16 }, (_v, i) => (i * 7 + 3) % 256));
 
 const OPTIONAL_PROMPTS = ['Make pictures with', "Write your companion's own summaries with"];
+// The orchestrator question was added after the recordings of the original (and with phases): the recordings run `--all`, where it is answered with its
+// default and its block is stripped below. A scenario with its own `phase` records it for real.
+const ORCHESTRATOR_PROMPT = 'Let your companion keep time';
+const withoutOrchestrator = (t) => t.replace(/^The orchestrator is the clock behind your companion[\s\S]*?\n\n/gm, '');
 /** The optional group's block (heading to the blank line the group ends with), which the recordings predate. */
 const withoutOptionalGroup = (t) => t.replace(/^— Optional: pictures and summaries —\n[\s\S]*?\n\n/gm, '');
 
@@ -56,6 +60,7 @@ async function walk(sbx, answers, codex, sc = {}) {
       // The optional group added after the recording ("Optional: pictures and summaries"): answered with its defaults and stripped from the
       // transcript below, so the recordings of the original stay as they were. setup-optional.test.mjs covers the group itself.
       if (OPTIONAL_PROMPTS.some((q) => text.startsWith(q))) { out += `${text}\n`; return ''; }
+      if (!sc.phase && text.startsWith(ORCHESTRATOR_PROMPT)) { out += `${text}\n`; return ''; }
       const next = queue.shift();
       if (!next) throw new Error(`no answer left for the prompt ${JSON.stringify(text)}`);
       if (!text.includes(next[0])) throw new Error(`the script expected a prompt containing ${JSON.stringify(next[0])} but the wizard asked ${JSON.stringify(text)}`);
@@ -65,7 +70,7 @@ async function walk(sbx, answers, codex, sc = {}) {
     generate: () => generatePassword(fixedBytes),
   };
   const processEnv = {};
-  await runSetup({ root: path.join(sbx, 'app'), io, processEnv, homeDir: path.join(sbx, 'home'), codexInstalled: !!codex, timezoneDefault: 'UTC', tenant: sc.tenant, create: sc.create });
+  await runSetup({ root: path.join(sbx, 'app'), io, processEnv, homeDir: path.join(sbx, 'home'), codexInstalled: !!codex, timezoneDefault: 'UTC', tenant: sc.tenant, create: sc.create, phase: sc.phase || 'all' });
   expect(queue, 'answers the wizard never asked for').toEqual([]);
   return out;
 }
@@ -126,7 +131,7 @@ describe.skipIf(!posix || inTemp)('the terminal wizard prints and writes what th
       // The one thing added since the recording: a home made from the starter template gets its identity baseline (the first journal line and
       // the ratified copy, by `setup`) and the wizard says so in one line. The ledger holds timestamps, so it is checked below, not byte for byte.
       const baselineSaid = /^Identity: the starter files in .* are recorded as ratified \([0-9a-f]{12}\)\./m.test(transcript);
-      expect(normalize(withoutOptionalGroup(transcript).replace(/^Identity: .*\n/gm, ''), sbx)).toBe(want);
+      expect(normalize((sc.phase ? withoutOptionalGroup(transcript) : withoutOrchestrator(withoutOptionalGroup(transcript))).replace(/^Identity: .*\n/gm, ''), sbx)).toBe(want);
       // The Identity line itself is checked, not stripped: only the digest (and the sandbox path, through normalize) may vary; the rest is verbatim.
       const identityLines = normalize(transcript, sbx).split('\n').filter((l) => l.startsWith('Identity: '));
       for (const line of identityLines) {

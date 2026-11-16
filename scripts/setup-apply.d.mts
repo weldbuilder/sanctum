@@ -14,6 +14,8 @@ export interface SetupEnv {
   tomlText: string;
   hasDatabase: boolean;
   discordToggle: string | null;
+  /** Which questions the plan asks: set by the caller after gathering (setup-plan.mjs, "Phases"). */
+  phase?: 'one' | 'more' | 'all';
   savedPassword: string;
   mcpJsonPath: string;
   mcpJsonText: string;

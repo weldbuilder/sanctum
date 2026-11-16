@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 // setup.mjs — the setup wizard:  npm run setup
 //
+// First run: only the essentials (names, timezone, home folder, provider and its model and key, app writes, the orchestrator, the
+// password, memory). What is already answered is kept, not asked. `--more` asks everything else (Discord, the browser, plugins, pictures
+// and summaries, Codex providers and write folders, rolling memory, the phone); `--all` asks every question.
+//
 // Asks a handful of questions and writes sanctum.yaml and .env. Safe to run
 // again: existing answers are the defaults, and keys it does not ask about are
 // left exactly as they were. It reads ~/.codex/config.toml to show which models
@@ -22,11 +26,14 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 let tenant;
 let create = false;
+let phase = 'one';
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--tenant' && args[i + 1] !== undefined) tenant = args[++i];
   else if (args[i].startsWith('--tenant=')) tenant = args[i].slice('--tenant='.length);
   else if (args[i] === '--create') create = true;
-  else { console.error(`Unknown option ${args[i]}. Usage: npm run setup [-- --tenant <id> [--create]]`); process.exit(2); }
+  else if (args[i] === '--more') phase = 'more';
+  else if (args[i] === '--all') phase = 'all';
+  else { console.error(`Unknown option ${args[i]}. Usage: npm run setup [-- --more | --all] [-- --tenant <id> [--create]]`); process.exit(2); }
 }
 if (create && tenant === undefined) { console.error('--create goes with --tenant <id>.'); process.exit(2); }
 
@@ -46,6 +53,6 @@ const io = {
     catch (err) { if (err?.code === 'ABORT_ERR') cancelled(); throw err; }
   },
 };
-try { await runSetup({ root, io, tenant, create }); }
+try { await runSetup({ root, io, tenant, create, phase }); }
 catch (err) { if (tenant === undefined) throw err; console.error(`\n${err.message}`); process.exitCode = 1; }
 finally { rl.close(); }

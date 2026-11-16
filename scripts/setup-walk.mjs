@@ -5,7 +5,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { applySetup, gatherSetupEnv } from './setup-apply.mjs';
 import { TENANT_ID_RE, harnessHomesFor, readProcessFile, tenantFilesProblem, tenantFolderProblem, authKeyMissingProblem, tenantsBlockOf, tenantsDirProblem } from './setup-inherit.mjs';
-import { buildAnswers, defaultText, evalStep, isActive, parseAnswer, setupPlan, settle } from './setup-plan.mjs';
+import { buildAnswers, defaultText, evalStep, isActive, parseAnswer, setupPlan, settle, skipFill } from './setup-plan.mjs';
 
 /** Ask one step in the terminal's words and return what was answered, as { value, generated }. */
 async function askStep(step, r, v, io) {
@@ -38,8 +38,10 @@ async function askStep(step, r, v, io) {
   }
 }
 
-/** Walk the plan, asking in the terminal's words, then write everything. Returns what applySetup returns. */
-export async function runSetup({ root, io, processEnv, homeDir, codexInstalled, timezoneDefault, tenant, create }) {
+/** Walk the plan, asking in the terminal's words, then write everything. Returns what applySetup returns.
+ *  `phase`: 'one' (the first-run questions; whatever is already set is kept and not asked), 'more' (the rest), 'all' (every question,
+ *  as the wizard asked before it had phases). A tenant's wizard is always 'all'. */
+export async function runSetup({ root, io, processEnv, homeDir, codexInstalled, timezoneDefault, tenant, create, phase = 'one' }) {
   // `--tenant <id>`: the same plan against <tenants.dir>/<id>/, which must exist unless `--create` says to make it.
   let tenantDir = '';
   if (tenant !== undefined) {
@@ -69,7 +71,10 @@ export async function runSetup({ root, io, processEnv, homeDir, codexInstalled, 
   io.say();
   io.say('Sanctum Mobile setup');
   io.say('====================');
-  io.say('A few questions. Press Enter to keep the value in brackets. Run this again any time.');
+  const mode = tenantDir ? 'all' : phase;
+  io.say(mode === 'one' ? 'Just the essentials. Press Enter to keep the value in brackets. Run this again any time.'
+    : mode === 'more' ? 'The other options. Press Enter to keep the value in brackets. Run this again any time.'
+      : 'A few questions. Press Enter to keep the value in brackets. Run this again any time.');
   io.say();
   if (tenantDir) {
     const h = harnessHomesFor(tenantDir);
@@ -79,17 +84,21 @@ export async function runSetup({ root, io, processEnv, homeDir, codexInstalled, 
   }
 
   const env = gatherSetupEnv(root, { processEnv, homeDir, codexInstalled, ...(timezoneDefault ? { timezoneDefault } : {}), ...(tenantDir ? { tenantDir, tenantId: tenant, operator: true } : {}) });
+  env.phase = mode;
   const plan = setupPlan(env.existing, env);
   const v = {};
   for (const step of plan) {
     plan.reset();
-    const intro = step.intro?.(v);
+    const intro = step.skip ? null : step.intro?.(v);
     if (intro) {
       if (intro.heading) io.say(`— ${intro.heading} —`);
       for (const line of intro.lines || []) io.say(line);
     }
     if (!isActive(step, v)) {
-      for (const line of step.otherwise?.(v) || []) io.say(line);
+      // Not asked on this run: it keeps the value Enter would have taken (and says so when that value was already in the config).
+      const f = skipFill(step, v);
+      if (f) { v[step.id] = f.value; if (f.set) Object.assign(v, f.set); }
+      for (const line of step.skip ? (f?.line ? [f.line] : []) : step.otherwise?.(v) || []) io.say(line);
     } else {
       const r = evalStep(step, v);
       for (const line of r.help) io.say(line);
@@ -99,7 +108,7 @@ export async function runSetup({ root, io, processEnv, homeDir, codexInstalled, 
       if (r.meta?.digest) v[`${step.id}#digest`] = r.meta.digest;
       for (const line of step.after?.(value, v, { generated }) || []) io.say(line);
     }
-    for (const line of step.outro?.(v) || []) io.say(line);
+    if (!step.skip) for (const line of step.outro?.(v) || []) io.say(line);
   }
 
   const answers = buildAnswers(v, plan);
@@ -115,5 +124,6 @@ export async function runSetup({ root, io, processEnv, homeDir, codexInstalled, 
   io.say('  npm start');
   io.say('Then open the address it prints and log in with your password.');
   io.say('To change any of this later: Settings in the app, or npm run setup again.');
+  if (mode === 'one') io.say('More options (Discord, the browser, plugins, pictures, Codex providers, write folders): npm run setup -- --more');
   return result;
 }

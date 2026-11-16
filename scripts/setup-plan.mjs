@@ -15,6 +15,7 @@
 //   when      the step is asked only when this holds for the answers so far (all answers are by step id)
 //   validate  '' when the value is fine, else the sentence to show; the in-app wizard shows it inline
 // and, for the words of the terminal wizard:
+//   label     a short name for the question, where `question` alone says too little ("Which one?"): used by the "Kept:" lines
 //   section   the title of the screen group (also the terminal's `— heading —` unless `intro` names another)
 //   intro     (answers) => null | { heading?, lines? }: said before the step's slot, asked or not
 //   cli       lines only the terminal prints (the numbered lists; the app draws the options instead)
@@ -26,6 +27,16 @@
 //   style     'bracket' for a yes/no shown as [Y/n]
 //   retry     asked again while validate has something to say (the ledger folder)
 //   generate  () => value, made up when the answer is empty (the password)
+//
+// Phases. Every step belongs to phase one (the tier-zero questions of a first run: names, timezone, home folder, provider and its
+// model and key, the app-write switch, the orchestrator switch, the password, the memory choice) or phase two (everything else:
+// Codex provider edits, write roots, long-conversation memory, plugins, pictures and summaries, Discord, the browser, the phone).
+// `env.phase` says which are asked: 'one' (phase one only), 'more' (phase two, and any phase-one question not answered yet), 'all'
+// (everything, in the original order; the default for the plan itself, and the only mode a tenant has). A phase-one question whose
+// answer is already in the config is not asked again ("Kept: ..." says so); a phase-two question left for later takes its default,
+// which is what pressing Enter did, except the `leave` steps (plugins, the browser entry, Discord's ids and folder), which are
+// left alone so a run that did not ask about them cannot write them. Each step carries `phase` and, when not asked, `skip`
+// ('later' | 'set').
 //
 // The plan reads files (the shipped plugins, the ratification ledger, .mcp.json, which folders exist) to compute its
 // text and defaults, and writes none. `env` is what gatherSetupEnv (setup-apply.mjs) collects, or a test's own.
@@ -58,6 +69,14 @@ function envProblem(value) {
 
 /** `x` as a value, or called with `args` when it is a function. */
 const val = (x, ...args) => (typeof x === 'function' ? x(...args) : x);
+
+/** The tier-zero questions (phase one), in the order they are asked. The rest is phase two. */
+export const PHASE_ONE = Object.freeze([
+  'companionName', 'userName', 'timezone', 'home', 'homeCreate', 'provider', 'codexModel', 'claudeModel', 'dshModel', 'anthropicKey', 'dshKey',
+  'appWrite', 'orchestrator', 'password', 'memory', 'revienUrl', 'codexMemoriesOff', 'codexMemoriesOn',
+]);
+/** Steps that write something outside the config answers (a folder, a ratification, .mcp.json): never answered on the person's behalf. */
+const LEAVE = Object.freeze(['pluginsTrust', 'plugins', 'ledgerDir', 'browserEntry', 'discordOwnerUserId', 'discordOwnerChannelId', 'discordPrivateDir']);
 
 export function setupPlan(existingConfig, env = {}) {
   const ex = existingConfig && typeof existingConfig === 'object' ? existingConfig : {};
@@ -103,7 +122,25 @@ export function setupPlan(existingConfig, env = {}) {
   const memoized = (key, fn) => { if (!memo.has(key)) memo.set(key, fn()); return memo.get(key); };
 
   const steps = [];
-  const add = (s) => { steps.push({ default: '', ...s }); };
+  // Which phase is walked. A tenant's wizard is never split (the operator's terminal sets one up in one go).
+  const mode = tenantDir ? 'all' : ['one', 'more', 'all'].includes(env.phase) ? env.phase : 'all';
+  const configured = !!env.hasConfigFile;
+  const providerSet = () => !!ex.agent?.provider;
+  // Phase-one questions already answered in the config (a yes/no with a runtime default counts once the file exists).
+  const SET = {
+    companionName: () => !!ex.identity?.companion_name, userName: () => !!ex.identity?.user_name, timezone: () => !!ex.identity?.timezone,
+    home: () => !!ex.agent?.cwd && ex.agent.cwd !== '.',
+    provider: providerSet, codexModel: providerSet, claudeModel: providerSet, dshModel: providerSet,
+    // A key counts as answered only when one is saved: a DeepSeek Harness install without one cannot run, so phase one asks. (Claude may use its login, which the config cannot show, so its key question stays kept once a provider is set.)
+    anthropicKey: providerSet, dshKey: () => providerSet() && !!envVal(dshKeyVar),
+    appWrite: () => configured, orchestrator: () => configured, memory: () => configured, codexMemoriesOff: () => configured, codexMemoriesOn: () => configured,
+    password: () => !!savedPassword,
+  };
+  const add = (s) => {
+    const phase = PHASE_ONE.includes(s.id) ? 1 : 2;
+    const skip = mode === 'all' ? '' : phase === 2 ? (mode === 'one' ? 'later' : '') : SET[s.id]?.() ? 'set' : '';
+    steps.push({ default: '', ...s, phase, ...(skip ? { skip, ...(mode === 'more' ? { quiet: true } : {}) } : {}), ...(LEAVE.includes(s.id) ? { leave: true } : {}) });
+  };
 
   // ── this tenant (the operator's terminal only: a tenant cannot change its own hosts from inside) ─────────
   if (tenantDir && env.operator) {
@@ -150,13 +187,14 @@ export function setupPlan(existingConfig, env = {}) {
     when: (v) => !existsSync(join(v.home, 'identity', 'profile.md')) && !existsSync(v.home),
     question: (v) => `${v.home} does not exist. Create it from the starter template?`,
     after: (value, v) => (value ? [`Created ${v.home}. Open identity/profile.md and identity/companion.md there and fill in the << >> blanks.`, ''] : ['']),
+    // (A run that keeps the home folder it already has says nothing in the place of the question.)
     otherwise: (v) => (existsSync(v.home) && !existsSync(join(v.home, 'identity', 'profile.md'))
-      ? [`Note: ${v.home} has no identity/profile.md yet. The app runs, but your companion will have no identity until it does.`, ''] : ['']),
+      ? [`Note: ${v.home} has no identity/profile.md yet. The app runs, but your companion will have no identity until it does.`, ''] : mode !== 'all' && SET.home() ? [] : ['']),
   });
 
   // ── harness and models ──────────────────────────────────────────────────────
   add({
-    id: 'provider', kind: 'choice', section: 'The model', intro: () => ({ heading: 'The model' }),
+    id: 'provider', kind: 'choice', label: 'Provider', section: 'The model', intro: () => ({ heading: 'The model' }),
     question: 'Which one?', default: ex.agent?.provider === 'claude' ? 'claude' : ex.agent?.provider === 'dsh' ? 'dsh' : 'codex',
     options: [
       { value: 'codex', label: 'Codex', detail: 'Any model Codex can reach. DeepSeek on an API key, a ChatGPT plan, or any provider you add to ~/.codex/config.toml (OpenAI-compatible APIs, local servers).' },
@@ -211,7 +249,7 @@ export function setupPlan(existingConfig, env = {}) {
     after: (_value, v) => [`Added [model_providers.${v.providerId}] to ${tomlPath}.${v.providerKey ? ' The key is stored there in plain text; never paste that file anywhere public.' : ''}`],
   });
   add({
-    id: 'codexModel', kind: 'text', section: 'The model', when: isCodex, help: ["Leave the next four empty to use Codex's default everywhere."],
+    id: 'codexModel', kind: 'text', section: 'The model', when: isCodex, help: mode === 'all' ? ["Leave the next four empty to use Codex's default everywhere."] : ["Leave it empty to use Codex's default."],
     question: 'Chat model id', default: (v) => (addedProvider(v) ? (v.providerModel || ex.agent?.codex?.model || '') : (ex.agent?.codex?.model || '')),
   });
   add({
@@ -278,6 +316,16 @@ export function setupPlan(existingConfig, env = {}) {
     ],
     question: "Let your companion write to the app's features?", default: ex.agent?.app_write !== false,
     after: (value) => (value ? ['On. The Command Center pages (care, cycle, routines) are switched on with it.'] : []),
+    outro: () => [''],
+  });
+  add({
+    id: 'orchestrator', kind: 'yesno', section: "The app's features",
+    help: [
+      'The orchestrator is the clock behind your companion: timers and reminders, scheduled check-ins, and the',
+      'gentle "you have gone quiet" nudges. Off, none of those fire (the background helpers keep running).',
+    ],
+    question: 'Let your companion keep time (timers, reminders, check-ins)?', default: ex.orchestrator?.enabled !== false,
+    after: (value) => (value ? [] : ['Off. Nothing is scheduled until you turn it back on (orchestrator.enabled in sanctum.yaml, or Settings).']),
     outro: () => [''],
   });
 
@@ -475,7 +523,7 @@ export function setupPlan(existingConfig, env = {}) {
 
   // ── memory ──────────────────────────────────────────────────────────────────
   add({
-    id: 'memory', kind: 'choice', section: 'Memory', intro: () => ({ heading: 'Memory' }),
+    id: 'memory', kind: 'choice', label: 'Memory', section: 'Memory', intro: () => ({ heading: 'Memory' }),
     help: ['One memory system at a time, or they fight over what to remember. Pick where memory lives:',
       ...(tenantDir ? ['A tenant needs its own Revien daemon and address: the process\'s daemon is never shared, so Revien is not the default here.'] : [])],
     // DeepSeek Harness has no built-in memory (only Claude's auto-memory and Codex "memories" read agent.harness_memory), so it is not offered there.
@@ -628,6 +676,7 @@ export function setupPlan(existingConfig, env = {}) {
     existing: { value: ex },
     shipped: { value: shipped },
     reset: { value: () => { memo = new Map(); } },
+    mode: { value: mode },
   });
   return steps;
 }
@@ -635,7 +684,27 @@ export function setupPlan(existingConfig, env = {}) {
 // ── walking a plan ────────────────────────────────────────────────────────────
 
 /** Is this step asked, given the answers so far? */
-export const isActive = (step, v) => (step.when ? !!step.when(v) : true);
+export const isActive = (step, v) => (!step.skip && (step.when ? !!step.when(v) : true));
+
+/**
+ * A step this run does not ask ('later' = phase two on a phase-one run, 'set' = answered already) still has a value, the one Enter would
+ * have taken, unless it is a `leave` step or would not be asked anyway. { value, set, line } or null. `line` says what was kept.
+ */
+export function skipFill(step, v) {
+  if (!step.skip || step.leave || (step.when && !step.when(v))) return null;
+  const r = evalStep(step, v);
+  const s = settle(step, r.kind === 'secret' ? '' : r.default, v);
+  let line = '';
+  if (step.skip === 'set' && !step.quiet) {
+    const q = String(step.label || r.question).replace(/\s*\(.*\)\s*$/, '').replace(/\?$/, '');
+    const shown = r.kind === 'secret' ? (r.default ? '(saved)' : '(none)')
+      : r.kind === 'yesno' ? (s.value ? 'yes' : 'no')
+        : r.kind === 'choice' ? ((r.options || []).find((o) => o.value === s.value)?.label ?? s.value)
+          : String(s.value ?? '');
+    line = `Kept: ${q} = ${shown || '(empty)'}`;
+  }
+  return { value: s.value, set: s.set, line };
+}
 
 /** The step with its dynamic parts worked out for the answers so far. */
 export function evalStep(step, v) {
@@ -713,14 +782,16 @@ export function buildAnswers(v, plan, opts = {}) {
     a.anthropicKey = v.anthropicKey;
   }
   a.appWrite = v.appWrite;
+  a.orchestrator = v.orchestrator;
   a.rolling = v.rolling;
   if (imageChosenOf(v, plan)) { a.imageProvider = v.imageProvider; if (v.imageKey) a.imageKey = v.imageKey; }
   if (summaryOwnOf(v, plan) && /^https?:\/\/\S+ \S+$/.test(String(v.summaryEndpoint || ''))) {
     const [baseUrl, model] = v.summaryEndpoint.split(' ');
     a.summaryOwn = { baseUrl, model, ...(v.summaryKey ? { key: v.summaryKey } : {}) };
   }
-  a.pluginsTrust = v.pluginsTrust;
-  if (shipped.length) {
+  // (Plugins are left alone by a run that did not ask: no trust answer, nothing to write.)
+  if (v.pluginsTrust !== undefined) a.pluginsTrust = v.pluginsTrust;
+  if (shipped.length && v.pluginsTrust !== undefined) {
     if (v.pluginsTrust === 'person') a.pluginsToRatify = v.plugins || [];
     else a.pluginsPicked = v.plugins || [];
   }
@@ -786,10 +857,17 @@ export function walkValues(plan, sent = {}) {
   const v = {};
   const rows = [];
   const problems = [];
+  const skippedSent = [];
   for (const step of plan) {
     plan.reset();
-    const intro = step.intro?.(v) || null;
-    if (!isActive(step, v)) { rows.push({ step, active: false, intro, otherwise: step.otherwise?.(v) || [] }); continue; }
+    if (step.skip && Object.hasOwn(sent, step.id)) skippedSent.push(step.id);
+    const intro = step.skip ? null : step.intro?.(v) || null;
+    if (!isActive(step, v)) {
+      const f = skipFill(step, v);
+      if (f) { v[step.id] = f.value; if (f.set) Object.assign(v, f.set); }
+      rows.push({ step, active: false, intro, otherwise: step.skip ? (f?.line ? [f.line] : []) : step.otherwise?.(v) || [] });
+      continue;
+    }
     const r = evalStep(step, v);
     // A secret that was not sent is not re-sent from the saved one: empty means "keep what is saved".
     let value = r.kind === 'secret' ? '' : r.default;
@@ -808,7 +886,7 @@ export function walkValues(plan, sent = {}) {
     if (problem) problems.push({ id: step.id, message: problem });
     rows.push({ step, active: true, intro, resolved: r, value, lines: [...s.lines, ...(step.after?.(value, v, { generated: false }) || [])], problem });
   }
-  return { values: v, rows, problems };
+  return { values: v, rows, problems, skippedSent };
 }
 
 /** One step as the browser gets it: no secret is ever in it (a saved one is only marked `saved`). */
@@ -816,7 +894,7 @@ export function publicStep(row, introLines = []) {
   const r = row.resolved;
   const secret = r.kind === 'secret';
   return {
-    id: r.id, kind: r.kind, section: r.section, question: r.appQuestion ?? r.question,
+    id: r.id, kind: r.kind, section: r.section, phase: row.step.phase, question: r.appQuestion ?? r.question,
     help: [...introLines, ...r.help].filter((l, i, all) => l !== '' || (i > 0 && i < all.length - 1)),
     ...(secret ? { saved: !!r.default } : { default: r.default }),
     ...(r.options ? { options: r.options } : {}),

@@ -149,6 +149,8 @@ export function applyAnswers(cfg, a) {
     c.agent.app_write = a.appWrite;
     if (a.appWrite) c.command_center = { ...(c.command_center || {}), enabled: true };
   }
+  // The orchestrator (timers, reminders, check-ins) is on unless the file says otherwise, so a yes writes nothing new: only a no, or a key that is already there.
+  if (typeof a.orchestrator === 'boolean' && (a.orchestrator === false || c.orchestrator?.enabled !== undefined)) c.orchestrator = { ...(c.orchestrator || {}), enabled: a.orchestrator };
   // Plugins: who manages them ('companion' or 'person'), then which ones may load. Only written when the wizard asked;
   // plugins.dir is never touched here.
   if (a.pluginsTrust === 'companion' || a.pluginsTrust === 'person') c.plugins = { ...(c.plugins || {}), trust: a.pluginsTrust };
