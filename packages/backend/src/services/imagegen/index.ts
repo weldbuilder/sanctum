@@ -170,7 +170,7 @@ export async function generateImage(o: GenerateImageOptions): Promise<GenerateIm
   const ms = Date.now() - started;
 
   const ext = out.mime === 'image/jpeg' ? 'jpg' : out.mime === 'image/webp' ? 'webp' : 'png';
-  const fileMeta = saveFile(out.bytes, `generated-image.${ext}`, out.mime, { source: 'image-gen', prompt: o.prompt, provider: providerName, model: out.model });
+  const fileMeta = saveFile(out.bytes, `generated-image.${ext}`, out.mime, { source: 'image-gen', prompt: o.prompt, provider: providerName, model: out.model, ...(used.length ? { references: refNames } : {}) });
 
   let messageId: string | undefined;
   if (o.postToChat && o.threadId) {

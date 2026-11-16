@@ -132,6 +132,15 @@ describe('generateImage with references', () => {
     expect('as_self' in plain).toBe(false);
   });
 
+  it('the stored picture\'s sidecar names the references (and a text-only one has no such field)', async () => {
+    add('Sam');
+    const a = await generateImage({ ...base, references: ['Sam'] });
+    const b = await generateImage(base);
+    const { readFileMeta } = await import('../files.js');
+    expect(readFileMeta(a.file_id)).toMatchObject({ source: 'image-gen', references: ['Sam'] });
+    expect(readFileMeta(b.file_id) && 'references' in readFileMeta(b.file_id)!).toBe(false);
+  });
+
   it('resolveReferences alone: no names and not self is empty', () => {
     add('Sam');
     expect(resolveReferences(undefined, false)).toEqual({ used: [], unknown: [], asSelf: false });

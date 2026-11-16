@@ -13,6 +13,9 @@ export interface ImageStatus {
   provider?: string;
   model?: string;
   providers_with_keys?: string[];
+  references?: number;
+  self_references?: number;
+  reference_model?: string | null;
 }
 
 /** Why generation is not on offer, as one plain line; null when it is on offer. */
@@ -34,6 +37,7 @@ export function generateError(status: number, body: { error?: string; provider?:
     if (body?.error === 'prompt_required') return 'Write a prompt first';
     if (body?.error === 'prompt_too_long') return `Keep the prompt under ${PROMPT_MAX} characters`;
     if (body?.error === 'bad_size') return 'That size is not available';
+    if (body?.error === 'bad_references') return 'Pick up to four references';
   }
   if (status === 429) return 'Rate limited, try again in a minute';
   switch (body?.detail) {
@@ -64,6 +68,8 @@ export interface GeneratedItem {
   createdAt: string;
   prompt: string;
   provider: string;
+  /** Names of the references it was drawn from; empty for a plain picture. */
+  references: string[];
 }
 
 /** Reads the file-store list ({ files: [...] }, or a bare array) keeping the pictures that carry generation meta. */
@@ -83,6 +89,7 @@ export function readGenerated(body: unknown, urlOf: (id: string) => string): Gen
       createdAt: String(meta.createdAt ?? r.createdAt ?? ''),
       prompt: String(meta.prompt ?? ''),
       provider: String(meta.provider ?? ''),
+      references: Array.isArray(meta.references) ? (meta.references as unknown[]).filter((n): n is string => typeof n === 'string') : [],
     });
   }
   return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
