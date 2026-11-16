@@ -155,4 +155,16 @@ describe('the container files', () => {
     for (const must of ['.git', 'node_modules', '.env', 'sanctum.yaml', 'data', 'logs', '.mcp.json']) expect(lines).toContain(must);
     expect(lines).not.toContain('companion-home');
   });
+  it('the image workflow: v* tags and manual runs, both platforms, ghcr under the repository owner (no literal name)', () => {
+    const text = read('.github/workflows/image.yml');
+    const w = yaml.load(text);
+    expect(w.on.push.tags).toEqual(['v*']);
+    expect(Object.keys(w.on)).toEqual(expect.arrayContaining(['push', 'workflow_dispatch']));
+    expect(w.permissions.packages).toBe('write');
+    expect(text).toContain('ghcr.io/${{ github.repository_owner }}/sanctum');
+    expect(text).toContain('platforms: linux/amd64,linux/arm64');
+    expect(text).toMatch(/type=raw,value=latest/);
+    expect(text).toMatch(/type=ref,event=tag/);
+    expect(text.toLowerCase()).not.toContain('weldbuilder');
+  });
 });
