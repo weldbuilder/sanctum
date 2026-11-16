@@ -674,7 +674,7 @@ Upload a few pictures in the Files tab (References chip; or `POST /api/reference
 - **Which models honour them.** Runware: `bfl:3@1` (FLUX.1 Kontext [pro], the default here), `bfl:4@1` (Kontext [max]) and `runware:400@1` (FLUX.2 [dev], several references). The text-only `runware:100@1` ignores them. Replicate: `black-forest-labs/flux-kontext-pro` (default) and `flux-kontext-dev` take **one** reference (the first; the rest are dropped); `black-forest-labs/flux-2-pro` takes up to eight. Set another model in `imagegen.reference_model` (Settings, Mind, pictures).
 - **What is sent.** Runware: `inputs.referenceImages` on the `imageInference` task. Replicate: `input_image` (one) or, for a `flux-2` model, `input_images` (an array). With no references the request is exactly the text-only one, on `model`.
 - **After setup, run one real reference picture per provider** (the app's Generate panel, one chip on) and look at it. The request shapes above follow the providers' documentation but are only proven by a real run with your key.
-- **Where they live.** The pictures are ordinary stored files (`?source=reference` on `GET /api/files`), the names in the database. `GET /api/images/status` also reports `references`, `self_references` and `reference_model`; `npm run doctor` prints one line, `References: N (M marked as the companion)`.
+- **Where they live.** The pictures are ordinary stored files (`?source=reference` on `GET /api/files`), the names in the database. `GET /api/images/status` also reports `references`, `self_references` and `reference_model`; `npm run doctor` prints one line, `References: N (M marked as the companion)`, while pictures are on or the library holds any.
 
 ### Media (`media`)
 

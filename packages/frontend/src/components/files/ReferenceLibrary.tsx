@@ -126,7 +126,7 @@ export function ReferenceGrid(p: ReferenceGridProps) {
         .fl-ref-name { flex: 1 1 11rem; min-width: 0; min-height: 2.5rem; box-sizing: border-box; }
         .fl-ref-note { flex: 2 1 14rem; min-width: 0; min-height: 2.5rem; box-sizing: border-box; }
         .fl-ref-check { display: inline-flex; align-items: center; gap: 0.45rem; min-height: 2.5rem; color: var(--text-secondary); font-family: var(--font-serif, 'Lora', serif); font-size: 0.92rem; cursor: pointer; }
-        .fl-ref-check input { width: 1.1rem; height: 1.1rem; accent-color: var(--skin-trim); }
+        .fl-ref-check input { width: 1.1rem; height: 1.1rem; accent-color: var(--skin-trim, var(--text-secondary)); }
         .fl-ref-row .fl-btn { min-height: 2.5rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .fl-ref-row .fl-btn:disabled { opacity: 0.55; cursor: default; }
         .fl-ref-hint { margin: 0; font-family: var(--font-serif, 'Lora', serif); font-style: italic; font-size: 0.85rem; color: var(--text-muted); }

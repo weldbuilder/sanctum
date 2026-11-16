@@ -277,7 +277,11 @@ switch (cmd) {
     if (si !== -1) { size = (rest[si + 1] || '').toLowerCase().replace('*', 'x'); rest.splice(si, 2); }
     let references;
     const wi = rest.indexOf('--with');
-    if (wi !== -1) { references = (rest[wi + 1] || '').split(',').map((n) => n.trim()).filter(Boolean); rest.splice(wi, 2); }
+    if (wi !== -1) {
+      const val = rest[wi + 1] || '';
+      if (val.startsWith('--')) rest.splice(wi, 1); // `--with --self`: no names given, keep the next flag
+      else { references = val.split(',').map((n) => n.trim()).filter(Boolean); rest.splice(wi, 2); }
+    }
     const asSelf = rest.includes('--self');
     if (asSelf) rest.splice(rest.indexOf('--self'), 1);
     const prompt = rest.join(' ').trim();

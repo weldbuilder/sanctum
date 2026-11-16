@@ -111,7 +111,7 @@ export function ImageGenForm(p: ImageGenFormProps) {
         .fl-gen-chip {
           min-height: 2.5rem;
           padding: 0.4rem 0.8rem;
-          border: 1px solid color-mix(in srgb, var(--skin-trim) 55%, transparent);
+          border: 1px solid color-mix(in srgb, var(--skin-trim, var(--text-secondary)) 55%, transparent);
           border-radius: 6px;
           background: none;
           color: var(--text-muted);
@@ -119,7 +119,7 @@ export function ImageGenForm(p: ImageGenFormProps) {
           font-size: 0.92rem;
           cursor: pointer;
         }
-        .fl-gen-chip[aria-pressed="true"] { background: color-mix(in srgb, var(--skin-trim) 24%, transparent); color: var(--text-primary); }
+        .fl-gen-chip[aria-pressed="true"] { background: color-mix(in srgb, var(--skin-trim, var(--text-secondary)) 24%, transparent); color: var(--text-primary); }
         .fl-gen-chip:disabled { opacity: 0.55; cursor: default; }
         /* Already in through the companion chip: it is on, not unavailable, so it keeps its full ink. */
         .fl-gen-chip[data-via]:disabled { opacity: 1; }
