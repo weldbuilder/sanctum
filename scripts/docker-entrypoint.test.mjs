@@ -123,7 +123,7 @@ describe('the container files', () => {
     expect(docker).toMatch(/^CMD \["node", "packages\/backend\/boot\.mjs"\]$/m);
     expect(docker.split('\n').filter((l) => !l.startsWith('#')).join('\n')).not.toMatch(/npm start/);
     expect(docker).toMatch(/HEALTHCHECK[\s\S]*\/api\/health/);
-    for (const env of ['HOST=0.0.0.0', 'PORT=3099', 'DB_PATH=/data/sanctum.db', 'AGENT_CWD=/companion-home', 'SANCTUM_SUPERVISED=1', 'NODE_ENV=production']) expect(docker).toContain(env);
+    for (const env of ['HOST=0.0.0.0', 'PORT=3099', 'DB_PATH=/data/sanctum.db', 'AGENT_CWD=/companion-home', 'SANCTUM_SUPERVISED=1', 'NODE_ENV=production', 'CLAUDE_CONFIG_DIR=/data/claude']) expect(docker).toContain(env);
   });
   it('Dockerfile: every COPY source exists in the repository', () => {
     for (const m of docker.matchAll(/^COPY (?:--\S+ )*(\S+(?: \S+)*?) \S+$/gm)) {

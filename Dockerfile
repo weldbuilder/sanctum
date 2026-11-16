@@ -32,10 +32,11 @@ ENV HOST=0.0.0.0 \
     DB_PATH=/data/sanctum.db \
     AGENT_CWD=/companion-home \
     SANCTUM_SUPERVISED=1 \
-    NODE_ENV=production
+    NODE_ENV=production \
+    CLAUDE_CONFIG_DIR=/data/claude
 
 USER node
-# /data: the database, the settings (config/), logs. /companion-home: the companion's own folder.
+# /data: the database, the settings (config/), logs, and the Claude sign-in (claude/). /companion-home: the companion's own folder.
 VOLUME ["/data", "/companion-home"]
 EXPOSE 3099
 HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
