@@ -58,9 +58,9 @@ function inside(root: string, p: string): boolean {
 
 /** Is `rel` (a path under the install root) one of the companion's own files? */
 function isHomePath(rel: string): boolean {
-  const segs = rel.split(sep);
+  const segs = rel.split(sep).map(norm); // targets are already norm()ed (lower-cased on Windows); the list is not
   return HOME_PATHS.some((h) => {
-    const hs = h.split('/');
+    const hs = h.split('/').map(norm);
     return hs.every((s, i) => segs[i] === s);
   });
 }
