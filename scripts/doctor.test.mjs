@@ -5,7 +5,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { IMAGEGEN_KEY_ENV, SHIPPED_PATHS, SMALL_TIER, formatReport, frameResolution, nodeInRange, parseArgs, runDoctor } from './doctor.mjs';
+import { CONSENT_CAPABILITIES, consentSummary, IMAGEGEN_KEY_ENV, SHIPPED_PATHS, SMALL_TIER, formatReport, frameResolution, nodeInRange, parseArgs, runDoctor } from './doctor.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const posix = process.platform !== 'win32';
@@ -358,7 +358,7 @@ describe('doctor: pictures and summaries', () => {
         expect(c.message).toBe('image generation off; see UPGRADE.md, "Pictures and companion-voiced summaries".');
         expect(lines(report, 'WARN')).toEqual([]);
         expect(report.exitCode).toBe(0);
-        expect(report.counts.INFO).toBe(1);
+        expect(report.counts.INFO).toBe(2); // imagegen, and the always-present permissions line
         expect(formatReport(report)).toMatch(/\n {2}INFO {2}imagegen: image generation off; see UPGRADE\.md/);
       } finally { cleanup(root); }
     }
@@ -465,5 +465,61 @@ describe('doctor: pictures and summaries', () => {
   it('the image key variables are the backend\'s (services/imagegen/index.ts)', () => {
     const src = fs.readFileSync(path.join(HERE, '..', 'packages', 'backend', 'src', 'services', 'imagegen', 'index.ts'), 'utf-8');
     for (const [p, v] of Object.entries(IMAGEGEN_KEY_ENV)) expect(src).toContain(`${p}: '${v}'`);
+  });
+});
+
+describe('doctor: permissions (the consent gate)', () => {
+  const find = (report, check) => report.sections.flatMap((s) => s.checks).filter((c) => c.check === check);
+
+  it('one INFO line, always: Open mode with nothing off, and the local-model sentence', () => {
+    const root = app();
+    try {
+      const report = go(root);
+      const [c] = find(report, 'permissions');
+      expect(find(report, 'permissions')).toHaveLength(1);
+      expect(c.status).toBe('INFO');
+      expect(c.message).toMatch(/^Open mode; nothing is off\. These switches are code and hold for any model; a model run locally has no provider rails, so the rails are yours\./);
+      expect(c.message).toContain('Permissions and the consent gate');
+      expect(report.exitCode).toBe(0);
+    } finally { cleanup(root); }
+  });
+
+  it('reads the database: Guard mode, a switch-off, a window that ended', async () => {
+    const root = app();
+    try {
+      const { default: Database } = await import('better-sqlite3');
+      const dbPath = path.join(root, 'data', 'sanctum.db');
+      const db = new Database(dbPath);
+      db.exec('CREATE TABLE config (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+      const set = db.prepare('INSERT INTO config (key, value) VALUES (?, ?)');
+      set.run('consent.grants', JSON.stringify([
+        { capability: 'shell', effect: 'off', grant_id: 'a', granted_at: '2026-11-01T00:00:00Z', expires_at: null },
+        { capability: 'web', effect: 'on', grant_id: 'b', granted_at: '2026-11-01T00:00:00Z', expires_at: '2026-11-01T01:00:00Z' },
+        { capability: 'voice_out', effect: 'on', grant_id: 'c', granted_at: '2026-11-01T00:00:00Z', expires_at: '2999-01-01T00:00:00Z' },
+      ]));
+      db.close();
+      expect(consentSummary(dbPath)).toEqual({ mode: 'open', off: ['shell', 'web'] });
+      expect(find(go(root), 'permissions')[0].message).toMatch(/^Open mode; off: shell, web\./);
+      const db2 = new Database(dbPath);
+      db2.prepare('INSERT INTO config (key, value) VALUES (?, ?)').run('consent.mode', 'guard');
+      db2.close();
+      const guard = consentSummary(dbPath);
+      expect(guard.mode).toBe('guard');
+      expect(guard.off).not.toContain('voice_out'); // granted
+      expect(guard.off).toContain('app_write');
+      expect(find(go(root), 'permissions')[0].message).toMatch(/^Guard mode is on: everything is off until granted \(off now: app_write, shell, /);
+    } finally { cleanup(root); }
+  });
+
+  it('a missing or unreadable database is the default, not an error; the PIN and its hash are never read', () => {
+    expect(consentSummary('/nonexistent/sanctum.db')).toEqual({ mode: 'open', off: [] });
+    const src = fs.readFileSync(path.join(HERE, 'doctor.mjs'), 'utf8');
+    expect(src).not.toMatch(/pin_hash|pin_lock/);
+  });
+
+  it('the capability list is the backend\'s (services/consent/gate.ts CAPABILITIES)', () => {
+    const src = fs.readFileSync(path.join(HERE, '..', 'packages', 'backend', 'src', 'services', 'consent', 'gate.ts'), 'utf8');
+    const body = /export const CAPABILITIES = \[([\s\S]*?)\] as const;/.exec(src)[1];
+    expect([...body.matchAll(/'([a-z_]+)'/g)].map((m) => m[1])).toEqual([...CONSENT_CAPABILITIES]);
   });
 });

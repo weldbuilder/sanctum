@@ -76,6 +76,13 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
   next();
 }
 
+/** An opaque id for the session a request belongs to (a hash of its cookie; the cookie value itself is never kept). '' when there is no cookie
+ *  (the local-dev-open setup). For the things that must be spent by the session that earned them, such as the consent PIN token. */
+export function requestSessionId(req: Request): string {
+  const token = req.headers.cookie ? parseCookie(req.headers.cookie)[COOKIE_NAME] : undefined;
+  return token ? crypto.createHash('sha256').update(token).digest('hex').slice(0, 32) : '';
+}
+
 /** Constant-time compare of an entered password with the expected one. */
 function passwordMatches(input: unknown, expected: string): boolean {
   if (typeof input !== 'string' || !input) return false;

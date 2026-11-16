@@ -22,9 +22,10 @@ import { splitResponse } from './utils.js';
 import { getSanctumConfig } from '../../config.js';
 import { tenantLocal } from '../../tenancy/context.js';
 import { logEvent } from '../logs.js';
+import { check as consentCheck, denyMessage } from '../consent/gate.js';
 
 export type Lane = 'owner' | 'public';
-export type BlockReason = 'paused' | 'public_off' | 'payload' | 'word' | 'name' | 'word_name' | 'gate_error';
+export type BlockReason = 'paused' | 'public_off' | 'payload' | 'word' | 'name' | 'word_name' | 'gate_error' | 'consent_off';
 
 /** Anything with discord.js's `send`: a text channel, a thread, a DM channel. */
 export interface SendableChannel { send(payload: any): Promise<unknown> }
@@ -66,6 +67,8 @@ export interface SendRuntime {
   /** The name list; null = guard off. Throws GateError when present but unusable. */
   names(): Rules | null;
   log(event: string, fields: Record<string, unknown>): void;
+  /** The consent gate (`outward_discord`), asked before the word gate on every send. Absent = not asked (tests that build their own runtime). */
+  consent?(lane: Lane, summary: string): { allow: boolean; reason: string };
   /** Pause between chunks, to stay inside Discord's rate limits. */
   chunkDelayMs?: number;
 }
@@ -196,6 +199,12 @@ export function createSender(rt: SendRuntime) {
       return block('payload', [], [], 'the payload could not be read');
     }
 
+    // 3b. The consent gate: is the companion allowed to put words in front of people on Discord right now? (Settings → Permissions.)
+    if (rt.consent) {
+      const c = rt.consent(lane, text);
+      if (!c.allow) return block('consent_off', [], [], denyMessage('outward_discord', c.reason));
+    }
+
     // 4. The gate. Both lists run, so one reason carries every hit. Any failure to run either is a block.
     let wordHits: ReturnType<typeof check> = [];
     let nameHits: ReturnType<typeof check> = [];
@@ -262,6 +271,10 @@ export function createSender(rt: SendRuntime) {
     if (lane === 'public' && rt.isPaused()) return block('paused', [], []);
     if (lane === 'public' && !rt.isPublicEnabled()) return block('public_off', [], []);
     if (typeof text !== 'string') return block('payload', [], [], 'the text is not a string');
+    if (rt.consent) {
+      const c = rt.consent(lane, text);
+      if (!c.allow) return block('consent_off', [], [], denyMessage('outward_discord', c.reason));
+    }
     let wordHits: ReturnType<typeof check> = [];
     let nameHits: ReturnType<typeof check> = [];
     try {
@@ -305,6 +318,7 @@ const appRuntime: SendRuntime = {
   isPublicEnabled: () => getSanctumConfig().discord.public.enabled === true,
   words: () => wordSource.get()!,
   names: () => nameSource.get(),
+  consent: (lane, summary) => consentCheck('outward_discord', { harness: 'server', tool: `discord ${lane} send`, summary }),
   log: (event, fields) => {
     console.warn(`[Discord] ${event} ${JSON.stringify(fields)}`);
     // A gate that could not run blocks everything: that is a failure the person has to be able to see.

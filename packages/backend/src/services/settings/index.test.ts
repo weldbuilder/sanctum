@@ -253,6 +253,18 @@ describe('secrets', () => {
     expect(resolveSetting('auth.mode')).toMatchObject({ value: 'api_key', source: 'db' });
   });
 
+  it('consent.mode is a db-homed registry key: open by default, guard from the KV row, no yaml or env layer', () => {
+    expect(resolveSetting('consent.mode')).toMatchObject({ value: 'open', source: 'default' });
+    setConfig('consent.mode', 'guard');
+    expect(resolveSetting('consent.mode')).toMatchObject({ value: 'guard', source: 'db' });
+    const def = REGISTRY.find((k) => k.key === 'consent.mode')!;
+    expect(def.yaml).toBeUndefined();
+    expect(def.env).toBeUndefined();
+    expect(def.kv).toBe('consent.mode');
+    // grants, switch-offs and the PIN are runtime state, not settings
+    for (const k of ['consent.grants', 'consent.pin_hash', 'consent.pin_lock_until']) expect(lookupKey(k)).toBeNull();
+  });
+
   it('env-only image keys are secrets too; resolveSecret refuses a key that is not one', () => {
     vi.stubEnv('RUNWARE_API_KEY', 'rw-123456');
     const r = resolveSetting('imagegen.runware_api_key');

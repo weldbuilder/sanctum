@@ -20,6 +20,7 @@ import { getSanctumConfig } from '../../config.js';
 import { bindCurrentTenant, envFor } from '../../tenancy/context.js';
 import { UPDATING_REPLY, noticeOnce, updateBlocking } from '../update-block.js';
 import type { registry as registryInstance } from '../ws.js';
+import { requireCapability } from '../consent/gate.js';
 
 type ConnectionRegistry = typeof registryInstance;
 
@@ -474,6 +475,7 @@ export class TelegramService {
       console.warn('[Telegram] Cannot send — owner chat ID not set');
       return;
     }
+    requireCapability('outward_telegram', { harness: 'server', tool: 'telegram text', summary: text ? `${text}` : 'text' });
 
     const chunks = splitResponse(text);
     for (let i = 0; i < chunks.length; i++) {
@@ -494,6 +496,8 @@ export class TelegramService {
       console.warn('[Telegram] Cannot send voice — owner chat ID not set');
       return;
     }
+    requireCapability('outward_telegram', { harness: 'server', tool: 'telegram voice note', summary: text ? `${text}` : 'voice note' });
+    if (this.voiceService.canTTS) requireCapability('voice_out', { harness: 'server', tool: 'telegram voice note', summary: text });
 
     if (!this.voiceService.canTTS) {
       console.warn('[Telegram] TTS not configured — falling back to text');
@@ -523,6 +527,7 @@ export class TelegramService {
       console.warn('[Telegram] Cannot send photo — owner chat ID not set');
       return;
     }
+    requireCapability('outward_telegram', { harness: 'server', tool: 'telegram photo', summary: caption ? `${caption}` : 'photo' });
 
     try {
       const photoSource = typeof source === 'string'
@@ -544,6 +549,7 @@ export class TelegramService {
       console.warn('[Telegram] Cannot send document — owner chat ID not set');
       return;
     }
+    requireCapability('outward_telegram', { harness: 'server', tool: 'telegram document', summary: caption ?? filename ? `${caption ?? filename}` : 'document' });
 
     try {
       const docSource = typeof source === 'string'
@@ -565,6 +571,7 @@ export class TelegramService {
       console.warn('[Telegram] Cannot send animation — owner chat ID not set');
       return;
     }
+    requireCapability('outward_telegram', { harness: 'server', tool: 'telegram animation', summary: caption ? `${caption}` : 'animation' });
 
     try {
       const animSource = typeof source === 'string'
@@ -587,6 +594,7 @@ export class TelegramService {
       console.warn('[Telegram] Cannot send GIF — owner chat ID not set');
       return;
     }
+    requireCapability('outward_telegram', { harness: 'server', tool: 'telegram GIF', summary: query ? `${query}` : 'GIF' });
 
     try {
       const apiKey = envFor('the GIF search').GIPHY_API_KEY;

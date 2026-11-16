@@ -433,8 +433,48 @@ function checkProcess(r, root, ctx, nodeVersion) {
   const w = writableOrCreatable(dbPath);
   if (w.ok) r.ok('database', w.exists ? `${dbPath} is writable.` : `${dbPath} does not exist yet and ${w.at} can be written.`);
   else r.fail('database', `${dbPath} cannot be written (${w.at} is not writable).`);
+  checkConsent(r, dbPath);
   // The process's own secrets.
   checkModes(r, '', [[join(root, '.env'), '.env'], [join(root, 'app.env'), 'app.env'], [join(dirname(dbPath), '.internal-token'), 'data/.internal-token'], [join(dirname(dbPath), '.google-key'), 'data/.google-key']]);
+}
+
+/** The consent gate's capabilities (packages/backend/src/services/consent/gate.ts CAPABILITIES; a test keeps the two lists equal). */
+export const CONSENT_CAPABILITIES = Object.freeze(['app_write', 'shell', 'files_outside_home', 'web', 'outward_telegram', 'outward_discord', 'google_write', 'self_code_edit', 'voice_out']);
+
+/** One INFO line: the consent gate's mode and anything off (Settings → Permissions; docs/CONFIGURATION.md, "Permissions and the consent gate").
+ *  Read straight from the database, read-only; a database that does not exist yet, or cannot be read, is the default (Open, nothing off). */
+export function consentSummary(dbPath) {
+  let mode = 'open';
+  let entries = [];
+  try {
+    if (existsSync(dbPath)) {
+      const Database = require('better-sqlite3');
+      const db = new Database(dbPath, { readonly: true, fileMustExist: true });
+      try {
+        const get = (k) => db.prepare('SELECT value FROM config WHERE key = ?').get(k)?.value;
+        mode = get('consent.mode') === 'guard' ? 'guard' : 'open';
+        const parsed = JSON.parse(get('consent.grants') || '[]');
+        if (Array.isArray(parsed)) entries = parsed;
+      } finally { db.close(); }
+    }
+  } catch { /* the default */ }
+  const now = Date.now();
+  const off = CONSENT_CAPABILITIES.filter((cap) => {
+    const e = entries.find((x) => x && x.capability === cap);
+    if (!e) return mode === 'guard';
+    if (e.effect === 'off') return true;
+    return typeof e.expires_at === 'string' && Date.parse(e.expires_at) <= now;
+  });
+  return { mode, off };
+}
+
+function checkConsent(r, dbPath) {
+  const { mode, off } = consentSummary(dbPath);
+  const rails = 'These switches are code and hold for any model; a model run locally has no provider rails, so the rails are yours.';
+  const what = mode === 'guard'
+    ? `Guard mode is on: everything is off until granted${off.length < CONSENT_CAPABILITIES.length ? ` (off now: ${off.join(', ')})` : ''}.`
+    : off.length ? `Open mode; off: ${off.join(', ')}.` : 'Open mode; nothing is off.';
+  r.info('permissions', `${what} ${rails} See docs/CONFIGURATION.md, "Permissions and the consent gate".`);
 }
 
 // ── the command ──────────────────────────────────────────────────────────────

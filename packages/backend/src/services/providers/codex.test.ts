@@ -12,6 +12,7 @@ const h = vi.hoisted(() => ({
   ingestCalls: [] as any[],
   agentHome: '',
   identityCfg: { companion_name: 'Hazel', user_name: 'Pat' } as any,
+  limits: { calls: [] as any[], result: null as any },
 }));
 
 vi.mock('../../config.js', () => ({
@@ -32,6 +33,10 @@ vi.mock('../rolling-context.js', () => ({
     readForServe: async () => { h.rolling.readServeCalls++; return h.rolling.serve; },
     maybeCompact: () => { h.rolling.compact++; return Promise.resolve({}); },
   }),
+}));
+// The consent gate's run flags (gate.test.ts runs the real thing): here only that the adapter asks it and launches with its answer.
+vi.mock('../consent/gate.js', () => ({
+  runLimits: (cfg: any, ctx: any) => { h.limits.calls.push({ cfg, ctx }); return h.limits.result ?? { sandboxMode: cfg.sandboxMode, networkAccess: cfg.networkAccess, additionalDirectories: cfg.additionalDirectories ?? [], restricted: [] }; },
 }));
 vi.mock('../mind-client.js', () => ({ mindRecallBlock: async (q: string) => { h.mindCalls.push(q); return h.mind; } }));
 vi.mock('../revien.js', () => ({
@@ -110,6 +115,7 @@ describe('codex adapter', () => {
     h.rolling = { turns: [], serve: null, compact: 0, readServeCalls: 0, fail: false };
     h.recall = ''; h.recallCalls = []; h.ingestCalls = []; h.mind = ''; h.mindCalls = [];
     captured = {};
+    h.limits.calls = []; h.limits.result = null;
   });
 
   it('translates a turn into Claude-shaped messages', async () => {
@@ -141,6 +147,33 @@ describe('codex adapter', () => {
     expect(think).toBe('Hmm, candles.');
     expect(out.find(m => m.type === 'assistant').message.content[0].text).toBe('Blessed be, friend.');
     expect(out.at(-1)).toMatchObject({ type: 'result', subtype: 'success', result: 'Blessed be, friend.', usage: { input_tokens: 10, cache_read_input_tokens: 2 } });
+  });
+
+  describe('the consent gate sets the sandbox the run is launched with', () => {
+    const narrowed = { sandboxMode: 'read-only', networkAccess: false, additionalDirectories: [], restricted: ['shell', 'web'] };
+    it('SDK path: thread options carry what the gate returned, and the gate was asked with the configured values', async () => {
+      h.limits.result = narrowed;
+      await drain(codexQuery({ prompt: 'hi', options: { sanctum: { threadId: 'T9', userContent: 'hi' } } as any }));
+      expect(h.limits.calls).toEqual([{ cfg: { sandboxMode: 'workspace-write', networkAccess: true, additionalDirectories: [] }, ctx: { harness: 'codex', threadId: 'T9' } }]);
+      expect(captured.threadOpts).toMatchObject({ sandboxMode: 'read-only', networkAccessEnabled: false, additionalDirectories: [] });
+    });
+    it('rolling path (runCodexExec): the same', async () => {
+      h.rollingCfg = { enabled: true };
+      h.rolling.serve = { covered: 0, segments: 0, block: '', render: () => '' };
+      h.limits.result = narrowed;
+      await drain(codexQuery({ prompt: 'hi', options: { sanctum: { threadId: 'T9', userContent: 'hi' } } as any }));
+      expect(h.exec.params).toMatchObject({ sandboxMode: 'read-only', networkAccess: false, additionalDirectories: [] });
+    });
+    it('nothing off: launched exactly as configured', async () => {
+      await drain(codexQuery({ prompt: 'hi', options: { sanctum: { threadId: 'T9', userContent: 'hi' } } as any }));
+      expect(captured.threadOpts).toMatchObject({ sandboxMode: 'workspace-write', networkAccessEnabled: true });
+    });
+    it('read-only helpers are not narrowed (they are read-only already) and do not ask the gate', async () => {
+      h.limits.result = narrowed;
+      await drain(codexQuery({ prompt: 'summarise', options: { systemPrompt: 'scribe', permissionMode: 'plan', tools: [] } as any }));
+      expect(h.limits.calls).toEqual([]);
+      expect(h.exec.params).toMatchObject({ sandboxMode: 'read-only', networkAccess: true });
+    });
   });
 
   it('one-shot subagents receive their task brief and run unlogged, read-only', async () => {

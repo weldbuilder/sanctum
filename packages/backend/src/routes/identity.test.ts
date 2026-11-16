@@ -24,6 +24,7 @@ vi.mock('../services/db.js', () => ({
   createWebSession: () => {}, deleteExpiredSessions: () => {},
   getCurrentDailyThread: () => ({ id: 'daily-test' }), ensureDailyThread: () => ({ thread: { id: 'daily-test' } }),
   createMessage: () => ({}),
+  getConfig: () => null, // (the consent gate reads its state; an unreadable state now fails closed, so a db mock has to answer)
 }));
 vi.mock('../services/ws.js', () => ({ registry: { broadcast: (m: any) => { h.pushes.push(m); } } }));
 

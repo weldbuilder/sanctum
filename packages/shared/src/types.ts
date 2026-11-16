@@ -523,4 +523,8 @@ export interface Approval {
   status: 'pending' | 'approved' | 'denied' | 'expired';
   created_at: string;
   decided_at: string | null;
+  /** The consent-gate capability this ask is for (`res ask --capability web --window 30`), when it named one. Approving creates the grant. */
+  capability?: string | null;
+  /** The window asked for, in minutes; null = leave on. */
+  window_minutes?: number | null;
 }

@@ -18,6 +18,7 @@
 // request — never from content returned by a read action (anti-injection).
 
 import { Router } from 'express';
+import { ConsentDeniedError } from '../services/consent/gate.js';
 import {
   accountForApp,
   isScopeGranted,
@@ -552,6 +553,7 @@ function serviceDisabledString(err: unknown, hint?: string): string | null {
 /** Map the auth/scope sentinels to friendly, actionable strings. For a missing
  *  WRITE scope, name the specific capability so the user knows what to re-grant. */
 function authErrorString(err: unknown): string | null {
+  if (err instanceof ConsentDeniedError) return `${err.message} To ask for a window: res ask ${err.capability} <minutes>.`;
   if (err instanceof GoogleNotConnectedError) {
     return "That Google service isn't connected yet — connect/enable it in Settings → Integrations.";
   }

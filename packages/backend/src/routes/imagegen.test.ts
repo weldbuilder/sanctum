@@ -26,6 +26,7 @@ vi.mock('../services/files.js', () => ({
 vi.mock('../services/db.js', () => ({
   createMessage: (m: any) => { h.messages.push(m); return { ...m }; },
   updateThreadActivity: vi.fn(),
+  getConfig: () => null, // (the consent gate reads its state; an unreadable state now fails closed, so a db mock has to answer)
   getThread: (id: string) => (h.threads.has(id) ? { id, type: 'named' } : null),
   ensureDailyThread: () => ({ thread: { id: 'daily-1', type: 'daily', name: 'Today' }, justCreated: false }),
 }));

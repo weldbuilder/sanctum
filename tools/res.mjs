@@ -157,16 +157,39 @@ switch (cmd) {
   // res ask "what you want to do" [more detail...]
   // Asks the person for permission in the app and WAITS for the answer (up to
   // 10 minutes). Prints approved / denied / expired. Exit 0 only when approved.
+  // res ask "why" --capability <name> --window <minutes|on>   or the short form   res ask <capability> <minutes|on>
+  // A capability ask is the way to a window for something the consent gate has off: approving the card creates the grant.
+  // No window named = 60 minutes. "on" (leave it on, no end) only when it is said.
   case 'ask': {
-    const what = args[0];
-    if (!what) { console.error('Usage: res ask "what you want to do" [detail]'); process.exitCode = 2; break; }
-    const detail = args.slice(1).join(' ') || undefined;
+    const CAPS = ['app_write', 'shell', 'files_outside_home', 'web', 'outward_telegram', 'outward_discord', 'google_write', 'self_code_edit', 'voice_out'];
+    const rest = [];
+    let capability, windowArg;
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === '--capability') capability = args[++i];
+      else if (args[i] === '--window') windowArg = args[++i];
+      else rest.push(args[i]);
+    }
+    if (!capability && CAPS.includes(rest[0]) && (rest.length === 1 || /^(\d+|on)$/i.test(rest[1] ?? ''))) {
+      capability = rest.shift();
+      if (rest.length && /^(\d+|on)$/i.test(rest[0])) windowArg = rest.shift();
+      if (!rest.length) rest.push(`${capability}${windowArg && windowArg !== 'on' ? ` for ${windowArg} minutes` : ''}`);
+    }
+    if (capability && !CAPS.includes(capability)) { console.error(`Unknown capability "${capability}". One of: ${CAPS.join(', ')}`); process.exitCode = 2; break; }
+    let windowMinutes;
+    if (windowArg !== undefined) {
+      if (/^on$/i.test(windowArg)) windowMinutes = null;
+      else if (/^\d+$/.test(windowArg) && Number(windowArg) >= 1) windowMinutes = Number(windowArg);
+      else { console.error('--window is a number of minutes, or "on" to leave it on'); process.exitCode = 2; break; }
+    }
+    const what = rest[0];
+    if (!what) { console.error('Usage: res ask "what you want to do" [detail] [--capability <name> --window <minutes|on>]  |  res ask <capability> <minutes|on>'); process.exitCode = 2; break; }
+    const detail = rest.slice(1).join(' ') || undefined;
     const timeoutMs = Number(process.env.RES_ASK_TIMEOUT_MS) || 10 * 60 * 1000;
     try {
       const r = await fetch(`${BASE}/approvals`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(INTERNAL_TOKEN ? { 'x-internal-token': INTERNAL_TOKEN } : {}) },
-        body: JSON.stringify({ what, detail, threadId: thread, timeoutMs }),
+        body: JSON.stringify({ what, detail, threadId: thread, timeoutMs, ...(capability ? { capability, window_minutes: windowMinutes === undefined ? 60 : windowMinutes } : {}) }),
         signal: AbortSignal.timeout(timeoutMs + 30_000),
       });
       const data = await r.json().catch(() => ({}));

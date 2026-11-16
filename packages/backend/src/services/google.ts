@@ -23,6 +23,7 @@ import {
 } from './google-auth.js';
 import { getDb } from './db.js';
 import { tenantLocal } from '../tenancy/context.js';
+import { requireCapability } from './consent/gate.js';
 
 // ---------------------------------------------------------------------------
 // Sentinels (caught by the MCP to print friendly, actionable strings)
@@ -74,6 +75,8 @@ async function requireAppClient(app: GoogleApp) {
  *  account first; then the specific scope must be granted. */
 async function requireWriteClient(app: GoogleApp, scope: string) {
   if (!accountForApp(app)) throw new GoogleNotConnectedError();
+  // The consent gate (`google_write`), beside the scope check: every write helper passes through here. Throws ConsentDeniedError when off.
+  requireCapability('google_write', { harness: 'server', tool: `google ${app} write` });
   if (!isWriteScopeGranted(app, scope)) throw new GoogleScopeNotGrantedError(app, scope);
   try {
     return await getClientForApp(app);
