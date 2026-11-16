@@ -86,6 +86,8 @@ cors:
   origins: ["https://YOUR-COMPUTER.YOUR-TAILNET.ts.net"]
 ```
 
+**Always on, without your computer.** To run it on a small cloud box (about five dollars a month) with one command, private over Tailscale by default, or as a Docker image, see [docs/HOSTING.md](docs/HOSTING.md).
+
 ## Their home folder
 
 | File | What it is |
