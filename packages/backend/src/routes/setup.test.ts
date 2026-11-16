@@ -15,7 +15,7 @@ const h = vi.hoisted(() => {
   const os = require('node:os') as typeof import('node:os');
   const path = require('node:path') as typeof import('node:path');
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'setup-routes-')));
-  return { root, appPassword: '' as string, source: 'dotenv' as string, password: '' as string, sessionOk: false, db: {} as Record<string, string>, reloads: 0, kept: [] as (string | null)[], revoked: 2, reloadThrows: false, botToken: false };
+  return { root, appPassword: '' as string, source: 'dotenv' as string, password: '' as string, sessionOk: false, db: {} as Record<string, string>, reloads: 0, kept: [] as (string | null)[], revoked: 2, reloadThrows: false, botToken: false, auth: [] as unknown[] };
 });
 
 vi.mock('../config.js', () => ({
@@ -34,6 +34,7 @@ vi.mock('../middleware/auth.js', () => ({
   },
 }));
 vi.mock('../services/db.js', () => ({ getConfig: (k: string) => h.db[k] ?? null, deleteWebSessionsExcept: (keep: string | null) => { h.kept.push(keep); return h.revoked; } }));
+vi.mock('../services/auth-preferences.js', () => ({ updateAuthPreferences: (u: unknown) => { h.auth.push(u); } }));
 vi.mock('../services/bot-token.js', () => ({ hasBotToken: () => h.botToken }));
 vi.mock('child_process', async (orig) => ({ ...(await orig<typeof import('child_process')>()), spawnSync: () => ({ status: 0 }) }));
 
@@ -76,7 +77,7 @@ function lay() {
 beforeAll(async () => { await new Promise<void>((r) => { server = app.listen(0, '127.0.0.1', () => r()); }); base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/setup`; });
 afterAll(async () => { await new Promise((r) => server.close(r)); rmSync(h.root, { recursive: true, force: true }); });
 beforeEach(() => {
-  h.appPassword = ''; h.source = 'dotenv'; h.kept = []; h.revoked = 2; h.password = ''; h.sessionOk = false; h.db = {}; h.reloads = 0; h.reloadThrows = false; h.botToken = false;
+  h.appPassword = ''; h.source = 'dotenv'; h.kept = []; h.revoked = 2; h.password = ''; h.sessionOk = false; h.db = {}; h.reloads = 0; h.reloadThrows = false; h.botToken = false; h.auth = [];
   now = 5_000_000; printed = [];
   _resetSetupCode({ now: () => now, announce: (code) => { printed.push(code); } });
   lay();
@@ -388,6 +389,21 @@ describe('POST /apply', () => {
     const codex = await post('/apply', { answers: { userName: 'Sam', companionName: 'Ada', timezone: 'America/New_York', provider: 'codex', addProvider: false, home: companionHome } }, { 'content-type': 'application/json', 'x-test-session': 'yes' });
     expect(codex.status).toBe(200);
     expect(readFileSync(join(h.root, 'sanctum.yaml'), 'utf-8')).toMatch(/provider: "?codex"?/);
+  });
+
+  it('a pasted Anthropic key selects api_key auth mode (and stores the key); the Claude login selects subscription; other harnesses leave it alone', async () => {
+    const keyed = await post('/apply', { answers: fresh() }, asCode());
+    expect(keyed.status).toBe(200);
+    expect(h.auth).toEqual([{ auth_mode: 'api_key', api_key: SECRET_KEY }]);
+    expect(JSON.stringify(await keyed.json())).not.toContain(SECRET_KEY);
+    h.auth = []; h.password = SECRET_PW;
+    const login = await post('/apply', { answers: fresh({ anthropicKey: '' }) }, asSession());
+    expect(login.status).toBe(200);
+    expect(h.auth).toEqual([{ auth_mode: 'subscription' }]);
+    h.auth = [];
+    const codex = await post('/apply', { answers: { provider: 'codex', addProvider: false, home: companionHome } }, asSession());
+    expect(codex.status).toBe(200);
+    expect(h.auth).toEqual([]);
   });
 
   it('DeepSeek Harness, the third harness: its model in sanctum.yaml, its key in .env as DEEPSEEK_API_KEY (never in the reply), and no built-in memory offered', async () => {

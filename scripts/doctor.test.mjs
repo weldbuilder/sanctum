@@ -4,7 +4,9 @@ import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { tmpdir } from 'node:os';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { AUTH_KEY_IGNORED_LINE } from './setup-lib.mjs';
 import { CONSENT_CAPABILITIES, consentSummary, IMAGEGEN_KEY_ENV, SHIPPED_PATHS, SMALL_TIER, formatReport, frameResolution, nodeInRange, parseArgs, runDoctor } from './doctor.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -521,5 +523,32 @@ describe('doctor: permissions (the consent gate)', () => {
     const src = fs.readFileSync(path.join(HERE, '..', 'packages', 'backend', 'src', 'services', 'consent', 'gate.ts'), 'utf8');
     const body = /export const CAPABILITIES = \[([\s\S]*?)\] as const;/.exec(src)[1];
     expect([...body.matchAll(/'([a-z_]+)'/g)].map((m) => m[1])).toEqual([...CONSENT_CAPABILITIES]);
+  });
+});
+
+describe('doctor: a key the auth mode ignores', () => {
+  const require = createRequire(import.meta.url);
+  const withMode = (mode, envText) => {
+    const root = app();
+    const Database = require('better-sqlite3');
+    const db = new Database(path.join(root, 'data', 'sanctum.db'));
+    db.exec("CREATE TABLE auth_preferences (id INTEGER PRIMARY KEY, auth_mode TEXT NOT NULL, api_key TEXT, updated_at TEXT)");
+    db.prepare('INSERT INTO auth_preferences (id, auth_mode, updated_at) VALUES (1, ?, ?)').run(mode, 'x');
+    db.close();
+    put(path.join(root, '.env'), envText);
+    return root;
+  };
+  const authWarns = (root) => lines(go(root), 'WARN').filter((c) => c.check === 'auth mode');
+  it('WARN with the boot sentence only when a key is set and the mode is subscription', () => {
+    const roots = [withMode('subscription', 'ANTHROPIC_API_KEY=sk-demo-key\n'), withMode('api_key', 'ANTHROPIC_API_KEY=sk-demo-key\n'), withMode('subscription', 'TZ=UTC\n'), app()];
+    try {
+      const [mismatch, apiKey, noKey, noDb] = roots.map(authWarns);
+      expect(mismatch).toHaveLength(1);
+      expect(mismatch[0].message).toBe(`${AUTH_KEY_IGNORED_LINE}.`);
+      expect(JSON.stringify(mismatch)).not.toContain('sk-demo-key');
+      expect(apiKey).toEqual([]);
+      expect(noKey).toEqual([]);
+      expect(noDb).toEqual([]);
+    } finally { roots.forEach(cleanup); }
   });
 });

@@ -187,6 +187,19 @@ export function readDbConfig(dbPath, key) {
   } catch { return null; }
 }
 
+/** The app's auth mode ('subscription' | 'api_key') from auth_preferences, read-only; null when there is no database, no row, or better-sqlite3 cannot load. */
+export function readAuthMode(dbPath) {
+  try {
+    if (!dbPath || !existsSync(dbPath)) return null;
+    const Database = createRequire(import.meta.url)('better-sqlite3');
+    const db = new Database(dbPath, { readonly: true, fileMustExist: true });
+    try {
+      const row = db.prepare('SELECT auth_mode FROM auth_preferences WHERE id = 1').get();
+      return row && (row.auth_mode === 'api_key' || row.auth_mode === 'subscription') ? row.auth_mode : null;
+    } finally { db.close(); }
+  } catch { return null; }
+}
+
 /**
  * The `discord` block after the wizard's answers. Public stays off and bots stay never unless the
  * person already chose otherwise; every other key they have is kept; the legacy owner_user_id moves

@@ -1,6 +1,7 @@
 import { getDb } from './db.js';
 import { tenancyEnabled, tenantLocal } from '../tenancy/context.js';
 import { resolveSetting } from './settings/index.js';
+import { AUTH_KEY_IGNORED_LINE, authKeyIgnored } from '../../../../scripts/setup-lib.mjs';
 
 export type AuthMode = 'subscription' | 'api_key';
 
@@ -150,4 +151,15 @@ export function maskApiKey(key: string | null): string | null {
   if (!key) return null;
   if (key.length <= 16) return '***';
   return `${key.slice(0, 12)}...${key.slice(-4)}`;
+}
+
+/**
+ * Boot check: ANTHROPIC_API_KEY is in the environment (.env) but the auth mode is subscription, where applyAuthToEnv removes it from every run.
+ * ONE line, only in that mismatch (the setup wizard selects api_key when a key is pasted; older installs and hand-edited .env files can still land here).
+ * `npm run doctor` prints the same sentence as WARN.
+ */
+export function checkAuthKeyMode(warn: (m: string) => void = console.warn, env: NodeJS.ProcessEnv = process.env): boolean {
+  if (!authKeyIgnored(getAuthPreferences().auth_mode, env.ANTHROPIC_API_KEY)) return false;
+  warn(`[auth] ${AUTH_KEY_IGNORED_LINE}`);
+  return true;
 }

@@ -40,8 +40,9 @@ async function askStep(step, r, v, io) {
 
 /** Walk the plan, asking in the terminal's words, then write everything. Returns what applySetup returns.
  *  `phase`: 'one' (the first-run questions; whatever is already set is kept and not asked), 'more' (the rest), 'all' (every question,
- *  as the wizard asked before it had phases). A tenant's wizard is always 'all'. */
-export async function runSetup({ root, io, processEnv, homeDir, codexInstalled, timezoneDefault, tenant, create, phase = 'one' }) {
+ *  as the wizard asked before it had phases). A tenant's wizard is always 'all'.
+ *  `setAuthMode`: the terminal wizard's writer for the Anthropic auth mode (a pasted key selects api_key); absent for a tenant. */
+export async function runSetup({ root, io, processEnv, homeDir, codexInstalled, timezoneDefault, tenant, create, phase = 'one', setAuthMode }) {
   // `--tenant <id>`: the same plan against <tenants.dir>/<id>/, which must exist unless `--create` says to make it.
   let tenantDir = '';
   if (tenant !== undefined) {
@@ -112,7 +113,7 @@ export async function runSetup({ root, io, processEnv, homeDir, codexInstalled, 
   }
 
   const answers = buildAnswers(v, plan);
-  const result = applySetup(answers, plan, { say: (s = '') => io.say(s) });
+  const result = applySetup(answers, plan, { say: (s = '') => io.say(s) }, setAuthMode ? { setAuthMode } : {});
   io.say();
   if (tenantDir) {
     io.say('Tenants are read when the app starts: restart it to serve this one.');

@@ -17,6 +17,8 @@ import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { AUTH_KEY_IGNORED_LINE, authKeyIgnored } from './setup-lib.mjs';
+import { readAuthMode } from './setup-discord.mjs';
 import { ownReadFile, tenantFilesProblem } from './own-files-lib.mjs';
 import {
   INHERIT_TABLE, TENANT_ID_RE, authKeyMissingProblem, hostsOfFolderLoosely, inheritedBase, isSecretKeyName, overlay, processFilePath, processTimezoneOf,
@@ -434,6 +436,8 @@ function checkProcess(r, root, ctx, nodeVersion) {
   if (w.ok) r.ok('database', w.exists ? `${dbPath} is writable.` : `${dbPath} does not exist yet and ${w.at} can be written.`);
   else r.fail('database', `${dbPath} cannot be written (${w.at} is not writable).`);
   checkConsent(r, dbPath);
+  // A key the auth mode ignores: ANTHROPIC_API_KEY in the environment/.env with the default subscription mode (the same sentence boot logs).
+  if (authKeyIgnored(readAuthMode(dbPath), ctx.env.ANTHROPIC_API_KEY)) r.warn('auth mode', sentence(AUTH_KEY_IGNORED_LINE));
   // The process's own secrets.
   checkModes(r, '', [[join(root, '.env'), '.env'], [join(root, 'app.env'), 'app.env'], [join(dirname(dbPath), '.internal-token'), 'data/.internal-token'], [join(dirname(dbPath), '.google-key'), 'data/.google-key']]);
 }

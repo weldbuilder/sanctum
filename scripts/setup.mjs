@@ -19,6 +19,7 @@ import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { runSetup } from './setup-walk.mjs';
+import { terminalSetAuthMode } from './setup-auth-mode.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -53,6 +54,6 @@ const io = {
     catch (err) { if (err?.code === 'ABORT_ERR') cancelled(); throw err; }
   },
 };
-try { await runSetup({ root, io, tenant, create, phase }); }
+try { await runSetup({ root, io, tenant, create, phase, setAuthMode: tenant === undefined ? terminalSetAuthMode(root) : undefined }); }
 catch (err) { if (tenant === undefined) throw err; console.error(`\n${err.message}`); process.exitCode = 1; }
 finally { rl.close(); }

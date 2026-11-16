@@ -333,6 +333,18 @@ function applySetupIn(answers, plan, io, opts) {
   if (Object.keys(envValues).length) say(`Wrote ${env.envPath}`);
   const bound = tenantDir ? '' : boundOrigin(cfg);
   if (bound) say(`Your server listens on ${cfg.server.host}, so ${bound} was added to cors.origins: the address you open in the browser has to be in that list or the page says "Disconnected".`);
+  // The Claude way in decides the auth mode, which lives in the app's database (auth_preferences), not in .env: a pasted key selects api_key (the
+  // key is stored with it, since api_key mode applies the stored one), an empty answer (`claude login`, a Claude plan) selects subscription.
+  // Otherwise the key in .env is dropped from every run in the default subscription mode. The write is the caller's (`opts.setAuthMode`, the
+  // backend's updateAuthPreferences); what was chosen is also on the result, so a caller without a database can say so.
+  if (a.provider === 'claude') {
+    const want = a.anthropicKey ? { auth_mode: 'api_key', api_key: a.anthropicKey } : { auth_mode: 'subscription' };
+    result.authMode = want.auth_mode;
+    if (opts.setAuthMode) {
+      try { opts.setAuthMode(want, cfg); say(`Auth mode: ${want.auth_mode === 'api_key' ? 'API key (the key you pasted)' : 'subscription (claude login)'}`); }
+      catch (err) { result.authMode = null; say(`The key was saved to .env, but the auth mode could not be set (${err?.message || err}): the app ignores that key until the mode is api_key.`); }
+    }
+  }
   result.config = cfg;
   result.restartNeeded = tenantDir ? true : restartNeeded(ex, cfg);
   return result;
