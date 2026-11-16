@@ -4,6 +4,7 @@
 #   /app/sanctum.yaml, /app/.env, /app/.mcp.json  ->  /data/config/<same name>   (links; the setup wizard and the app write through them)
 #   /app/data                                     ->  /data                       (some files are kept under <app>/data whatever DB_PATH says)
 #   /app/logs                                     ->  /data/logs
+#   sanctum.yaml (first run only)                 <-  agent.cwd set to the companion home, so the wizard offers it
 #   /companion-home                               <-  /app/companion-home         (the starter template, only when it is empty)
 #
 # SANCTUM_APP, SANCTUM_DATA and SANCTUM_HOME move the three folders (the tests do; the image uses the defaults).
@@ -31,6 +32,12 @@ link "$DATA/logs" "$APP/logs"
 # The companion's home starts as the shipped template and is never touched once it holds anything.
 if [ -d "$APP/companion-home" ] && [ -d "$HOME_DIR" ] && [ -z "$(ls -A "$HOME_DIR" 2>/dev/null)" ]; then
   cp -R "$APP/companion-home/." "$HOME_DIR/"
+fi
+
+# The wizard defaults the home to ~/Documents/companion-home and does not read AGENT_CWD, so the first run points sanctum.yaml at the home volume.
+# --root is the volume's own folder, not the link: the yaml writer renames a temp file into place, which would replace a link.
+if [ -L "$APP/sanctum.yaml" ] && [ ! -e "$CONF/sanctum.yaml" ] && [ -f "$APP/scripts/hosting/set-config.mjs" ]; then
+  node "$APP/scripts/hosting/set-config.mjs" --root "$CONF" --default-cwd "$HOME_DIR" >/dev/null || printf 'docker-entrypoint: could not seed sanctum.yaml (the wizard will default the home to ~/Documents)\n' >&2
 fi
 
 exec "$@"

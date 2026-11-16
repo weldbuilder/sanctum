@@ -96,6 +96,23 @@ describe.skipIf(!haveSh)('docker-entrypoint.sh', () => {
     const e = box({ home: false });
     try { expect(run(e).status).toBe(0); expect(fs.existsSync(e.home)).toBe(false); } finally { done(e); }
   });
+  it('seeds sanctum.yaml with the home on the first run only, writing to the volume and not over the link', () => {
+    const d = box();
+    try {
+      // A real copy (the script runs only when it is the entry file, not through a link) with the repository's modules beside it.
+      fs.mkdirSync(path.join(d.app, 'scripts', 'hosting'), { recursive: true });
+      fs.copyFileSync(path.join(ROOT, 'scripts', 'hosting', 'set-config.mjs'), path.join(d.app, 'scripts', 'hosting', 'set-config.mjs'));
+      fs.symlinkSync(path.join(ROOT, 'node_modules'), path.join(d.app, 'node_modules'));
+      expect(run(d).status).toBe(0);
+      const file = path.join(d.data, 'config', 'sanctum.yaml');
+      expect(yaml.load(fs.readFileSync(file, 'utf-8')).agent.cwd).toBe(d.home);
+      expect(fs.readlinkSync(path.join(d.app, 'sanctum.yaml'))).toBe(file);
+      // A yaml the person (or the wizard) already saved is never touched.
+      fs.writeFileSync(file, 'identity:\n  user_name: Sam\n');
+      expect(run(d).status).toBe(0);
+      expect(fs.readFileSync(file, 'utf-8')).toBe('identity:\n  user_name: Sam\n');
+    } finally { done(d); }
+  });
   it('stops with one clear line when the data folder cannot be written', () => {
     const d = box();
     try {
