@@ -30,7 +30,7 @@ Who manages plugins?
 1) your companion: it can turn plugins on and off and edit them, and you see what changed in Settings.
 2) you: nothing runs until you have read and ratified its exact code, and a change stops it until you ratify again.
 Which one? [1] 
-Your companion manages plugins. Settings > Plugins shows what changed since you last looked.
+Your companion manages plugins. Settings → Permissions shows what changed since you last looked.
 Plugins add tools and routes. A plugin on disk does nothing until it is named here, and
 the default is none. These ship with the app:
 1) Hello (example plugin) (hello)
