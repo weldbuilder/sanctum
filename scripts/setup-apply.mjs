@@ -195,14 +195,14 @@ function applySetupIn(answers, plan, io, opts) {
     changed.push({ path: home, what: 'the home folder, from the starter template' });
     // The starter identity is the baseline: the first line of the identity journal, and the ratified copy (by `setup`), so the
     // companion's first run is on a version the person chose by running setup. An existing home gets its baseline at the first
-    // server boot instead, and stays unratified until the person ratifies it in Settings > Identity.
+    // server boot instead, and stays unratified until the person ratifies it in Settings → You & them.
     const ledgerDir = identityLedgerDirOf(base, ex);
     const baseline = writeIdentityBaseline(root, home, { ledgerDir });
     if (baseline.ok) {
       changed.push({ path: ledgerDir, what: 'the identity ledger: the starter identity is recorded as ratified at setup' });
-      say(`Identity: the starter files in ${join(home, 'identity')} are recorded as ratified (${baseline.digest.slice(0, 12)}). Changes after this wait for you in Settings > Identity.`);
+      say(`Identity: the starter files in ${join(home, 'identity')} are recorded as ratified (${baseline.digest.slice(0, 12)}). Changes after this wait for you in Settings → You & them.`);
     } else {
-      result.notes.push(`The identity ledger was not written (${baseline.reason}). The app will take a first look at the identity folder when it starts; ratify it in Settings > Identity.`);
+      result.notes.push(`The identity ledger was not written (${baseline.reason}). The app will take a first look at the identity folder when it starts; ratify it in Settings → You & them.`);
       say(`Identity: no ledger written (${baseline.reason}).`);
     }
   }

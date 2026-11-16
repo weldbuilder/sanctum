@@ -110,7 +110,7 @@ The **orchestrator** (`packages/backend/src/services/orchestrator.ts`) is the sc
 
 It has one master switch: `orchestrator.enabled` in `sanctum.yaml`, which is **on by default**. Turn that off and *all* of the wakes below stop (the three subagents in Part 1 are separate and keep running). Leave it on and control each piece individually as described below.
 
-Most of this is managed from **Settings → automation**. Your AI can also manage all of it itself through its internal `res` command tool — those forms are shown below in case you ask it to, but you never have to touch a command line yourself.
+Most of this is managed from **Settings → Rhythm**. Your AI can also manage all of it itself through its internal `res` command tool — those forms are shown below in case you ask it to, but you never have to touch a command line yourself.
 
 ### 2a. Routines (the scheduled check-ins)
 
@@ -128,12 +128,12 @@ Morning and midday politely skip if you're already in a live conversation; eveni
 
 **How to edit a check-in's prompt:**
 
-- **Easiest — in the app:** Settings → automation → the **Wake Types** list. Click a type open, edit its prompt in the box, hit **save prompt**. Changes apply without a restart.
+- **Easiest — in the app:** Settings → Rhythm → the **Wake Types** list. Click a type open, edit its prompt in the box, hit **save prompt**. Changes apply without a restart.
 - **Or edit the file** in `prompts/wakes/` directly with any text editor. Same effect.
 
 **How to change *when* a check-in fires:**
 
-1. Settings → automation → find the scheduled task and click **edit** (or **new schedule** to add one).
+1. Settings → Rhythm → find the scheduled task and click **edit** (or **new schedule** to add one).
 2. Pick a **time of day** and a **frequency** (Every day / Weekdays / Weekends / Specific days). No cron typing required — it builds the cron for you and shows you a plain-English summary ("weekdays at 8:00am").
 3. Optionally set a **model** for that specific wake (leave as "Default" to use your normal autonomous model) and a **posts-to** target (Daily = today's rotating thread, or pin it to one specific conversation).
 4. Save. You can also **toggle** any check-in off without deleting it, right from its row.
@@ -189,7 +189,7 @@ res watch cancel <id> # or: res impulse cancel <id>
 
 **It is off by default.** To use it:
 
-- **In Settings → automation:** enable the failsafe control and adjust the three thresholds there.
+- **In Settings → Rhythm:** enable the failsafe control and adjust the three thresholds there.
 - **In `sanctum.yaml`:** under `orchestrator.failsafe` you'll find `enabled`, `gentle_minutes`, `concerned_minutes`, and `emergency_minutes` for the file-based defaults.
 - **Live, without a restart:** the settings keys `failsafe.enabled`, `failsafe.gentle`, `failsafe.concerned`, and `failsafe.emergency` override the file values. Your AI can set these with `res failsafe enable` / `res failsafe gentle 90` / etc.
 
@@ -203,13 +203,13 @@ To edit *what it says* at each rung, edit the matching `failsafe_*.md` file (or 
 - **quiet** — "leave me be." It won't reach at all.
 - **close** — "come find me." Lowers the gap to ~1.5 hours and lifts the workday guard.
 
-**How to set it.** Settings → automation → the **Watchtower** card, a simple three-button dial. (Your AI can also flip it with `res`.) The change takes effect within a minute — no restart.
+**How to set it.** Settings → Rhythm → the **Watchtower** card, a simple three-button dial. (Your AI can also flip it with `res`.) The change takes effect within a minute — no restart.
 
 ### 2f. Pulse (a quiet awareness check)
 
 **What it is.** The lightest-touch option: on a fixed interval during waking hours, your AI takes a tiny "anything need me?" glance. If nothing does, it stays completely silent (it literally replies `PULSE_OK` to itself and says nothing to you). If something warrants a small reach, it does that instead. It skips when you're active or when it's already busy.
 
-**It is off by default.** Controls (Settings → automation, or via `res pulse`):
+**It is off by default.** Controls (Settings → Rhythm, or via `res pulse`):
 
 - Enable/disable: settings key `pulse.enabled`.
 - Frequency: settings key `pulse.frequency`, in minutes — **minimum 5**, default **15**.
@@ -223,13 +223,13 @@ To edit *what it says* at each rung, edit the matching `failsafe_*.md` file (or 
 |---|---|---|---|
 | **Scribe** (daily summary) | **on** | settings key `digest.enabled` (advanced) | "Daily digest" in `prompts/summarizer-own-voice.md` (+ format in `digest.ts`) |
 | **Outlook Author** (hearth) | **on** | always-on; force a refresh via `/api/outlook/reauthor` | "House outlook" in `prompts/summarizer-own-voice.md` (+ JSON shape in `outlook-author.ts`) |
-| **Daily Handoff** (midnight carry) | **off** | Settings → automation → *Daily handoff* toggle | "Daily handoff" in `prompts/summarizer-own-voice.md` (+ JSON shape in `handoff.ts`) |
-| **Morning/Midday/Evening** check-ins | **on** | Settings → automation (toggle each) | `prompts/wakes/*.md` or the Wake Types editor |
+| **Daily Handoff** (midnight carry) | **off** | Settings → Rhythm → *Daily handoff* toggle | "Daily handoff" in `prompts/summarizer-own-voice.md` (+ JSON shape in `handoff.ts`) |
+| **Morning/Midday/Evening** check-ins | **on** | Settings → Rhythm (toggle each) | `prompts/wakes/*.md` or the Wake Types editor |
 | **Custom routines** | — | Settings *new schedule*, or `res routine create` | its `prompts/wakes/*.md` file / Wake Types editor |
 | **Timers** | — | set in conversation / `res timer` | n/a (per-timer) |
 | **Watchers & impulses** | 4 care watchers seeded | `res watch` / `res impulse`; `watchtower.seed_care_watchers` to stop seeding | per-trigger prompt |
 | **Failsafe ladder** | **off** | Settings, `sanctum.yaml` `orchestrator.failsafe`, or `res failsafe` | `prompts/wakes/failsafe_*.md` |
-| **Watchtower** | **auto** | Settings → *Watchtower* dial, or `res` | built into `orchestrator.ts` (code) |
+| **Watchtower** | **auto** | Settings → Rhythm → *Watchtower* dial, or `res` | built into `orchestrator.ts` (code) |
 | **Pulse** | **off** | Settings, or `res pulse` | built into `orchestrator.ts` (code) |
 | **The whole proactive layer** | **on** | `sanctum.yaml` `orchestrator.enabled` | — |
 

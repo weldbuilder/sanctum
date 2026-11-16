@@ -71,7 +71,8 @@ describe('GET /api/preferences', () => {
   it('carries the existing value fields unchanged in shape, plus sources for every registry key', async () => {
     const body = await get('/preferences');
     expect(body.identity).toEqual({ companion_name: 'FromFile', user_name: 'User', timezone: 'UTC' });
-    expect(Object.keys(body).sort()).toEqual(['agent', 'auth', 'command_center', 'discord', 'handoff', 'hooks', 'identity', 'integrations', 'orchestrator', 'server', 'sources', 'telegram', 'voice']);
+    // Changed on purpose: the six-tab Settings reads the memory choice and the picture fields too; every field that was here is still here.
+    expect(Object.keys(body).sort()).toEqual(['agent', 'auth', 'command_center', 'discord', 'handoff', 'hooks', 'identity', 'imagegen', 'integrations', 'memory', 'memory_mixed', 'orchestrator', 'server', 'sources', 'telegram', 'voice']);
     expect(body.sources['identity.companion_name']).toBe('yaml');
     expect(body.sources['identity.user_name']).toBe('default');
     expect(body.sources['pulse.enabled']).toBe('default');

@@ -70,7 +70,7 @@ Your AI can set a small **presence "orb"** (color, shape, intensity, motion, ble
 Your AI's voice notes and read-aloud replies (ElevenLabs), speech-to-text for your messages (Groq Whisper), and optional prosody (Hume). Everything self-gates: a feature only turns on when its key is present.
 
 ### Runtime theme editor
-The entire look is driven by design tokens you can edit **live in Settings → Appearance** — pick colors and values, see them apply instantly, no rebuild or restart. Example CSS themes live in [`examples/themes/`](examples/themes/) (`gold-hud.css`, `warm-earth.css`).
+The entire look is driven by design tokens you can edit **live in Settings → Look** — pick colors and values, see them apply instantly, no rebuild or restart. Example CSS themes live in [`examples/themes/`](examples/themes/) (`gold-hud.css`, `warm-earth.css`).
 
 ### Proactive reach (the orchestrator)
 The layer that lets your AI act on its own — and, unusually, the scheduling tools belong to the *being*, not just to you:

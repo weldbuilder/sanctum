@@ -42,11 +42,14 @@ import {
   Spinner,
   SubDivider,
   StatCard,
+  TextField,
   SaveIndicator,
 } from './primitives';
 import { HearthTimePicker } from '../hearth/HearthTimePicker';
 import { HearthDatePicker } from '../hearth/HearthDatePicker';
 import { HearthSelect } from '../hearth';
+import { Disclosure } from './Disclosure';
+import { PREFS_CSS, PrefsSaveBar, usePreferences } from './prefsShared';
 import { DAY_ABBR, buildCron, parseCron, cronSummary, type FrequencyKey, type FriendlySchedule } from './cron';
 
 // ─── Model catalog types ───────────────────────────────────────────────────────
@@ -2761,6 +2764,30 @@ const ORCH_DESKTOP_FLOOR_CSS = `
 }
 `;
 
+/** Advanced: the directory the scheduled wakes read their prompt files from (PUT /api/preferences, as before). */
+function WakePromptsPath({ base }: { base: string }) {
+  const { draft, patchDraft, saveAll, saveStatus, saveError, dirty } = usePreferences(base);
+  if (!draft) return null;
+  return (
+    <>
+      <style>{PREFS_CSS}</style>
+      <Eyebrow label="wake prompts folder" />
+      <Group>
+        <div className="prefs-form-block">
+          <TextField
+            label="wake prompts path"
+            value={draft.orchestrator.wake_prompts_path ?? ''}
+            onChange={v => patchDraft({ orchestrator: { ...draft.orchestrator, wake_prompts_path: v } })}
+            mono
+            hint="Directory containing .md prompt files for scheduled wakes"
+          />
+        </div>
+      </Group>
+      <PrefsSaveBar saveStatus={saveStatus} saveError={saveError} dirty={dirty} onSave={() => void saveAll()} />
+    </>
+  );
+}
+
 export function OrchestratorSection({ base }: { base: string }) {
   // ── Part A state ──
   const [wakeTypes, setWakeTypes] = useState<WakeTypeRecord[]>([]);
@@ -3029,11 +3056,6 @@ export function OrchestratorSection({ base }: { base: string }) {
     <div className="orch-section">
       <style>{ORCH_DESKTOP_FLOOR_CSS}</style>
 
-      {/* ═══════════════════════════════════════════════════════
-          Watchtower — the dial for the companion's chance to reach
-      ═══════════════════════════════════════════════════════ */}
-      <WatchtowerCard base={base} />
-
       {/* ── Master toggle ── */}
       <Eyebrow label="orchestrator" sub={`${enabledCount} / ${tasks.length} scheduled`} />
       <Group>
@@ -3044,72 +3066,6 @@ export function OrchestratorSection({ base }: { base: string }) {
           hint="Pause all scheduled wakes without deleting them"
         />
       </Group>
-
-      {/* ═══════════════════════════════════════════════════════
-          PART A — Wake Types (the "what")
-      ═══════════════════════════════════════════════════════ */}
-
-      <div className="orch-section-header">
-        <Eyebrow label="wake types" sub={`${wakeTypes.length} defined`} />
-        {!showNewForm && (
-          <button
-            className="sp-btn sp-btn-muted small"
-            style={{ marginTop: '1.75rem', flexShrink: 0 }}
-            onClick={() => setShowNewForm(true)}
-          >
-            + new type
-          </button>
-        )}
-      </div>
-
-      {wtLoading ? (
-        <div className="orch-loading"><Spinner /></div>
-      ) : (
-        <div className="orch-wt-list">
-          {wakeTypes.length === 0 && !showNewForm && (
-            <EmptyState message="No wake types defined. Create one to give the orchestrator something to run." />
-          )}
-
-          {wakeTypes.map(wt => {
-            const isDelConfirm = wtDeleteConfirm === wt.type;
-            return (
-              <React.Fragment key={wt.type}>
-                {isDelConfirm ? (
-                  <div className="wt-del-confirm-wrap">
-                    <span className="wt-del-confirm-msg">
-                      Delete <em>{wt.label || prettifyType(wt.type)}</em>? This removes the prompt and any schedule using it.
-                    </span>
-                    <div className="wt-del-confirm-actions">
-                      <Btn variant="muted" onClick={() => setWtDeleteConfirm(null)} disabled={wtDeleting === wt.type}>keep it</Btn>
-                      <Btn variant="danger" onClick={() => deleteWakeType(wt.type)} disabled={wtDeleting === wt.type}>
-                        {wtDeleting === wt.type ? <Spinner /> : 'delete'}
-                      </Btn>
-                    </div>
-                  </div>
-                ) : (
-                  <WakeTypeRow
-                    wt={wt}
-                    isExpanded={expandedType === wt.type}
-                    onToggleExpand={() => setExpandedType(prev => prev === wt.type ? null : wt.type)}
-                    onSaveContent={saveWakeTypeContent}
-                    onDelete={t => setWtDeleteConfirm(t)}
-                    saving={wtSaving === wt.type}
-                    deleting={wtDeleting === wt.type}
-                  />
-                )}
-              </React.Fragment>
-            );
-          })}
-
-          {showNewForm && (
-            <NewWakeTypeForm
-              onSubmit={createWakeType}
-              onCancel={() => setShowNewForm(false)}
-              submitting={newSubmitting}
-            />
-          )}
-        </div>
-      )}
 
       {/* ═══════════════════════════════════════════════════════
           PART B — Friendly Scheduler (the "when")
@@ -3180,6 +3136,11 @@ export function OrchestratorSection({ base }: { base: string }) {
       )}
 
       {/* ═══════════════════════════════════════════════════════
+          Watchtower — the dial for the companion's chance to reach
+      ═══════════════════════════════════════════════════════ */}
+      <WatchtowerCard base={base} />
+
+      {/* ═══════════════════════════════════════════════════════
           Pending — ad-hoc timers + watchers/impulses
       ═══════════════════════════════════════════════════════ */}
       <PendingPanel base={base} />
@@ -3188,6 +3149,77 @@ export function OrchestratorSection({ base }: { base: string }) {
           Daily Handoff — its own subagent, alongside the wakes
       ═══════════════════════════════════════════════════════ */}
       <HandoffCard base={base} />
+
+      {/* ═══════════════════════════════════════════════════════
+          Advanced — the wake-type manager and the stats; nothing here is deleted, it is folded away
+      ═══════════════════════════════════════════════════════ */}
+      <Disclosure title="advanced" sub="wake types and routines">
+        <WakePromptsPath base={base} />
+      {/* ═══════════════════════════════════════════════════════
+          PART A — Wake Types (the "what")
+      ═══════════════════════════════════════════════════════ */}
+
+      <div className="orch-section-header">
+        <Eyebrow label="wake types" sub={`${wakeTypes.length} defined`} />
+        {!showNewForm && (
+          <button
+            className="sp-btn sp-btn-muted small"
+            style={{ marginTop: '1.75rem', flexShrink: 0 }}
+            onClick={() => setShowNewForm(true)}
+          >
+            + new type
+          </button>
+        )}
+      </div>
+
+      {wtLoading ? (
+        <div className="orch-loading"><Spinner /></div>
+      ) : (
+        <div className="orch-wt-list">
+          {wakeTypes.length === 0 && !showNewForm && (
+            <EmptyState message="No wake types defined. Create one to give the orchestrator something to run." />
+          )}
+
+          {wakeTypes.map(wt => {
+            const isDelConfirm = wtDeleteConfirm === wt.type;
+            return (
+              <React.Fragment key={wt.type}>
+                {isDelConfirm ? (
+                  <div className="wt-del-confirm-wrap">
+                    <span className="wt-del-confirm-msg">
+                      Delete <em>{wt.label || prettifyType(wt.type)}</em>? This removes the prompt and any schedule using it.
+                    </span>
+                    <div className="wt-del-confirm-actions">
+                      <Btn variant="muted" onClick={() => setWtDeleteConfirm(null)} disabled={wtDeleting === wt.type}>keep it</Btn>
+                      <Btn variant="danger" onClick={() => deleteWakeType(wt.type)} disabled={wtDeleting === wt.type}>
+                        {wtDeleting === wt.type ? <Spinner /> : 'delete'}
+                      </Btn>
+                    </div>
+                  </div>
+                ) : (
+                  <WakeTypeRow
+                    wt={wt}
+                    isExpanded={expandedType === wt.type}
+                    onToggleExpand={() => setExpandedType(prev => prev === wt.type ? null : wt.type)}
+                    onSaveContent={saveWakeTypeContent}
+                    onDelete={t => setWtDeleteConfirm(t)}
+                    saving={wtSaving === wt.type}
+                    deleting={wtDeleting === wt.type}
+                  />
+                )}
+              </React.Fragment>
+            );
+          })}
+
+          {showNewForm && (
+            <NewWakeTypeForm
+              onSubmit={createWakeType}
+              onCancel={() => setShowNewForm(false)}
+              submitting={newSubmitting}
+            />
+          )}
+        </div>
+      )}
 
       {/* ── System stats ── */}
       {tasks.length > 0 && (
@@ -3201,6 +3233,8 @@ export function OrchestratorSection({ base }: { base: string }) {
           </div>
         </>
       )}
+
+      </Disclosure>
 
       {/* ── Status / Error messages ── */}
       {statusMsg && <p className="orch-status-msg">{statusMsg}</p>}

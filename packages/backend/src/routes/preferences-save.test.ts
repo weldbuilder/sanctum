@@ -150,3 +150,115 @@ describe('the effective chat model is reported, not the yaml value', () => {
     expect((await get('/system/status')).agent.model).toBe('claude-chosen');
   });
 });
+
+describe('PUT /api/preferences: the summarizer and picture fields', () => {
+  it('GET shows the registry defaults for both blocks', async () => {
+    const g = await get('/preferences');
+    expect(g.agent.summarizer).toEqual({ provider: '', model: '', base_url: '', api_key_env: 'SUMMARIZER_API_KEY' });
+    expect(g.imagegen).toEqual({ provider: 'none', model: '', size: '1024x1024', safety_checker: false });
+  });
+
+  it('writes only what changed: echoing the defaults leaves the file alone, a real change lands and is listed', async () => {
+    const g = await get('/preferences');
+    const echo = await put({ agent: { summarizer: g.agent.summarizer }, imagegen: g.imagegen });
+    expect(echo.written).toEqual([]);
+    expect(readFileSync(file(), 'utf8')).toBe(YAML);
+    const r = await put({
+      agent: { summarizer: { provider: 'openai-compat', model: 'm-1', base_url: 'https://example.test/v1', api_key_env: 'MY_KEY' } },
+      imagegen: { provider: 'runware', size: '1024x1536', safety_checker: true },
+    });
+    expect(r.written.sort()).toEqual([
+      'agent.summarizer.api_key_env', 'agent.summarizer.base_url', 'agent.summarizer.model', 'agent.summarizer.provider',
+      'imagegen.provider', 'imagegen.safety_checker', 'imagegen.size',
+    ]);
+    const saved = yaml.load(readFileSync(file(), 'utf8')) as any;
+    expect(saved.agent.summarizer.provider).toBe('openai-compat');
+    expect(saved.imagegen.provider).toBe('runware');
+  });
+
+  it('refuses a bad provider, size, key-env name (a key pasted in its place) and non-boolean checker', async () => {
+    for (const body of [
+      { agent: { summarizer: { provider: 'gpt' } } },
+      { agent: { summarizer: { api_key_env: 'sk-abc 123' } } },
+      { imagegen: { provider: 'midjourney' } },
+      { imagegen: { size: '10x10' } },
+      { imagegen: { safety_checker: 'yes' } },
+    ]) {
+      const res = await fetch(`${base}/preferences`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+    expect(readFileSync(file(), 'utf8')).toBe(YAML);
+  });
+});
+
+describe('api_key_env takes a variable NAME, never a key', () => {
+  const tryPut = async (v: string) => {
+    const res = await fetch(`${base}/preferences`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: { summarizer: { api_key_env: v } } }) });
+    return { status: res.status, body: await res.json() as any };
+  };
+  it('refuses the three probes (Groq, Replicate, 64-hex) and other key shapes with the NAME message, writing nothing', async () => {
+    for (const v of ['gsk_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789', 'r8_AbCdEfGhIjKlMnOpQrStUvWxYz012345678', 'a'.repeat(16) + '0123456789abcdef'.repeat(3),
+      'sk-abc', 'xai-AAAA', 'AIzaSyAAAA', 'ghp_AAAA', 'github_pat_AAAA', 'my_secret_variable', 'summarizer_api_key', '0123456789ABCDEF0123456789ABCDEF']) {
+      const r = await tryPut(v);
+      expect(r.status, v).toBe(400);
+      expect(r.body.error, v).toContain('this field takes the NAME of the variable, e.g. SUMMARIZER_API_KEY, not the key itself');
+    }
+    expect(readFileSync(file(), 'utf8')).toBe(YAML);
+  });
+  it('accepts upper-case variable names and the empty string', async () => {
+    for (const v of ['SUMMARIZER_API_KEY', 'OPENROUTER_API_KEY', 'K', '']) expect((await tryPut(v)).status, v).toBe(200);
+  });
+});
+
+describe('PUT /api/preferences: the memory choice writes the right trio', () => {
+  const saved = () => yaml.load(readFileSync(file(), 'utf8')) as any;
+  it('reads as Revien when the file says nothing, and each choice writes revien.enabled, agent.harness_memory and agent.local_recall together', async () => {
+    expect((await get('/preferences')).memory).toBe('revien');
+    let r = await put({ memory: 'sanctum' });
+    expect(r.written.sort()).toEqual(['agent.harness_memory', 'agent.local_recall', 'revien.enabled']);
+    expect(saved().agent.local_recall).toBe(true);
+    expect(saved().revien.enabled).toBe(false);
+    expect((await get('/preferences')).memory).toBe('sanctum');
+    r = await put({ memory: 'harness' });
+    expect(saved().agent.harness_memory).toBe(true);
+    expect(saved().agent.local_recall).toBeUndefined();
+    expect((await get('/preferences')).memory).toBe('harness');
+    await put({ memory: 'none' });
+    expect(saved().revien.enabled).toBe(false);
+    expect(saved().agent.harness_memory).toBe(false);
+    expect((await get('/preferences')).memory).toBe('none');
+    await put({ memory: 'revien' });
+    expect(saved().revien.enabled).toBe(true);
+    expect((await get('/preferences')).memory).toBe('revien');
+  });
+  it('a mixed file (Revien on beside harness memory) reads as harness, says so, and posting harness normalises it', async () => {
+    const doc = yaml.load(readFileSync(file(), 'utf8')) as any;
+    doc.revien = { enabled: true };
+    doc.agent = { ...(doc.agent || {}), harness_memory: true };
+    writeFileSync(file(), yaml.dump(doc));
+    const g = await get('/preferences');
+    expect(g.memory).toBe('harness');
+    expect(g.memory_mixed).toBe(true);
+    const r = await put({ memory: 'harness' });
+    expect(r.written).toContain('revien.enabled');
+    expect(saved().revien.enabled).toBe(false);
+    expect(saved().agent.harness_memory).toBe(true);
+    expect((await get('/preferences')).memory_mixed).toBe(false);
+    expect((await put({ memory: 'harness' })).written).toEqual([]);
+  });
+  it('on dsh, a file with harness memory on reads as the system that is really running (dsh has no harness memory), never as harness', async () => {
+    const doc = yaml.load(readFileSync(file(), 'utf8')) as any;
+    doc.revien = { enabled: false };
+    doc.agent = { ...(doc.agent || {}), provider: 'dsh', harness_memory: true };
+    writeFileSync(file(), yaml.dump(doc));
+    const g = await get('/preferences');
+    expect(g.memory).toBe('none');
+    expect(g.memory_mixed).toBe(true);
+  });
+  it('posting back the choice it was shown writes nothing; an unknown choice is a 400', async () => {
+    const r = await put({ memory: 'revien' });
+    expect(r.written).toEqual([]);
+    const bad = await fetch(`${base}/preferences`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ memory: 'own' }) });
+    expect(bad.status).toBe(400);
+  });
+});

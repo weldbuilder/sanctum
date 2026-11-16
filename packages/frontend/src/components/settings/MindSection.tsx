@@ -1,5 +1,5 @@
 /**
- * MindSection — Settings → Integrations: the Mind card (MIND-SURFACE-SPEC §Phase-1.1).
+ * MindSection — Settings → Mind: the Mind card (MIND-SURFACE-SPEC §Phase-1.1).
  *
  * Four fields: mind.enabled (toggle) · mind.url (base URL) · mind.mind_id (the
  * mind's id on the service, required by every sanctum-mind verb) · mind.api_key
