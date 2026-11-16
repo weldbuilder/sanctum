@@ -1,4 +1,4 @@
-// The tags that exist today: [image: ...], [voice] / [voice:emotion], [gif: ...] and [sticker: name].
+// The tags that exist today: [image: ...], [selfie: ...], [voice] / [voice:emotion], [gif: ...] and [sticker: name].
 import { getSanctumConfig } from '../../config.js';
 import { generateImage, imagegenOffered } from '../imagegen/index.js';
 import { getVoiceService, isVoiceModeActive } from '../ws.js';
@@ -7,6 +7,7 @@ import { createMessage, updateThreadActivity } from '../db.js';
 import { registry } from '../ws.js';
 import { giphyOffered, search as giphySearch, configuredGifRating } from '../media/giphy.js';
 import { countStickers, stickerByName, stickerNameList } from '../media/stickers.js';
+import { referenceNameList, selfReferences } from '../media/references.js';
 import { getFile, readFileMeta } from '../files.js';
 import { companionPath } from '../../tenancy/house.js';
 import { ownStat } from '../../tenancy/own-files.js';
@@ -22,14 +23,46 @@ function voiceOffered(): boolean {
   try { return !!getSanctumConfig().voice?.enabled && !!getVoiceService()?.canTTS; } catch { return false; }
 }
 
+const IMAGE_BASE_INSTRUCTION = '[image: a short visual description] generates a picture and sends it after this message. Use it when a picture says it better; at most two per reply.';
+const MAX_IMAGE_PROMPT = 2000;
+
+/** `description | with: name1, name2` -> the description and the reference names. The split is on the first `| with:` (any case, spaces optional); the tag parser itself is untouched. */
+export function splitImageArg(arg: string): { prompt: string; names: string[] } {
+  const m = /\s*\|\s*with\s*:/i.exec(arg);
+  if (!m) return { prompt: arg.slice(0, MAX_IMAGE_PROMPT), names: [] };
+  const names = arg.slice(m.index + m[0].length).split(',').map((n) => n.trim()).filter(Boolean);
+  return { prompt: arg.slice(0, m.index).trim().slice(0, MAX_IMAGE_PROMPT), names };
+}
+
+function safeReferenceNames(): string { try { return referenceNameList(); } catch { return ''; } }
+function hasSelfReference(): boolean { try { return selfReferences().length > 0; } catch { return false; } }
+
 registerTag('image', {
   max: MAX_IMAGE_TAGS,
   requiresArg: true,
   offered: imagegenOffered,
-  instruction: '[image: a short visual description] generates a picture and sends it after this message. Use it when a picture says it better; at most two per reply.',
+  get instruction() {
+    const names = safeReferenceNames();
+    return names ? `${IMAGE_BASE_INSTRUCTION} To include someone or something from your references write [image: description | with: name, name] using only these names: ${names}.` : IMAGE_BASE_INSTRUCTION;
+  },
   async run(tag, ctx) {
     if (!consentCheck('app_write', { harness: 'server', threadId: ctx.threadId, tool: '[image] tag', summary: tag.arg }).allow) return;
-    await generateImage({ prompt: tag.arg.slice(0, 2000), postToChat: true, threadId: ctx.threadId, triggeredBy: 'tag' });
+    const { prompt, names } = splitImageArg(tag.arg);
+    if (!prompt) return;
+    await generateImage({ prompt, ...(names.length ? { references: names } : {}), postToChat: true, threadId: ctx.threadId, triggeredBy: 'tag' });
+  },
+});
+
+registerTag('selfie', {
+  max: 1,
+  requiresArg: true,
+  offered: () => imagegenOffered() && hasSelfReference(),
+  instruction: '[selfie: what you are doing and where] sends a picture of yourself, drawn from your reference images. Say the scene, not your looks; those come from the references. At most one per reply.',
+  async run(tag, ctx) {
+    if (!consentCheck('app_write', { harness: 'server', threadId: ctx.threadId, tool: '[selfie] tag', summary: tag.arg }).allow) return;
+    const { prompt, names } = splitImageArg(tag.arg);
+    if (!prompt) return;
+    await generateImage({ prompt, asSelf: true, ...(names.length ? { references: names } : {}), postToChat: true, threadId: ctx.threadId, triggeredBy: 'tag' });
   },
 });
 
