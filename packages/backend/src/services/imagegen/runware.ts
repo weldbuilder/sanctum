@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { ImageGenError, classFromStatus, classFromText, timedFetch, type ImageGenProvider, type ImageGenRequest, type ImageGenResult } from './types.js';
+import { ImageGenError, classFromStatus, classFromText, referenceDataUri, timedFetch, type ImageGenProvider, type ImageGenRequest, type ImageGenResult } from './types.js';
 
 export const RUNWARE_URL = 'https://api.runware.ai/v1';
 /** FLUX.1 schnell. (runware:101@1 is FLUX.1 dev.) */
 export const RUNWARE_DEFAULT_MODEL = 'runware:100@1';
+
+/** FLUX.1 Kontext [pro]: edits and draws from reference images. (bfl:4@1 is Kontext [max]; runware:400@1 is FLUX.2 [dev], several references.) */
+export const RUNWARE_DEFAULT_REFERENCE_MODEL = 'bfl:3@1';
 
 const snap64 = (n: number) => Math.max(64, Math.round(n / 64) * 64);
 
@@ -24,6 +27,8 @@ export function createRunwareProvider(apiKey: string): ImageGenProvider {
         outputType: 'base64Data',
         outputFormat: 'PNG',
         checkNSFW: req.safetyChecker,
+        // Only with references; a text-only request stays exactly as it was. Models that take them read inputs.referenceImages.
+        ...(req.references?.length ? { inputs: { referenceImages: req.references.map(referenceDataUri) } } : {}),
       }];
       const res = await timedFetch('runware', RUNWARE_URL, {
         method: 'POST',

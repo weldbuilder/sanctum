@@ -117,6 +117,7 @@
     "imagegen": {
       "provider": "none",
       "model": "",
+      "reference_model": "",
       "size": "1024x1024",
       "safety_checker": false,
       "timeout_ms": 90000
@@ -310,6 +311,7 @@
     "imagegen": {
       "provider": "none",
       "model": "",
+      "reference_model": "",
       "size": "1024x1024",
       "safety_checker": false,
       "timeout_ms": 90000

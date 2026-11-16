@@ -13,6 +13,21 @@ export function parseSize(size: string): { width: number; height: number } | nul
   return { width: w, height: h };
 }
 
+/** Most references one request carries (a picture is rarely helped by more, and each travels as a data URI). */
+export const REFERENCE_MAX_PER_REQUEST = 4;
+
+export interface ImageGenReference {
+  bytes: Buffer;
+  mime: string;
+  /** For debug logs only. */
+  name: string;
+}
+
+/** A reference as a data URI, which both providers accept inline. */
+export function referenceDataUri(r: ImageGenReference): string {
+  return `data:${r.mime};base64,${r.bytes.toString('base64')}`;
+}
+
 export interface ImageGenRequest {
   prompt: string;
   width: number;
@@ -23,6 +38,8 @@ export interface ImageGenRequest {
   safetyChecker: boolean;
   timeoutMs: number;
   signal?: AbortSignal;
+  /** Pictures the result should be of. Absent or empty: the request is exactly the text-only one. */
+  references?: ImageGenReference[];
 }
 
 export interface ImageGenResult {

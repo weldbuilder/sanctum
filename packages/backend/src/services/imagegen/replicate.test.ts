@@ -34,6 +34,16 @@ describe('replicate adapter', () => {
     expect(out.model).toBe('black-forest-labs/flux-schnell');
   });
 
+  // Pinned from main before references existed: with zero references the body must stay byte for byte this.
+  it('zero references: the exact body of main, for the default model and for any model', async () => {
+    const f = vi.fn(async (url: string) => url.includes('api.replicate') ? json({ status: 'succeeded', output: 'https://replicate.delivery/y.png' }) : new Response(png));
+    vi.stubGlobal('fetch', f);
+    await createReplicateProvider('T').generate(base);
+    expect((f.mock.calls[0] as unknown as [string, RequestInit])[1].body).toBe('{"input":{"prompt":"a fox","aspect_ratio":"1:1","output_format":"png","num_outputs":1,"disable_safety_checker":true}}');
+    await createReplicateProvider('T').generate({ ...base, model: 'black-forest-labs/flux-kontext-pro', references: [] });
+    expect((f.mock.calls[2] as unknown as [string, RequestInit])[1].body).toBe('{"input":{"prompt":"a fox","aspect_ratio":"1:1","output_format":"png","num_outputs":1,"disable_safety_checker":true}}');
+  });
+
   it('safetyChecker false sends disable_safety_checker true; a string output works', async () => {
     const f = vi.fn(async (url: string) => url.includes('api.replicate') ? json({ status: 'succeeded', output: 'https://replicate.delivery/y.png' }) : new Response(png));
     vi.stubGlobal('fetch', f);
@@ -95,5 +105,46 @@ describe('replicate adapter', () => {
   it('402 is classed billing', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => json({ title: 'Payment required' }, 402)));
     await expect(createReplicateProvider('T').generate(base)).rejects.toMatchObject({ cls: 'billing' });
+  });
+
+  describe('references', () => {
+    const refs = [
+      { bytes: Buffer.from('ref-a'), mime: 'image/png', name: 'Echo' },
+      { bytes: Buffer.from('ref-b'), mime: 'image/jpeg', name: 'Sam' },
+      { bytes: Buffer.from('ref-c'), mime: 'image/webp', name: 'Lake house' },
+    ];
+    const run = async (model: string, references: typeof refs, extra: Record<string, unknown> = {}) => {
+      const f = vi.fn(async (url: string) => url.includes('api.replicate') ? json({ status: 'succeeded', output: 'https://replicate.delivery/y.png' }) : new Response(png));
+      vi.stubGlobal('fetch', f);
+      await createReplicateProvider('T').generate({ ...base, model, references, ...extra });
+      const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+      return { url, raw: init.body as string, input: JSON.parse(init.body as string).input };
+    };
+
+    it('kontext, one reference: exact body, input_image, no safety or num_outputs field', async () => {
+      const { url, raw } = await run('black-forest-labs/flux-kontext-pro', refs.slice(0, 1));
+      expect(url).toBe('https://api.replicate.com/v1/models/black-forest-labs/flux-kontext-pro/predictions');
+      expect(raw).toBe('{"input":{"prompt":"a fox","input_image":"data:image/png;base64,cmVmLWE=","aspect_ratio":"1:1","output_format":"png"}}');
+    });
+
+    it('kontext, three references: only the FIRST is sent as input_image; the rest are dropped with a debug note of names only', async () => {
+      const dbg = vi.spyOn(console, 'debug').mockImplementation(() => {});
+      const { raw, input } = await run('black-forest-labs/flux-kontext-pro', refs, { width: 1024, height: 1536 });
+      expect(raw).toBe('{"input":{"prompt":"a fox","input_image":"data:image/png;base64,cmVmLWE=","aspect_ratio":"2:3","output_format":"png"}}');
+      expect('input_images' in input).toBe(false);
+      expect(dbg.mock.calls.map((c) => String(c[0])).join('\n')).toContain('dropped: Sam, Lake house');
+      expect(dbg.mock.calls.map((c) => String(c[0])).join('\n')).not.toContain('cmVm');
+      dbg.mockRestore();
+    });
+
+    it('flux-2: input_images carries all of them, in order', async () => {
+      const { raw } = await run('black-forest-labs/flux-2-pro', refs, { width: 1536, height: 1024 });
+      expect(raw).toBe('{"input":{"prompt":"a fox","input_images":["data:image/png;base64,cmVmLWE=","data:image/jpeg;base64,cmVmLWI=","data:image/webp;base64,cmVmLWM="],"aspect_ratio":"3:2","output_format":"png"}}');
+    });
+
+    it('another model with references keeps its own safety and count fields and gets input_image', async () => {
+      const { input } = await run('acme/other-editor', refs.slice(0, 1), { safetyChecker: true });
+      expect(input).toEqual({ prompt: 'a fox', input_image: 'data:image/png;base64,cmVmLWE=', aspect_ratio: '1:1', output_format: 'png', num_outputs: 1, disable_safety_checker: false });
+    });
   });
 });

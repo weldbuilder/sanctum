@@ -149,10 +149,10 @@ describe('POST /api/images/generate', () => {
 describe('GET /api/images/status', () => {
   it('reports configured only when provider and key are both present', async () => {
     let j = await (await fetch(`${base}/status`)).json() as any;
-    expect(j).toEqual({ ok: true, configured: true, offered: true, provider: 'runware', model: 'runware:100@1', providers_with_keys: ['runware'] });
+    expect(j).toEqual({ ok: true, configured: true, offered: true, provider: 'runware', model: 'runware:100@1', providers_with_keys: ['runware'], references: 0, self_references: 0, reference_model: 'bfl:3@1' });
     vi.stubEnv('RUNWARE_API_KEY', '');
     j = await (await fetch(`${base}/status`)).json() as any;
-    expect(j).toEqual({ ok: true, configured: false, offered: false, reason: 'not_configured', provider: null, model: null, providers_with_keys: [] });
+    expect(j).toEqual({ ok: true, configured: false, offered: false, reason: 'not_configured', provider: null, model: null, providers_with_keys: [], references: 0, self_references: 0, reference_model: null });
     h.cfg.provider = 'none'; vi.stubEnv('REPLICATE_API_TOKEN', 't');
     j = await (await fetch(`${base}/status`)).json() as any;
     expect(j).toMatchObject({ configured: false, offered: false, reason: 'not_configured', provider: null, providers_with_keys: ['replicate'] });
@@ -161,6 +161,6 @@ describe('GET /api/images/status', () => {
   it('configured but app_write off: offered false, reason app_write_off, provider and model still reported', async () => {
     h.appWrite = false;
     const j = await (await fetch(`${base}/status`)).json() as any;
-    expect(j).toEqual({ ok: true, configured: true, offered: false, reason: 'app_write_off', provider: 'runware', model: 'runware:100@1', providers_with_keys: ['runware'] });
+    expect(j).toEqual({ ok: true, configured: true, offered: false, reason: 'app_write_off', provider: 'runware', model: 'runware:100@1', providers_with_keys: ['runware'], references: 0, self_references: 0, reference_model: 'bfl:3@1' });
   });
 });
