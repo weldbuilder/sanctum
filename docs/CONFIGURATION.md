@@ -665,11 +665,19 @@ Native image generation with FLUX, through Runware or Replicate. The companion c
 
 Keys: `RUNWARE_API_KEY` or `REPLICATE_API_TOKEN` in `.env`. `GET /api/images/status` reports `configured` (provider and key set) and `offered` (also needs `agent.app_write`; `reason` is `not_configured` or `app_write_off` when it is false). Generated files are listed in `GET /api/files/list` with `meta` (`source: "image-gen"`, prompt, provider, model), filterable with `?source=image-gen` (`GET /api/files` is the same route as `/api/files/list`). Prompts are never logged above debug level, and upstream error text is reduced to a class (`auth`, `billing` for a 402, `rate_limit`, `content_blocked`, `bad_request`, `server`, `network`, `timeout`).
 
+### Media (`media`)
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `media.gif_rating` | `pg-13` | Giphy rating for the companion's `[gif:]` gifs: `g`, `pg`, `pg-13` or `r`. Telegram's `/gif` keeps its own `r`. |
+
 ### Inline expression tags
 
-The companion can write `[image: a short visual description]` or `[voice]` / `[voice:playful|warm|calm]` inside a reply, on any harness, with no tool call. The app removes the tag from the stored (and live-streamed) text, then acts on it after the reply is stored:
+The companion can write `[image: a short visual description]`, `[gif: a few words]`, `[sticker: name]` or `[voice]` / `[voice:playful|warm|calm]` inside a reply, on any harness, with no tool call. The app removes the tag from the stored (and live-streamed) text, then acts on it after the reply is stored:
 
 - `[image: ...]` generates a picture (the `imagegen` section above) and posts it after the reply. At most two per reply; extras are stripped.
+- `[gif: a few words]` searches Giphy and posts the first result as a gif after the reply. Offered only while `GIPHY_API_KEY` is set in `.env`. At most two per reply. The rating comes from `media.gif_rating` (`g`, `pg`, `pg-13` (default) or `r`). A search that fails or finds nothing posts nothing.
+- `[sticker: name]` posts one of the stickers you have uploaded (Files tab, Stickers; or `POST /api/stickers`: multipart `name` + `file`, a png, jpg, webp or gif up to 2 MB). Offered only while at least one sticker exists, and the companion is shown the names (the first 20, then "and N more"). Names match without regard to case; an unknown name posts nothing. At most two per reply.
 - `[voice]` is honoured only at the very start of the reply. It sends the reply as a voice note too (needs `voice.enabled`, `ELEVENLABS_API_KEY` and a voice id). The emotion maps to ElevenLabs v3 stability: `playful` 0, `warm` 0.5 (the default), `calm` 1. An unknown emotion is a plain voice note.
 
 The companion is told about a tag only while its capability is on. A tag whose capability is off is still stripped. Tags inside code blocks or inline code are left alone, a `[image:` with no closing `]` is left alone, and the prompt text is never logged above debug. Discord replies, stopped turns, errors and `PULSE_OK` wakes strip tags and never run them.
@@ -954,7 +962,7 @@ REPLICATE_API_TOKEN=     # Replicate (FLUX)
 # ── Channels (also need the matching *.enabled: true) ──
 DISCORD_BOT_TOKEN=
 TELEGRAM_BOT_TOKEN=
-GIPHY_API_KEY=           # Optional, for Telegram's /gif command
+GIPHY_API_KEY=           # Optional, for Telegram's /gif command and the companion's [gif:] tag
 
 # ── Google Workspace (the client; or connect it from Settings) ─
 GOOGLE_CLIENT_ID=
@@ -996,7 +1004,7 @@ of these are optional; the only thing you truly must have is a Claude credential
 | **Runware / Replicate** | Image generation (FLUX) for the companion. | `imagegen.provider` in `sanctum.yaml`, then `RUNWARE_API_KEY` or `REPLICATE_API_TOKEN` in `.env`. |
 | **Google Workspace** | Calendar, Tasks, Gmail, Health data feeding the house "outlook." | Create a desktop OAuth client in Google Cloud, set `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` (in `.env` or the Settings UI), then connect from Settings. |
 | **Discord** | Talk to your AI from Discord. | `discord.enabled: true` + `discord.owner_user_id` in `sanctum.yaml`; `DISCORD_BOT_TOKEN` in `.env` (or Settings). |
-| **Telegram** | Talk to it from Telegram. | `telegram.enabled: true` + `telegram.owner_chat_id` in `sanctum.yaml`; `TELEGRAM_BOT_TOKEN` in `.env` (or Settings). Optional `GIPHY_API_KEY` for `/gif`. |
+| **Telegram** | Talk to it from Telegram. | `telegram.enabled: true` + `telegram.owner_chat_id` in `sanctum.yaml`; `TELEGRAM_BOT_TOKEN` in `.env` (or Settings). Optional `GIPHY_API_KEY` for `/gif` (also used for the companion's `[gif:]`). |
 | **Web push (VAPID)** | Browser/phone push notifications when your AI reaches out. | Generate a keypair with `npx web-push`, then set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_CONTACT` in `.env`. |
 | **Mind memory** | A sanctum-mind long-term memory service your Sanctum Mobile reads from: orientation at wake, recall for each message. It never writes to it. | `integrations.mind_cloud.enabled: true` + `mind_cloud.mcp_url` + `mind_cloud.mind_id` in `sanctum.yaml` (or the Mind card in Settings); the API key is set in the Settings UI (stored in the DB) or comes from `MIND_API_KEY` in `.env` when Settings has none. If one of the three is missing, the log says which, once, and the Mind stays off. |
 | **Command Center** | The care/day dashboard (calendar, care, cycle, finances, lists, pets, planner, stats). | `command_center.enabled: true` in `sanctum.yaml`. |

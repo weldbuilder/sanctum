@@ -121,6 +121,9 @@
       "safety_checker": false,
       "timeout_ms": 90000
     },
+    "media": {
+      "gif_rating": "pg-13"
+    },
     "discord": {
       "enabled": false,
       "owner_user_id": "",
@@ -310,6 +313,9 @@
       "size": "1024x1024",
       "safety_checker": false,
       "timeout_ms": 90000
+    },
+    "media": {
+      "gif_rating": "pg-13"
     },
     "discord": {
       "enabled": false,

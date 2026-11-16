@@ -84,6 +84,10 @@ export function openDb(dbPath: string): Database.Database {
   // consent_receipts.count (coalesced `allowed` rows): fresh tables get it from 004's CREATE TABLE, an existing one here (additive, idempotent).
   try { db.exec('ALTER TABLE consent_receipts ADD COLUMN count INTEGER DEFAULT 1'); } catch { /* column already exists */ }
 
+  // Stickers the owner uploads (the companion's [sticker: name] tag); IF NOT EXISTS like the others.
+  const stickersMigrationPath = join(__dirname, '../../migrations/005_stickers.sql');
+  if (existsSync(stickersMigrationPath)) db.exec(readFileSync(stickersMigrationPath, 'utf-8'));
+
   // Insert default config if not exists
   const stmt = db.prepare('INSERT OR IGNORE INTO config (key, value) VALUES (?, ?)');
   stmt.run('dnd_start', '23:00');
@@ -844,13 +848,18 @@ export function createMessage(params: {
   threadId: string;
   role: 'companion' | 'user' | 'system';
   content: string;
-  contentType?: 'text' | 'image' | 'audio' | 'file';
+  /** 'gif' and 'sticker' are stored as 'image' (messages.content_type has a CHECK that cannot change on an existing database) with
+   *  metadata.media_kind; every read maps them back (parseMessageMetadata). */
+  contentType?: 'text' | 'image' | 'audio' | 'file' | 'gif' | 'sticker';
   platform?: 'web' | 'discord' | 'telegram' | 'api';
   metadata?: Record<string, unknown>;
   replyToId?: string;
   createdAt: string;
 }): Message {
   const sequence = getNextSequence(params.threadId);
+  const mediaKind = params.contentType === 'gif' || params.contentType === 'sticker' ? params.contentType : null;
+  const storedType = mediaKind ? 'image' : params.contentType;
+  const storedMeta = mediaKind ? { ...(params.metadata ?? {}), media_kind: mediaKind } : params.metadata;
 
   const stmt = getDb().prepare(`
     INSERT INTO messages (
@@ -864,9 +873,9 @@ export function createMessage(params: {
     sequence,
     params.role,
     params.content,
-    params.contentType || 'text',
+    storedType || 'text',
     params.platform || 'web',
-    params.metadata ? JSON.stringify(params.metadata) : null,
+    storedMeta ? JSON.stringify(storedMeta) : null,
     params.replyToId || null,
     params.createdAt
   );
@@ -902,6 +911,9 @@ function parseMessageMetadata(msg: Message): Message {
       msg.metadata = null;
     }
   }
+  // A gif or sticker is stored as an image with metadata.media_kind (see createMessage); it reads back as what it is.
+  const kind = (msg.metadata as Record<string, unknown> | null)?.media_kind;
+  if (msg.content_type === 'image' && (kind === 'gif' || kind === 'sticker')) msg.content_type = kind;
   return msg;
 }
 
@@ -1106,8 +1118,19 @@ export function unpinThread(threadId: string): void {
 
 type SearchRow = {
   id: string; thread_id: string; role: string; content: string;
-  content_type: string; created_at: string; thread_name: string;
+  content_type: string; created_at: string; thread_name: string; metadata?: string | null;
 };
+
+/** A search hit reads like the other read paths: a gif or sticker row (stored as 'image') says what it is; the raw metadata is not returned. */
+function mapSearchRows(rows: SearchRow[]): SearchRow[] {
+  return rows.map(({ metadata, ...row }) => {
+    if (row.content_type !== 'image' || typeof metadata !== 'string') return row;
+    try {
+      const kind = (JSON.parse(metadata) as Record<string, unknown> | null)?.media_kind;
+      return kind === 'gif' || kind === 'sticker' ? { ...row, content_type: kind } : row;
+    } catch { return row; }
+  });
+}
 
 // Cache the FTS5-availability probe so we only run it once per process.
 const ftsAvailable = tenantLocal<boolean | null>(() => null);
@@ -1164,7 +1187,7 @@ function searchMessagesLike(
   const { total } = countStmt.get(...countParams) as { total: number };
 
   const selectStmt = getDb().prepare(`
-    SELECT m.id, m.thread_id, m.role, m.content, m.content_type, m.created_at, t.name as thread_name
+    SELECT m.id, m.thread_id, m.role, m.content, m.content_type, m.metadata, m.created_at, t.name as thread_name
     FROM messages m
     JOIN threads t ON t.id = m.thread_id
     ${whereClause}
@@ -1174,7 +1197,7 @@ function searchMessagesLike(
   selectParams.push(limit, offset);
 
   const rows = selectStmt.all(...selectParams) as SearchRow[];
-  return { messages: rows, total };
+  return { messages: mapSearchRows(rows), total };
 }
 
 export function searchMessages(params: {
@@ -1209,7 +1232,7 @@ export function searchMessages(params: {
         const { total } = countStmt.get(...countParams) as { total: number };
 
         const selectStmt = getDb().prepare(`
-          SELECT m.id, m.thread_id, m.role, m.content, m.content_type, m.created_at, t.name as thread_name
+          SELECT m.id, m.thread_id, m.role, m.content, m.content_type, m.metadata, m.created_at, t.name as thread_name
           FROM messages_fts f
           JOIN messages m ON m.id = f.message_id
           JOIN threads t ON t.id = m.thread_id
@@ -1220,7 +1243,7 @@ export function searchMessages(params: {
         selectParams.push(limit, offset);
 
         const rows = selectStmt.all(...selectParams) as SearchRow[];
-        return { messages: rows, total };
+        return { messages: mapSearchRows(rows), total };
       } catch (err) {
         // Any FTS error (e.g. malformed MATCH) — degrade gracefully to LIKE.
         console.error('searchMessages: FTS5 path failed, falling back to LIKE:', err);

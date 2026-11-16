@@ -431,6 +431,7 @@ by `tenancy/config.ts`); the code, the wizard and this list all read it, and a t
 | `orchestrator.enabled`, `orchestrator.schedules`, `orchestrator.failsafe` | orchestrator cadence and schedules |
 | `voice.*` | voice flags |
 | `imagegen.*` | image generation settings (the keys are the tenant's own .env) |
+| `media.*` | inline media settings (the gif rating; GIPHY_API_KEY is the tenant's own .env) |
 | `skins`, `appearance` | skins and appearance |
 | `plugins.enabled`, `plugins.trust` | which plugins are on and who manages them |
 | `command_center.*`, `handoff.*`, `outlook.*` | Command Center, handoff and outlook settings |

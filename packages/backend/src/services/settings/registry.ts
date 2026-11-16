@@ -181,6 +181,10 @@ export const REGISTRY: readonly KeyDef[] = [
   d({ key: 'imagegen.timeout_ms', type: 'number', default: 90000, yaml: 'imagegen.timeout_ms' }),
   d({ key: 'imagegen.runware_api_key', type: 'string', default: '', env: 'RUNWARE_API_KEY', secret: true }),
   d({ key: 'imagegen.replicate_api_token', type: 'string', default: '', env: 'REPLICATE_API_TOKEN', secret: true }),
+
+  // --- inline media (the companion's [gif:] tag; GIPHY_API_KEY is an env-only secret)
+  d({ key: 'media.gif_rating', type: 'enum', values: ['g', 'pg', 'pg-13', 'r'], default: 'pg-13', yaml: 'media.gif_rating' }),
+  d({ key: 'media.giphy_api_key', type: 'string', default: '', env: 'GIPHY_API_KEY', secret: true }),
 ];
 
 /** The keys PUT /api/preferences writes, each also in GET /api/preferences (the 39 the panel edits). */

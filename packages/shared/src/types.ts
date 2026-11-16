@@ -74,7 +74,8 @@ export interface Message {
   sequence: number;
   role: 'companion' | 'user' | 'system';
   content: string;
-  content_type: 'text' | 'image' | 'audio' | 'file';
+  /** 'gif' and 'sticker' are companion media posted by the [gif:] and [sticker:] tags. */
+  content_type: 'text' | 'image' | 'audio' | 'file' | 'gif' | 'sticker';
   platform: Platform;
   metadata: Record<string, unknown> | null;
   reply_to_id: string | null;
