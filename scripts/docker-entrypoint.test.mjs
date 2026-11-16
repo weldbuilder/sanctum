@@ -181,6 +181,7 @@ describe('the container files', () => {
     expect(text).toContain('ghcr.io/${{ github.repository_owner }}/sanctum');
     expect(text).toContain('platforms: linux/amd64,linux/arm64');
     expect(text).toMatch(/type=raw,value=latest/);
+    expect(text).toMatch(/value=latest,enable=.*startsWith\(github\.ref, 'refs\/tags\/v'\).*!contains\(github\.ref_name, '-'\)/);
     expect(text).toMatch(/type=ref,event=tag/);
     expect(text.toLowerCase()).not.toContain('weldbuilder');
   });

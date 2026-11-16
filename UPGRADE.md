@@ -208,7 +208,7 @@ same steps. Two things to know when you move over:
 - Under pm2 (or any supervisor) set nothing new for pm2; for another supervisor add
   `SANCTUM_SUPERVISED=1` and have it restart the app when it exits. Without either, the app
   starts its own replacement.
-  `docs/HOSTING.md` has a ready systemd unit (`deploy/sanctum.service`) and a Docker image that do this; in a container the image is the update, not `npm run update`.
+  [docs/HOSTING.md](docs/HOSTING.md) has a ready systemd unit (`deploy/sanctum.service`) and a Docker image that do this; in a container the image is the update, not `npm run update`.
 
 Full detail: [docs/CONFIGURATION.md](docs/CONFIGURATION.md), "Updating from inside the app".
 

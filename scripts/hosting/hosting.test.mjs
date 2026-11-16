@@ -81,4 +81,11 @@ describe('deploy/sanctum.service', () => {
     expect(doc).toContain(body);
     for (const f of ['README.md', 'UPGRADE.md']) expect(fs.readFileSync(path.join(HERE, '..', '..', f), 'utf-8')).toContain('docs/HOSTING.md');
   });
+  it('docs/HOSTING.md backs up the data folder and the MCP file, and picks a Claude program that runs', () => {
+    const doc = fs.readFileSync(path.join(HERE, '..', '..', 'docs', 'HOSTING.md'), 'utf-8');
+    expect(doc).toMatch(/tar -C \/ -czf .+ var\/lib\/sanctum opt\/sanctum\/data .*\.mcp\.json/);
+    expect(doc).not.toMatch(/-name claude \| head/);
+    expect(doc).toMatch(/--version >\/dev\/null 2>&1/);
+    expect(fs.readFileSync(path.join(HERE, '..', '..', 'UPGRADE.md'), 'utf-8')).toContain('](docs/HOSTING.md)');
+  });
 });

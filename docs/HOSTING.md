@@ -90,7 +90,7 @@ NoNewPrivileges=yes
 WantedBy=multi-user.target
 ```
 
-`npm start` first runs the updater's recovery (it puts back a version that an update was cut short on), then starts `packages/backend/boot.mjs`. With `SANCTUM_SUPERVISED=1` the app does not re-launch itself: after an in-app update it exits 0, after a boot recovery it exits **75**, and the supervisor starts it again. `Restart=always` covers the first, `RestartForceExitStatus=75` and `SuccessExitStatus=75` the second (see [UPGRADE.md](../UPGRADE.md)). A `.env` value that holds a backtick quote is not read by systemd the way the app reads it; the wizard only uses `'` and `"` unless a password holds both.
+`npm start` first runs the updater's recovery (it puts back a version that an update was cut short on), then starts `packages/backend/boot.mjs`. With `SANCTUM_SUPERVISED=1` the app does not re-launch itself: after an in-app update it exits 0, after a boot recovery it exits **75**, and the supervisor starts it again. `Restart=always` covers the first, `RestartForceExitStatus=75` and `SuccessExitStatus=75` the second (see [UPGRADE.md](../UPGRADE.md)). A `.env` value that holds a backtick quote or a backslash is not read by systemd the way the app reads it; the wizard only uses `'` and `"` unless a password holds both, so avoid backslashes (and backticks) in a password.
 
 ## Reaching it from your phone
 
@@ -125,7 +125,7 @@ What it exposes: **the login page is on the public internet.** The password is t
 
 ## Signing in to Claude on a box
 
-A box has no browser. The Claude program that Sanctum ships with (`node_modules/@anthropic-ai/claude-agent-sdk-*/claude`) supports a sign-in that works from a terminal. This is what `claude auth login` printed on a machine with no browser, verified while writing this page (the address is shortened; the code in it is single-use):
+A box has no browser. The Claude program that Sanctum ships with (`node_modules/@anthropic-ai/claude-agent-sdk-*/claude`) supports a sign-in that works from a terminal. This is what `claude auth login` printed on a machine with no browser, captured while writing this page (the address is shortened; the code in it is single-use):
 
 ```
 Opening browser to sign in…
@@ -133,12 +133,14 @@ If the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=t
 Paste code here if prompted >
 ```
 
-So: open the address on any device with a browser (your phone is fine), sign in, copy the code the page shows, and paste it at the `>` prompt on the box. The sign-in is stored in `~/.claude/.credentials.json` of the user who ran it (the app checks that file: `services/connection-check.ts`). I stopped the program at the prompt and did not complete a sign-in, so the file being written afterwards is what the app's own check expects, not something I watched happen here.
+So: open the address on any device with a browser (your phone is fine), sign in, copy the code the page shows, and paste it at the `>` prompt on the box. The sign-in is stored in `~/.claude/.credentials.json` of the user who ran it (the app checks that file: `services/connection-check.ts`). The program was stopped at the prompt and no sign-in was completed while writing this page, so the file being written afterwards is what the app's own check expects, not something that was observed.
 
-Run it as the service user, so the file lands where the service looks:
+Run it as the service user, so the file lands where the service looks. Two builds of the program are installed (glibc and musl) and only one starts on a given box, so the line below takes the first one that answers `--version`:
 
 ```bash
-sudo -u sanctum -H "$(find /opt/sanctum/node_modules/@anthropic-ai -maxdepth 2 -type f -name claude | head -n 1)" auth login --claudeai
+for c in /opt/sanctum/node_modules/@anthropic-ai/*/claude; do
+  if sudo -u sanctum -H "$c" --version >/dev/null 2>&1; then sudo -u sanctum -H "$c" auth login --claudeai; break; fi
+done
 ```
 
 The installer offers to do exactly this before the wizard. In the wizard, leaving the key empty then selects the Claude plan.
@@ -157,11 +159,11 @@ The in-app **Update and restart** (Settings) works too, because the service rest
 
 ## Backups and restoring
 
-What is worth keeping is in three places: `/var/lib/sanctum` (the database, the companion's home, files, the Claude sign-in), `/opt/sanctum/.env` (the password and keys) and `/opt/sanctum/sanctum.yaml` (plus `/opt/sanctum/.mcp.json` if you have one). **A backup holds your secrets: store it like a password.**
+What is worth keeping is in four places: `/var/lib/sanctum` (the database, the companion's home, the Claude sign-in), `/opt/sanctum/data` (uploaded files, avatars, the identity and plugin ledgers and the internal token), `/opt/sanctum/.env` (the password and keys) and `/opt/sanctum/sanctum.yaml` (plus `/opt/sanctum/.mcp.json` if you have one). **A backup holds your secrets: store it like a password.**
 
 ```bash
 sudo systemctl stop sanctum      # a still database is a consistent one
-sudo tar -C / -czf ~/sanctum-backup-$(date +%F).tgz var/lib/sanctum opt/sanctum/.env opt/sanctum/sanctum.yaml
+sudo tar -C / -czf ~/sanctum-backup-$(date +%F).tgz var/lib/sanctum opt/sanctum/data opt/sanctum/.env opt/sanctum/sanctum.yaml $(test -e /opt/sanctum/.mcp.json && echo opt/sanctum/.mcp.json)
 sudo systemctl start sanctum
 ```
 
@@ -170,7 +172,8 @@ To restore on a fresh box: run the installer (answer **no** when it offers to ru
 ```bash
 sudo systemctl stop sanctum
 sudo tar -C / -xzf sanctum-backup-DATE.tgz
-sudo chown -R sanctum:sanctum /var/lib/sanctum /opt/sanctum/.env /opt/sanctum/sanctum.yaml
+sudo chown -R sanctum:sanctum /var/lib/sanctum /opt/sanctum/data /opt/sanctum/.env /opt/sanctum/sanctum.yaml
+sudo chown sanctum:sanctum /opt/sanctum/.mcp.json 2>/dev/null || true
 sudo chmod 600 /opt/sanctum/.env
 sudo systemctl start sanctum
 ```
@@ -241,14 +244,15 @@ How the container is laid out:
 - `/companion-home` is a volume: the companion's own folder, seeded from the shipped template the first time it is empty.
 - The app is started as `node packages/backend/boot.mjs`, never `npm start`: the updater is for a checkout. **The image is the update**: pull a newer one and `docker compose up -d`.
 - `HOST=0.0.0.0` inside the container, published on `127.0.0.1:3099` of the host only. Do not publish it wider without TLS in front.
-- `APP_PASSWORD` in the environment (a `.env` next to the compose file) is honoured, if you would rather not run the wizard.
+- `APP_PASSWORD` in the environment (a `.env` next to the compose file) is honoured, if you would rather not run the wizard. Do not leave `HOST=` or `AGENT_CWD=` empty in that file (as `.env.example` has them): an empty value overrides the image's `0.0.0.0` and `/companion-home`, and the published port goes dead.
+- On the first start the entrypoint writes `agent.cwd: /companion-home` into `sanctum.yaml` on the volume, so the wizard offers the home volume as the companion's folder (answer yes; the starter template is seeded there).
 
 **Reaching it.** On the host, run `tailscale serve --bg 3099` as in the README, or start the sidecar: `TS_AUTHKEY=… docker compose --profile tailscale up -d` (without a key, the sidecar's log prints a sign-in address). Either way, add the https address to `cors.origins` (the wizard's "Phone address" question, or Settings).
 
 **Signing in to Claude in a container:**
 
 ```bash
-docker compose run --rm -it sanctum sh -c 'exec "$(find /app/node_modules/@anthropic-ai -maxdepth 2 -type f -name claude | head -n 1)" auth login --claudeai'
+docker compose run --rm -it sanctum sh -c 'for c in /app/node_modules/@anthropic-ai/*/claude; do if "$c" --version >/dev/null 2>&1; then exec "$c" auth login --claudeai; fi; done'
 ```
 
 It prints the same address and `Paste code here if prompted >` prompt as above, and keeps the sign-in on the `/data` volume. Or paste an API key into the wizard.
