@@ -75,4 +75,10 @@ describe('deploy/sanctum.service', () => {
       expect((r.stderr + r.stdout).replace(/^.*(?:User sanctum|Group sanctum).*$/gm, '').trim()).toBe('');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
+  it('docs/HOSTING.md quotes the unit as it is, and is linked from the README and UPGRADE.md', () => {
+    const doc = fs.readFileSync(path.join(HERE, '..', '..', 'docs', 'HOSTING.md'), 'utf-8');
+    const body = unit.split('\n').filter((l) => !l.startsWith('#')).join('\n').trim();
+    expect(doc).toContain(body);
+    for (const f of ['README.md', 'UPGRADE.md']) expect(fs.readFileSync(path.join(HERE, '..', '..', f), 'utf-8')).toContain('docs/HOSTING.md');
+  });
 });
