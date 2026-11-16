@@ -582,7 +582,7 @@ export function rollingEnabledForActiveProvider(): boolean {
 }
 
 /** metadata.kind values that mark a system line as the app's own words (services/system-line.ts), on any platform. */
-const APP_LINE_KINDS = ['withheld', 'discord_notice', 'identity_pending'] as const;
+const APP_LINE_KINDS = ['withheld', 'discord_notice', 'identity_pending', 'brain_notice'] as const;
 
 /** Which stored messages are conversation. People's and the companion's turns are. Fold/merge notes are role
  *  'system' and stay out of the model's history. Discord stores messages from people other than the owner as

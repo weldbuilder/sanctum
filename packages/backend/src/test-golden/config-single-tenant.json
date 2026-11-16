@@ -76,6 +76,17 @@
         "api_key_env": "SUMMARIZER_API_KEY",
         "max_output_tokens": 2000,
         "headers": {}
+      },
+      "fallback": {
+        "provider": "",
+        "mode": "off",
+        "model": "",
+        "base_url": "",
+        "api_key_env": "FALLBACK_API_KEY",
+        "max_tool_turns": 8,
+        "unhealthy_minutes": 10,
+        "max_output_tokens": 4096,
+        "headers": {}
       }
     },
     "orchestrator": {
@@ -254,6 +265,17 @@
         "base_url": "",
         "api_key_env": "SUMMARIZER_API_KEY",
         "max_output_tokens": 2000,
+        "headers": {}
+      },
+      "fallback": {
+        "provider": "",
+        "mode": "off",
+        "model": "",
+        "base_url": "",
+        "api_key_env": "FALLBACK_API_KEY",
+        "max_tool_turns": 8,
+        "unhealthy_minutes": 10,
+        "max_output_tokens": 4096,
         "headers": {}
       }
     },

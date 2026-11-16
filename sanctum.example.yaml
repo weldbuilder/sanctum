@@ -156,6 +156,22 @@ agent:
     max_output_tokens: 2000     # openai-compat only
     # headers: { HTTP-Referer: "https://example.com", X-Title: "Sanctum" }   # openai-compat only, optional (OpenRouter)
 
+  # ── Fallback brain: who takes the turn when the main one cannot ──────────────
+  # A plain chat-completions model (OpenAI-compatible: OpenRouter, DeepSeek, a local server) that answers when the main
+  # harness is signed out, out of credit, rate limited, offline, missing or hung. Use a capable mid-tier model: DeepSeek
+  # V3-class via OpenRouter is the reference. It needs function calling to act; without it the fallback can talk but
+  # cannot set timers, log meals or react, and autonomous turns on it are skipped. It cannot see images.
+  fallback:
+    provider: ""                # "" = no fallback brain; or "openai-compat"
+    mode: "off"                 # off = main brain only | auto = fallback when it fails or is marked unhealthy | always = fallback first
+    model: ""                   # e.g. a DeepSeek V3-class id; check openrouter.ai/models
+    base_url: ""                # e.g. https://openrouter.ai/api/v1
+    api_key_env: "FALLBACK_API_KEY"   # the NAME of the .env variable that holds the key
+    max_tool_turns: 8           # most model round trips (each may call tools) in one turn
+    unhealthy_minutes: 10       # auto: how long signed-out / out-of-credit / rate-limited keeps the main brain out
+    # max_output_tokens: 4096   # optional
+    # headers: { HTTP-Referer: "https://example.com", X-Title: "Sanctum" }   # optional (OpenRouter)
+
 # ── Revien memory (optional local daemon) ─────────────────────────────────────
 # Recalls relevant memories into each Codex turn and saves each finished turn.
 # If the daemon is not running this quietly does nothing.

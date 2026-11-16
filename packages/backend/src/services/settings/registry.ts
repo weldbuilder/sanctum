@@ -113,6 +113,16 @@ export const REGISTRY: readonly KeyDef[] = [
   d({ key: 'agent.summarizer.api_key_env', type: 'string', default: 'SUMMARIZER_API_KEY', yaml: 'agent.summarizer.api_key_env', note: 'The NAME of an env var, never a key.' }),
   d({ key: 'agent.summarizer.max_output_tokens', type: 'number', default: 2000, yaml: 'agent.summarizer.max_output_tokens', note: 'openai-compat only: sent as max_tokens.' }),
   d({ key: 'summarizer.api_key', type: 'string', default: '', env: 'SUMMARIZER_API_KEY', secret: true, note: 'Reported as {set, source} only. The env var that is read is the one agent.summarizer.api_key_env names (this marker follows the default name).' }),
+  // --- the fallback brain (docs/CONFIGURATION.md "Fallback brain")
+  d({ key: 'agent.fallback.provider', type: 'enum', values: ['', 'openai-compat'], default: '', yaml: 'agent.fallback.provider', note: '"" = no fallback brain.' }),
+  d({ key: 'agent.fallback.mode', type: 'enum', values: ['off', 'auto', 'always'], default: 'off', yaml: 'agent.fallback.mode', note: 'off: primary only. auto: the fallback takes over when the primary fails or is marked unhealthy. always: fallback first, primary as the safety net.' }),
+  d({ key: 'agent.fallback.model', type: 'string', default: '', yaml: 'agent.fallback.model', note: 'A capable mid-tier model; DeepSeek V3-class via OpenRouter is the reference. It needs function calling to act.' }),
+  d({ key: 'agent.fallback.base_url', type: 'string', default: '', yaml: 'agent.fallback.base_url', note: 'e.g. https://openrouter.ai/api/v1.' }),
+  d({ key: 'agent.fallback.api_key_env', type: 'string', default: 'FALLBACK_API_KEY', yaml: 'agent.fallback.api_key_env', note: 'The NAME of an env var, never a key.' }),
+  d({ key: 'agent.fallback.max_tool_turns', type: 'number', default: 8, yaml: 'agent.fallback.max_tool_turns', note: 'Most model round trips in one turn; each may call tools.' }),
+  d({ key: 'agent.fallback.unhealthy_minutes', type: 'number', default: 10, yaml: 'agent.fallback.unhealthy_minutes', note: 'How long an AUTH, CREDIT or RATE_LIMIT failure keeps the primary out of the order (auto mode).' }),
+  d({ key: 'agent.fallback.max_output_tokens', type: 'number', default: 4096, yaml: 'agent.fallback.max_output_tokens', note: 'Sent as max_tokens.' }),
+  d({ key: 'fallback.api_key', type: 'string', default: '', env: 'FALLBACK_API_KEY', secret: true, note: 'Reported as {set, source} only. The env var that is read is the one agent.fallback.api_key_env names (this marker follows the default name).' }),
 
   // --- write-gate roots (paths are resolved at load, so the yaml layer reads the merged config)
   d({ key: 'hooks.workspace_root', type: 'string', default: '', yaml: 'hooks.workspace_root', env: 'WORKSPACE_ROOT', merged: true }),

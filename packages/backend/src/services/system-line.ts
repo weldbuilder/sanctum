@@ -16,7 +16,7 @@ const registryLocal = tenantLocal<LineBroadcaster | null>(() => null);
 export function setSystemLineRegistry(r: LineBroadcaster | null): void { registryLocal.set(r); }
 
 /** The kinds the app posts as system lines (metadata.kind). */
-export const SYSTEM_LINE_KINDS = ['withheld', 'discord_notice', 'identity_pending'] as const;
+export const SYSTEM_LINE_KINDS = ['withheld', 'discord_notice', 'identity_pending', 'brain_notice'] as const;
 export type SystemLineKind = typeof SYSTEM_LINE_KINDS[number];
 
 /** Save a role-'system' message in `threadId` and push it to the open apps. Never throws; returns whether it was posted. */
