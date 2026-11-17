@@ -1,0 +1,52 @@
+# Sanctum in Docker: docs/HOSTING.md ("The Docker route"). Lines marked CHANGE are the ones a person edits.
+#
+#   docker compose up -d                          the app, on http://127.0.0.1:3099 on this machine only
+#   docker compose --profile tailscale up -d      the same, plus a Tailscale sidecar that serves it over HTTPS on your tailnet
+#
+# First run only, once the volumes exist: docker compose run --rm -it sanctum npm run setup   (the wizard needs the -it terminal)
+services:
+  sanctum:
+    # CHANGE (optional): a version to pin, for example SANCTUM_TAG=v1.4.0 in the .env next to this file. Without it: the newest image.
+    image: ghcr.io/${SANCTUM_IMAGE_OWNER:-weldbuilder}/sanctum:${SANCTUM_TAG:-latest}
+    build: .
+    init: true
+    restart: unless-stopped
+    # Settings that are not secrets-in-the-wizard (APP_PASSWORD, ANTHROPIC_API_KEY, TS_AUTHKEY, ...) can go in a .env next to this file. It is optional.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # CHANGE: your time zone (an IANA name such as Europe/London).
+      TZ: ${TZ:-UTC}
+    ports:
+      # Loopback only. CHANGE to "3099:3099" only if you put your own TLS in front on another machine; never expose it as it is.
+      - "127.0.0.1:3099:3099"
+    volumes:
+      - sanctum-data:/data
+      - sanctum-home:/companion-home
+
+  # Optional: private HTTPS on your tailnet. Start it with --profile tailscale.
+  tailscale:
+    profiles: ["tailscale"]
+    image: tailscale/tailscale:stable
+    # Shares the app's network, so "127.0.0.1:3099" in deploy/tailscale-serve.json is the app.
+    network_mode: service:sanctum
+    depends_on:
+      - sanctum
+    restart: unless-stopped
+    environment:
+      # CHANGE: an auth key from https://login.tailscale.com/admin/settings/keys (a reusable one is fine). Leave it empty to sign in with the link the container logs print.
+      TS_AUTHKEY: ${TS_AUTHKEY:-}
+      # CHANGE (optional): the machine name; the address becomes https://<name>.<your-tailnet>.ts.net
+      TS_HOSTNAME: ${TS_HOSTNAME:-sanctum}
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SERVE_CONFIG: /config/serve.json
+      TS_USERSPACE: "true"
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+      - ./deploy/tailscale-serve.json:/config/serve.json:ro
+
+volumes:
+  sanctum-data:
+  sanctum-home:
+  tailscale-state:

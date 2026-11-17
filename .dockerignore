@@ -1,0 +1,43 @@
+# What the image build does not need or must never carry: secrets, state, other machines' installs.
+.git
+.github
+node_modules
+**/node_modules
+dist
+**/dist
+build
+**/build
+.update-*
+*.tsbuildinfo
+*.js.map
+
+# Secrets and local state: the image is the same for everyone, the volumes hold the rest.
+.env
+.env.*
+!.env.example
+sanctum.yaml
+sanctum.yaml.*
+.mcp.json
+CLAUDE.md
+data
+logs
+*.db
+*.db-*
+.google-key
+.internal-token
+tmp
+.test-tmp
+screenshots
+
+# The companion's own writing is never baked in; the shipped template (identity, config, AGENTS.md, README and .keep files) is.
+companion-home/journal/*
+!companion-home/journal/.keep
+companion-home/archive/*
+!companion-home/archive/README.md
+
+# Not for a container.
+install.sh
+deploy
+docker-compose.yml
+Dockerfile
+.dockerignore

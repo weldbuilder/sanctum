@@ -1,0 +1,26 @@
+# Sanctum under systemd. install.sh copies this to /etc/systemd/system/sanctum.service (paths set to the install folder you chose).
+# `npm start` runs the updater's recovery first, then the app. Exit 75 is "I updated myself, start me again": restart on it.
+[Unit]
+Description=Sanctum, your companion's home
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sanctum
+Group=sanctum
+WorkingDirectory=/opt/sanctum
+EnvironmentFile=/opt/sanctum/.env
+Environment=HOME=/var/lib/sanctum
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=3
+RestartForceExitStatus=75
+SuccessExitStatus=75
+TimeoutStopSec=30
+ReadWritePaths=/opt/sanctum /var/lib/sanctum
+ProtectSystem=full
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

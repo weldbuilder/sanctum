@@ -1267,7 +1267,7 @@ FAIL, each with a sentence saying why. It checks that the config parses, that th
 secret files (`.env`, `data/.internal-token`) are not readable by anyone but you, that the build stamp is there, that your node version is in range
 and that the database folder is writable; for tenants it adds the clash and inheritance checks in `MULTI-TENANT.md`. It never prints a key, a token or
 a password. It exits 1 when any line is a FAIL, so it can gate a restart; `npm run doctor -- --json` prints the same as JSON and
-`npm run doctor -- --tenant <id>` reports one tenant. A WARN means the app runs but something is not as recommended; a FAIL means boot would skip or refuse it, or a secret is exposed. Exit code 2 means a command line it could not read.
+`npm run doctor -- --tenant <id>` reports one tenant. `npm run doctor -- --headless` adds a Service section for a cloud box (the systemd unit, the port, what puts HTTPS in front, the origin your phone uses, disk, the home folder, who owns `.env`; see [HOSTING.md](HOSTING.md)). A WARN means the app runs but something is not as recommended; a FAIL means boot would skip or refuse it, or a secret is exposed. Exit code 2 means a command line it could not read.
 
 ---
 

@@ -1,10 +1,11 @@
 // doctor.mjs: the health checks the soak runbook (docs/MULTI-TENANT.md, "A chaos and soak run, locally") does by hand, in one command.
 //
-//   npm run doctor [-- --tenant <id>] [--json] [--root <dir>]
+//   npm run doctor [-- --tenant <id>] [--json] [--root <dir>] [--headless]
 //
 // Three sections, each line OK / WARN / FAIL with one sentence: Config (sanctum.yaml, the paths it names, the Claude frame), Tenants (the boot scan,
 // the clashes across tenants, the never-inherited table against the live merged config, file modes on secrets, each home), Process (node, the build
-// stamp, the database path). Exit code 0 when no FAIL, 1 otherwise, 2 for a bad command line; `--json` prints the same report as JSON.
+// stamp, the database path); with `--headless` a fourth, Service (the systemd unit, the port, what fronts it, the origin the phone uses, disk, the home, the
+// owner of .env: a box with no screen, see docs/HOSTING.md). Exit code 0 when no FAIL, 1 otherwise, 2 for a bad command line; `--json` prints the same report as JSON.
 // WARN: the app runs, but something is not as recommended. FAIL: boot would skip or refuse it, or a secret is exposed.
 //
 // It reads, never writes, and never prints a secret: names, paths, modes and lengths only. It reuses the libraries the wizard and the backend share
@@ -12,7 +13,8 @@
 // TypeScript, so the few shipped default paths are a table here (a test keeps it equal to packages/backend/src/config.ts).
 import dotenv from 'dotenv';
 import { createHash } from 'node:crypto';
-import { accessSync, constants, existsSync, lstatSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { accessSync, constants, existsSync, lstatSync, readFileSync, readdirSync, statSync, statfsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -409,6 +411,14 @@ function checkOneTenant(r, { id, dir, root, block, base, household, ctx, checked
 
 // ── section 3: Process ───────────────────────────────────────────────────────
 
+/** The process's database: server.db_path, DB_PATH wins; a legacy resonant.db is used when sanctum.db is absent and the path was not named. */
+function processDbPath(root, ctx) {
+  const named = ctx.env.DB_PATH || dig(ctx.file, 'server.db_path');
+  let dbPath = resolve(root, expandHome(String(named || SHIPPED_PATHS['server.db_path'])));
+  if (!named) { const legacy = dbPath.replace(/sanctum\.db$/, 'resonant.db'); if (legacy !== dbPath && !existsSync(dbPath) && existsSync(legacy)) dbPath = legacy; }
+  return dbPath;
+}
+
 function checkProcess(r, root, ctx, nodeVersion) {
   let engines = '';
   try { engines = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'))?.engines?.node || ''; } catch { /* below */ }
@@ -428,10 +438,7 @@ function checkProcess(r, root, ctx, nodeVersion) {
   else if (stampText) r.ok('build stamp', `${stamp} holds a build id of ${stampText.length} characters.`);
   else if (ctx.env.BUILD_ID) r.ok('build stamp', `${stamp} is ${existsSync(stamp) ? 'empty' : 'missing'}; BUILD_ID in the environment is the build id (${String(ctx.env.BUILD_ID).length} characters).`);
   else r.warn('build stamp', `${stamp} is ${existsSync(stamp) ? 'empty' : 'missing'}: the app serves the UI but reports its build id as "dev", so a stale tab is never told to reload (npm run build writes it).`);
-  // The process's database: server.db_path, DB_PATH wins; a legacy resonant.db is used when sanctum.db is absent and the path was not named.
-  const named = ctx.env.DB_PATH || dig(ctx.file, 'server.db_path');
-  let dbPath = resolve(root, expandHome(String(named || SHIPPED_PATHS['server.db_path'])));
-  if (!named) { const legacy = dbPath.replace(/sanctum\.db$/, 'resonant.db'); if (legacy !== dbPath && !existsSync(dbPath) && existsSync(legacy)) dbPath = legacy; }
+  const dbPath = processDbPath(root, ctx);
   const w = writableOrCreatable(dbPath);
   if (w.ok) r.ok('database', w.exists ? `${dbPath} is writable.` : `${dbPath} does not exist yet and ${w.at} can be written.`);
   else r.fail('database', `${dbPath} cannot be written (${w.at} is not writable).`);
@@ -521,9 +528,154 @@ export function runDoctor(opts = {}) {
   const tenantSection = report.sections.at(-1);
   if (tenantSection.checks.length === 0) tenants.ok('tenants', 'no tenants: block in sanctum.yaml: a single-tenant install.');
   checkProcess(report.section('Process'), root, ctx, opts.nodeVersion ?? process.versions.node);
+  return summarize(root, report.sections);
+}
+
+/** The report object from its sections: the counts and the exit code. */
+function summarize(root, sections) {
   const counts = { OK: 0, INFO: 0, WARN: 0, FAIL: 0 };
-  for (const s of report.sections) for (const c of s.checks) counts[c.status]++;
-  return { ok: counts.FAIL === 0, exitCode: counts.FAIL === 0 ? 0 : 1, counts, root, sections: report.sections };
+  for (const s of sections) for (const c of s.checks) counts[c.status]++;
+  return { ok: counts.FAIL === 0, exitCode: counts.FAIL === 0 ? 0 : 1, counts, root, sections };
+}
+
+// ── section 4 (--headless): Service ──────────────────────────────────────────
+
+/** Where a headless box's HTTPS comes from, and the service around the app. Every probe is injectable: { exec, fetch, fs, uid } (see runHeadless). */
+const loopback = (h) => ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(h) || /^127\./.test(h);
+const GIB = 1024 ** 3;
+
+/** The real probes: a command (never throws; { error } when it cannot run), an HTTP GET with a 3 s limit, the file system, and the user id. */
+export function realProbes() {
+  return {
+    exec: (cmd, args) => {
+      const r = spawnSync(cmd, args, { encoding: 'utf-8', timeout: 5000 });
+      if (r.error) return { error: r.error.code || 'ERROR', status: null, stdout: '', stderr: '' };
+      return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
+    },
+    fetch: async (url) => { const res = await fetch(url, { signal: AbortSignal.timeout(3000) }); return { ok: res.ok, status: res.status }; },
+    fs: {
+      exists: (p) => existsSync(p),
+      readFile: (p) => readFileSync(p, 'utf-8'),
+      stat: (p) => statSync(p),
+      access: (p, mode) => accessSync(p, mode),
+      freeBytes: (p) => { const f = statfsSync(p); return Number(f.bavail) * Number(f.bsize); },
+    },
+    uid: typeof process.getuid === 'function' ? process.getuid() : undefined,
+  };
+}
+
+/** The Service section. Reads only. Returns nothing: it adds lines to `r`. */
+async function checkService(r, root, ctx, probes) {
+  const { exec, fs } = probes;
+  const env = ctx.env;
+  const port = parseInt(String(env.PORT || dig(ctx.file, 'server.port') || 3099), 10) || 3099;
+  const host = String(env.HOST || dig(ctx.file, 'server.host') || '127.0.0.1');
+  const inContainer = fs.exists('/.dockerenv');
+  const origins = Array.isArray(dig(ctx.file, 'cors.origins')) ? dig(ctx.file, 'cors.origins').map(String) : [];
+
+  // 1. The unit.
+  let active = false;
+  const isActive = exec('systemctl', ['is-active', 'sanctum']);
+  if (isActive.error) r.info('service', `systemctl is not here (${inContainer ? 'this looks like a container' : 'no systemd'}): the sanctum.service check is skipped.`);
+  else if (isActive.status === 0 && isActive.stdout.trim() === 'active') { active = true; r.ok('service', 'sanctum.service is active.'); }
+  else {
+    const state = isActive.stdout.trim() || 'not active';
+    const present = exec('systemctl', ['cat', 'sanctum.service']).status === 0;
+    if (present) r.fail('service', `sanctum.service is ${state} (journalctl -u sanctum -n 50 says why).`);
+    else r.warn('service', 'there is no sanctum.service: if the app runs another way (pm2, a terminal, a container) ignore this; install.sh makes the unit (docs/HOSTING.md).');
+  }
+
+  // 2. The port answers.
+  const probeHost = host === '0.0.0.0' || host === '::' || host === '' ? '127.0.0.1' : host;
+  const healthUrl = `http://${probeHost.includes(':') && !probeHost.startsWith('[') ? `[${probeHost}]` : probeHost}:${port}/api/health`;
+  let answered = false;
+  let answer = '';
+  try { const res = await probes.fetch(healthUrl); answered = !!res.ok; answer = `HTTP ${res.status}`; } catch (e) { answer = oneLine(e); }
+  if (answered) r.ok('port', `${healthUrl} answers (${answer}).`);
+  else if (active) r.fail('port', `sanctum.service is active but ${healthUrl} does not answer (${answer}): it may still be starting, or it crashed after boot (journalctl -u sanctum -n 50).`);
+  else r.warn('port', `nothing answers at ${healthUrl} (${answer}): the app is not running.`);
+
+  // 3. What is in front of it.
+  let tsName = '';
+  let tsServes = false;
+  const ts = exec('tailscale', ['status', '--json']);
+  if (!ts.error && ts.status === 0) {
+    try {
+      const j = JSON.parse(ts.stdout);
+      if (j?.BackendState === 'Running') tsName = String(j?.Self?.DNSName || '').replace(/\.$/, '');
+    } catch { /* not json: not reachable */ }
+  }
+  if (tsName) {
+    const serve = exec('tailscale', ['serve', 'status']);
+    tsServes = !serve.error && serve.status === 0 && new RegExp(`(?:127\\.0\\.0\\.1|localhost|\\[::1\\]):${port}\\b`).test(serve.stdout);
+    r.info('tailscale', `this box is ${tsName} on your tailnet; tailscale serve ${tsServes ? `lists port ${port} (https://${tsName})` : `does not list port ${port} (run: tailscale serve --bg ${port})`}.`);
+  } else if (!ts.error) r.info('tailscale', 'tailscale is installed but not signed in (or not running).');
+  let caddySite = '';
+  let caddyServes = false;
+  if (fs.exists('/etc/caddy/Caddyfile')) {
+    let text = '';
+    try { text = fs.readFile('/etc/caddy/Caddyfile'); } catch { /* unreadable: below */ }
+    const proxies = new RegExp(`reverse_proxy[^\\n]*:${port}\\b`).test(text);
+    const site = text.split('\n').map((l) => l.trim()).find((l) => l && !l.startsWith('#') && l.endsWith('{'));
+    caddySite = site ? site.slice(0, -1).trim() : '';
+    caddyServes = proxies;
+    if (!text) r.info('caddy', '/etc/caddy/Caddyfile exists but cannot be read by this user (run doctor with sudo to see it).');
+    else r.info('caddy', proxies ? `/etc/caddy/Caddyfile proxies ${caddySite || 'a site'} to port ${port}.` : `/etc/caddy/Caddyfile does not mention port ${port}.`);
+  }
+  const fronted = tsServes || caddyServes;
+  if (fronted) r.ok('https', `${tsServes ? 'Tailscale serve' : 'Caddy'} puts HTTPS in front of the app, so the session cookie is Secure.`);
+  else if (inContainer) r.info('https', 'running in a container: HTTPS has to come from outside it (the Tailscale sidecar, or your own proxy); this check cannot see that.');
+  else r.warn('https', 'nothing fronts the app; the session cookie will not be Secure (it is only marked Secure on an HTTPS request). Run install.sh again, or tailscale serve --bg ' + port + '.');
+
+  // 4. The bind address.
+  if (fronted && loopback(host)) r.ok('bind', `the app listens on ${host}, so only the proxy reaches it.`);
+  else if (fronted) r.warn('bind', `the app listens on ${host} although a proxy fronts it: bind to 127.0.0.1 (HOST in .env) so the port itself is not reachable around the proxy.`);
+  else r.info('bind', `bound to ${host}; make sure something in front does TLS.`);
+
+  // 5. The origin the phone opens the app from.
+  const wanted = [...(tsServes ? [`https://${tsName}`] : []), ...(caddyServes && caddySite && !/^[:{]/.test(caddySite) ? [`https://${caddySite.replace(/^https?:\/\//, '')}`] : [])];
+  for (const origin of wanted) {
+    if (origins.includes(origin)) r.ok('origin', `cors.origins lists ${origin}.`);
+    else r.warn('origin', `cors.origins does not list ${origin}: the phone is refused (the header says Disconnected). Add it to sanctum.yaml and restart.`);
+  }
+
+  // 6. Disk under the database.
+  let at = dirname(processDbPath(root, ctx));
+  while (!fs.exists(at) && dirname(at) !== at) at = dirname(at);
+  try {
+    const free = fs.freeBytes(at);
+    const gb = (free / GIB).toFixed(1);
+    if (free < GIB) r.warn('disk', `${gb} GB free at ${at}: under 1 GB, the database and the companion's files may stop being written.`);
+    else r.ok('disk', `${gb} GB free at ${at}.`);
+  } catch (e) { r.warn('disk', `free space at ${at} could not be read (${oneLine(e)}).`); }
+
+  // 7. The companion's home, for the user doctor runs as.
+  if (!fs.exists(ctx.cwd)) r.warn('home', `the companion home ${ctx.cwd} does not exist.`);
+  else { try { fs.access(ctx.cwd, constants.W_OK); r.ok('home', `the companion home ${ctx.cwd} is writable by this user.`); } catch { r.fail('home', `the companion home ${ctx.cwd} is not writable by this user (the service user must own it).`); } }
+
+  // 8. Who owns .env (its mode is the Process section's).
+  const envPath = join(root, '.env');
+  if (fs.exists(envPath) && probes.uid !== undefined) {
+    try {
+      const st = fs.stat(envPath);
+      if (st.uid === probes.uid) r.ok('.env owner', `${envPath} is owned by the user running this (uid ${probes.uid}).`);
+      else r.warn('.env owner', `${envPath} is owned by uid ${st.uid}, but this runs as uid ${probes.uid}: run doctor as the service user (sudo -u sanctum -H npm run doctor -- --headless), or the service cannot read its own secrets.`);
+    } catch (e) { r.warn('.env owner', `${envPath} cannot be checked (${oneLine(e)}).`); }
+  }
+}
+
+/** `runDoctor` plus the Service section. `opts.probes` replaces any of { exec, fetch, fs, uid } (the tests do; nothing else touches the system). */
+export async function runHeadless(opts = {}) {
+  const base = runDoctor(opts);
+  const root = base.root;
+  const ctx = checkConfig(newReport().section('-'), root, opts.env ?? process.env);
+  const real = realProbes();
+  const given = opts.probes ?? {};
+  const probes = { ...real, ...given, fs: { ...real.fs, ...(given.fs ?? {}) } };
+  const report = newReport();
+  report.sections.push(...base.sections);
+  await checkService(report.section('Service'), root, ctx, probes);
+  return summarize(root, report.sections);
 }
 
 /** The report as the text the command prints. */
@@ -538,9 +690,9 @@ export function formatReport(report) {
   return lines.join('\n');
 }
 
-const USAGE = 'Usage: npm run doctor [-- --tenant <id>] [--json]';
+const USAGE = 'Usage: npm run doctor [-- --tenant <id>] [--json] [--headless]';
 
-/** The command line: { tenant, json, root } or { error }. (`--root <folder>` checks another install; the tests use it.) */
+/** The command line: { tenant, json, root, headless } or { error }. (`--root <folder>` checks another install; the tests use it.) */
 export function parseArgs(args) {
   const out = { json: false };
   for (let i = 0; i < args.length; i++) {
@@ -549,6 +701,7 @@ export function parseArgs(args) {
     else if (a === '--tenant' && args[i + 1] !== undefined) out.tenant = args[++i];
     else if (a.startsWith('--tenant=')) out.tenant = a.slice('--tenant='.length);
     else if (a === '--root' && args[i + 1] !== undefined) out.root = args[++i];
+    else if (a === '--headless') out.headless = true;
     else return { error: `Unknown option ${a}. ${USAGE}` };
   }
   if (out.tenant !== undefined && !TENANT_ID_RE.test(out.tenant)) return { error: `--tenant ${JSON.stringify(out.tenant)} is not a tenant id (a-z, 0-9, - up to 32 characters). ${USAGE}` };
@@ -558,7 +711,7 @@ export function parseArgs(args) {
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const args = parseArgs(process.argv.slice(2));
   if (args.error) { console.error(args.error); process.exit(2); }
-  const report = runDoctor({ root: args.root, tenant: args.tenant });
+  const report = await (args.headless ? runHeadless : async (o) => runDoctor(o))({ root: args.root, tenant: args.tenant });
   console.log(args.json ? JSON.stringify(report, null, 2) : formatReport(report));
   process.exitCode = report.exitCode;
 }
